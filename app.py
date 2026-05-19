@@ -31,7 +31,11 @@ client = OpenAI(
     api_key=OPENROUTER_API_KEY,
 )
 
-MODEL = "google/gemma-4-31b-it:free"
+MODELS = [
+    "google/gemma-4-31b-it:free",         # Gemma 4 大杯
+    "google/gemma-4-26b-a4b-it:free",     # Gemma 4 中杯
+    "nvidia/nemotron-nano-12b-v2-vl:free", # NVIDIA 视觉兜底
+]
 
 # ==========================================
 # 2. 数据库配置 (Database)
@@ -69,7 +73,7 @@ def get_db_connection():
 def health():
     return jsonify({
         "version": "v3-openrouter",
-        "model": MODEL,
+        "models": MODELS,
     })
 
 def parse_ai_result(result_text):
@@ -143,20 +147,35 @@ def analyze_food():
 如果图片里没有食物，请返回：
 错误: 未检测到食物"""
 
-        print("Calling OpenRouter Gemma 4 31B...")
-        response = client.chat.completions.create(
-            model=MODEL,
-            messages=[{
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt},
-                    {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{img_b64}"}}
-                ]
-            }],
-            max_tokens=300,
-        )
-
-        result_text = response.choices[0].message.content
+        print("Calling OpenRouter...")
+        result_text = None
+        last_error = None
+        
+        for model_name in MODELS:
+            try:
+                print(f"Trying OpenRouter model: {model_name}")
+                response = client.chat.completions.create(
+                    model=model_name,
+                    messages=[{
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt},
+                            {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{img_b64}"}}
+                        ]
+                    }],
+                    max_tokens=300,
+                )
+                result_text = response.choices[0].message.content
+                print(f"Success with OpenRouter: {model_name}")
+                break
+            except Exception as api_err:
+                last_error = api_err
+                print(f"OpenRouter {model_name} failed: {api_err}")
+                continue
+        
+        if result_text is None:
+            raise last_error
+        
         print(f"OpenRouter response: {result_text[:100]}...")
 
         data = parse_ai_result(result_text)
