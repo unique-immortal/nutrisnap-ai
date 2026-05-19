@@ -64,6 +64,21 @@ def get_db_connection():
 # 3. 页面路由 (Serve Frontend)
 # ==========================================
 
+@app.route('/api/health')
+def health():
+    """版本检查：验证 Cloud Run 部署的是最新代码"""
+    return jsonify({
+        "version": "v2",
+        "models": [
+            'gemini-2.5-flash',
+            'gemini-3-flash',
+            'gemma-4-31b-it',
+            'gemini-3.1-flash-lite',
+            'gemini-2.5-flash-lite',
+            'gemma-4-26b-a4b-it',
+        ]
+    })
+
 def parse_ai_result(result_text):
     """解析 AI 返回的文本，提取营养成分数据"""
     if "错误" in result_text or "未检测到食物" in result_text:
