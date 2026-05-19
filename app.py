@@ -1,6 +1,8 @@
 import os
 import sqlite3
 import datetime
+import re
+import time
 from dotenv import load_dotenv
 from flask import Flask, request, jsonify, render_template, send_from_directory
 from flask_cors import CORS
@@ -61,6 +63,41 @@ def get_db_connection():
 # ==========================================
 # 3. 页面路由 (Serve Frontend)
 # ==========================================
+
+def parse_ai_result(result_text):
+    """解析 AI 返回的文本，提取营养成分数据"""
+    if "错误" in result_text or "未检测到食物" in result_text:
+        return None
+    
+    data = {}
+    for line in result_text.strip().split('\n'):
+        if ':' in line:
+            key, val = line.split(':', 1)
+        elif '：' in line:
+            key, val = line.split('：', 1)
+        else:
+            continue
+            
+        key = key.strip()
+        num_match = re.search(r'\d+', val)
+        num_val = int(num_match.group()) if num_match else 0
+        
+        if "食物名称" in key:
+            data['food_name'] = val.strip()
+        elif "热量" in key:
+            data['calories'] = num_val
+        elif "蛋白" in key:
+            data['protein'] = num_val
+        elif "碳水" in key:
+            data['carbs'] = num_val
+        elif "脂肪" in key:
+            data['fat'] = num_val
+
+    if 'food_name' not in data:
+        data['food_name'] = "未知食物"
+    return data
+
+
 @app.route('/')
 def index():
     """当用户在浏览器访问根目录 '/' 时，把前端网页发给他们"""
@@ -89,12 +126,10 @@ def analyze_food():
     filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
     file.save(filepath)
 
-    # 2. 调用 Google Gemini 识别图片
+    # 2. 调用 Gemini 识别图片（配额耗尽时自动降级到更弱的模型）
     try:
-        # 打开刚才保存的图片
         img = PIL.Image.open(filepath)
         
-        # 我们给AI的提示词 (Prompt)，让它严格按照我们的要求返回
         prompt = """
         请分析这张图片中的食物。
         严格以如下格式返回，不要包含其他废话，只需要这4行：
@@ -108,14 +143,19 @@ def analyze_food():
         错误: 未检测到食物
         """
         
-        # 让AI看图并回答 (带重试和模型降级机制)
-        import time
-        models_to_try = ['gemini-2.0-flash', 'gemini-2.5-flash', 'gemini-2.0-flash-lite']
+        models_to_try = [
+            'gemini-2.5-flash',       # 最强
+            'gemini-3-flash',
+            'gemma-4-31b-it',
+            'gemini-3.1-flash-lite',
+            'gemini-2.5-flash-lite',
+            'gemma-4-26b-a4b-it',     # 最弱兜底
+        ]
         result_text = None
         last_error = None
         
         for model_name in models_to_try:
-            for attempt in range(2):  # 每个模型尝试2次
+            for attempt in range(2):
                 try:
                     print(f"Trying model: {model_name}, attempt {attempt+1}")
                     response = client.models.generate_content(
@@ -128,7 +168,6 @@ def analyze_food():
                 except Exception as api_err:
                     last_error = api_err
                     err_str = str(api_err)
-                    # 429 配额耗尽 → 不再重试当前模型，直接跳过
                     if '429' in err_str or 'RESOURCE_EXHAUSTED' in err_str or 'quota' in err_str.lower():
                         print(f"Model {model_name} quota exhausted, skipping...")
                         break
@@ -140,40 +179,9 @@ def analyze_food():
         if result_text is None:
             raise last_error
         
-        if "错误" in result_text or "未检测到食物" in result_text:
+        data = parse_ai_result(result_text)
+        if data is None:
             return jsonify({"error": "AI未检测到食物，请重新拍摄"}), 400
-
-        # 解析AI返回的文本 (简单处理)
-        # 假设返回格式为: 食物名称: 苹果\n热量: 52\n...
-        data = {}
-        for line in result_text.strip().split('\n'):
-            if ':' in line:
-                key, val = line.split(':', 1)
-            elif '：' in line:
-                key, val = line.split('：', 1)
-            else:
-                continue
-                
-            key = key.strip()
-            # 提取数字部分
-            import re
-            num_match = re.search(r'\d+', val)
-            num_val = int(num_match.group()) if num_match else 0
-            
-            if "食物名称" in key:
-                data['food_name'] = val.strip()
-            elif "热量" in key:
-                data['calories'] = num_val
-            elif "蛋白" in key:
-                data['protein'] = num_val
-            elif "碳水" in key:
-                data['carbs'] = num_val
-            elif "脂肪" in key:
-                data['fat'] = num_val
-
-        # 确保名字被填上
-        if 'food_name' not in data:
-            data['food_name'] = "未知食物"
 
         # 3. 将分析结果保存到数据库
         conn = get_db_connection()
@@ -185,15 +193,15 @@ def analyze_food():
         conn.commit()
         conn.close()
 
-        # 4. 把最终结果打包成 JSON 发回给前端
+        # 4. 返回结果
         return jsonify({
             "success": True,
             "data": data,
-            "image_url": f"/{filepath}" # 简单处理，实际应专门写个静态文件路由
+            "image_url": f"/{filepath}"
         })
 
     except Exception as e:
-        print(f"Error calling Gemini API: {e}")
+        print(f"Error calling AI API: {e}")
         return jsonify({"error": f"AI识别失败，详细错误: {str(e)}"}), 500
 
 
