@@ -1,11 +1,15 @@
 import os
 import sqlite3
 import datetime
+from dotenv import load_dotenv
 from flask import Flask, request, jsonify, render_template, send_from_directory
 from flask_cors import CORS
 from google import genai
 from werkzeug.utils import secure_filename
 import PIL.Image
+
+# 加载 .env 文件（仅本地开发使用，Cloud Run 通过环境变量注入）
+load_dotenv()
 
 app = Flask(__name__)
 CORS(app)  # 允许跨域请求 (让手机App能调用这个后端)
@@ -18,9 +22,9 @@ UPLOAD_FOLDER = 'uploads'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
-# API Key 读取优先级：环境变量 > 代码里写死的值
-# 部署到 Cloud Run 时，通过环境变量设置，更安全！
-GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', 'REDACTED_API_KEY')
+GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
+if not GEMINI_API_KEY:
+    raise ValueError("GEMINI_API_KEY 环境变量未设置！请在 Cloud Run 或本地 .env 中配置后重启应用。")
 # 初始化 Gemini 客户端
 client = genai.Client(api_key=GEMINI_API_KEY)
 
