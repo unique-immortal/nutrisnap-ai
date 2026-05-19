@@ -2,7 +2,6 @@ import os
 import sqlite3
 import datetime
 import re
-import time
 from dotenv import load_dotenv
 from flask import Flask, request, jsonify, render_template, send_from_directory
 from flask_cors import CORS
@@ -159,37 +158,34 @@ def analyze_food():
         """
         
         models_to_try = [
-            'gemini-2.5-flash',       # 最强
-            'gemini-3-flash',
-            'gemma-4-31b-it',
-            'gemini-3.1-flash-lite',
-            'gemini-2.5-flash-lite',
-            'gemma-4-26b-a4b-it',     # 最弱兜底
+            'gemini-2.5-flash',       # 最快最强
+            'gemini-3-flash',         # 最新 Flash
+            'gemini-3.1-flash-lite',  # 轻量闪
+            'gemini-2.5-flash-lite',  # 轻量闪
+            'gemma-4-31b-it',         # 混合（稍慢）
+            'gemma-4-26b-a4b-it',     # 兜底
         ]
         result_text = None
         last_error = None
         
         for model_name in models_to_try:
-            for attempt in range(2):
-                try:
-                    print(f"Trying model: {model_name}, attempt {attempt+1}")
-                    response = client.models.generate_content(
-                        model=model_name,
-                        contents=[prompt, img]
-                    )
-                    result_text = response.text
-                    print(f"Success with model: {model_name}")
-                    break
-                except Exception as api_err:
-                    last_error = api_err
-                    err_str = str(api_err)
-                    if '429' in err_str or 'RESOURCE_EXHAUSTED' in err_str or 'quota' in err_str.lower():
-                        print(f"Model {model_name} quota exhausted, skipping...")
-                        break
-                    print(f"Model {model_name} attempt {attempt+1} failed: {api_err}")
-                    time.sleep(1)
-            if result_text:
+            try:
+                print(f"Trying model: {model_name}")
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=[prompt, img]
+                )
+                result_text = response.text
+                print(f"Success with model: {model_name}")
                 break
+            except Exception as api_err:
+                last_error = api_err
+                err_str = str(api_err)
+                if '429' in err_str or 'RESOURCE_EXHAUSTED' in err_str or 'quota' in err_str.lower():
+                    print(f"Model {model_name} quota exhausted, skipping...")
+                    continue
+                print(f"Model {model_name} failed: {api_err}")
+                continue
         
         if result_text is None:
             raise last_error
