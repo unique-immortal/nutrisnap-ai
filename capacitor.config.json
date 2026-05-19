@@ -1,0 +1,6 @@
+{
+  "appId": "com.nutrisnap.ai",
+  "appName": "NutriSnap AI",
+  "webDir": "www",
+  "bundledWebRuntime": false
+}
