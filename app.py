@@ -127,6 +127,11 @@ def analyze_food():
                     break
                 except Exception as api_err:
                     last_error = api_err
+                    err_str = str(api_err)
+                    # 429 配额耗尽 → 不再重试当前模型，直接跳过
+                    if '429' in err_str or 'RESOURCE_EXHAUSTED' in err_str or 'quota' in err_str.lower():
+                        print(f"Model {model_name} quota exhausted, skipping...")
+                        break
                     print(f"Model {model_name} attempt {attempt+1} failed: {api_err}")
                     time.sleep(1)
             if result_text:
