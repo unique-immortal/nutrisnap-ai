@@ -1,0 +1,43 @@
+name: Deploy to Cloud Run
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    name: Deploy Job
+    runs-on: ubuntu-latest
+
+    # Add permissions required for Workload Identity Federation
+    permissions:
+      contents: 'read'
+      id-token: 'write'
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Authenticate with Google Cloud
+      id: auth
+      uses: google-github-actions/auth@v2
+      with:
+        workload_identity_provider: 'projects/940406235442/locations/global/workloadIdentityPools/github-pool/providers/github-provider'
+        service_account: 'github-actions-deployer@tensile-imprint-496808-v5.iam.gserviceaccount.com'
+
+    - name: Set up gcloud CLI
+      uses: google-github-actions/setup-gcloud@v2
+      with:
+        project_id: 'tensile-imprint-496808-v5'
+
+    - name: Build and Push with Cloud Build
+      run: |
+        gcloud builds submit --config cloudbuild.yaml . --region us-central1
+
+    - name: Deploy to Cloud Run
+      run: |
+        gcloud run deploy nutrisnap-ai \
+          --image gcr.io/tensile-imprint-496808-v5/nutrisnap-ai:v4 \
+          --region us-central1 \
+          --allow-unauthenticated
