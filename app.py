@@ -176,6 +176,7 @@ def analyze_food():
 严格只输出 JSON，不要加任何解释或 markdown 标记。"""
 
         models_to_try = [
+            'gemini-3.5-flash',
             'gemini-2.5-flash',
             'gemini-2.5-flash-lite',
             'gemini-2.0-flash',
@@ -263,6 +264,7 @@ def voice_input():
 
     try:
         models_to_try = [
+            'gemini-3.5-flash',
             'gemini-2.5-flash',
             'gemini-2.5-flash-lite',
             'gemini-2.0-flash',
@@ -348,6 +350,7 @@ def speech_to_text():
         from google.genai import types
 
         models_to_try = [
+            'gemini-3.5-flash',
             'gemini-2.5-flash',
             'gemini-2.5-flash-lite',
             'gemini-2.0-flash',
@@ -564,6 +567,7 @@ def coach_chat():
         })
 
     models_to_try = [
+        'gemini-3.5-flash',
         'gemini-2.5-flash',
         'gemini-2.5-flash-lite',
         'gemini-2.0-flash',
