@@ -723,8 +723,15 @@ function resetScan() {
 let mediaRecorder = null;
 let audioChunks = [];
 let voiceStream = null;
+let voiceIntervalId = null;
 
 function startVoiceInput() {
+  // Clear any existing interval
+  if (voiceIntervalId) {
+    clearInterval(voiceIntervalId);
+    voiceIntervalId = null;
+  }
+
   const m = document.getElementById('voiceModal');
   m.style.display = 'flex';
   m.classList.remove('hidden');
@@ -758,6 +765,12 @@ function startVoiceInput() {
       };
 
       mediaRecorder.onstop = async () => {
+        // Clear interval
+        if (voiceIntervalId) {
+          clearInterval(voiceIntervalId);
+          voiceIntervalId = null;
+        }
+
         // Stop all tracks on the stream to turn off the microphone icon
         if (voiceStream) {
           voiceStream.getTracks().forEach(track => track.stop());
@@ -777,9 +790,10 @@ function startVoiceInput() {
       
       // Update text in UI to indicate we are recording
       let seconds = 0;
-      const intervalId = setInterval(() => {
+      voiceIntervalId = setInterval(() => {
         if (!mediaRecorder || mediaRecorder.state === 'inactive') {
-          clearInterval(intervalId);
+          clearInterval(voiceIntervalId);
+          voiceIntervalId = null;
           return;
         }
         seconds++;
@@ -797,6 +811,10 @@ function startVoiceInput() {
 }
 
 function stopVoiceInput() {
+  if (voiceIntervalId) {
+    clearInterval(voiceIntervalId);
+    voiceIntervalId = null;
+  }
   if (mediaRecorder && mediaRecorder.state !== 'inactive') {
     mediaRecorder.stop();
   }
@@ -860,6 +878,21 @@ async function sendVoiceText(text) {
 }
 
 function closeVoiceModal() {
+  // Clear any voice timers and media recorder instances
+  if (voiceIntervalId) {
+    clearInterval(voiceIntervalId);
+    voiceIntervalId = null;
+  }
+  if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+    mediaRecorder.onstop = null; // Prevent sending unfinished audio on manual cancel
+    mediaRecorder.stop();
+  }
+  if (voiceStream) {
+    voiceStream.getTracks().forEach(track => track.stop());
+    voiceStream = null;
+  }
+  mediaRecorder = null;
+
   const m = document.getElementById('voiceModal');
   m.style.display = 'none';
   m.classList.add('hidden');
