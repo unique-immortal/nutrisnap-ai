@@ -13,6 +13,11 @@ permission_str = '<uses-permission android:name="android.permission.RECORD_AUDIO
 if permission_str not in content:
     content = content.replace("</manifest>", f"    {permission_str}\n</manifest>")
 
+# Add MODIFY_AUDIO_SETTINGS permission
+modify_audio_str = '<uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />'
+if modify_audio_str not in content:
+    content = content.replace("</manifest>", f"    {modify_audio_str}\n</manifest>")
+
 # Add SpeechRecognition queries
 queries_str = """    <queries>
         <intent>
