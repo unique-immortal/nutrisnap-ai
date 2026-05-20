@@ -47,8 +47,8 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
-    # Migrate: add session_id and portion columns (idempotent)
-    for col, col_def in [('session_id', 'TEXT'), ('portion', 'REAL DEFAULT 1.0')]:
+    # Migrate: add session_id, portion, and weight columns (idempotent)
+    for col, col_def in [('session_id', 'TEXT'), ('portion', 'REAL DEFAULT 1.0'), ('weight', 'INTEGER DEFAULT 100')]:
         try:
             cursor.execute(f'ALTER TABLE meals ADD COLUMN {col} {col_def}')
         except sqlite3.OperationalError:
@@ -127,6 +127,7 @@ def parse_ai_multi_result(raw_text):
             'protein': item.get('protein', 0),
             'carbs': item.get('carbs', 0),
             'fat': item.get('fat', 0),
+            'weight': item.get('weight', 100),
         })
     return normalized
 
@@ -166,7 +167,8 @@ def analyze_food():
     "calories": 热量数字(大卡),
     "protein": 蛋白质数字(克),
     "carbs": 碳水数字(克),
-    "fat": 脂肪数字(克)
+    "fat": 脂肪数字(克),
+    "weight": 估计重量数字(克)
   }
 ]
 如果图片里没有食物，返回：
@@ -215,9 +217,9 @@ def analyze_food():
         saved = []
         for food in foods:
             cursor.execute('''
-                INSERT INTO meals (image_path, food_name, calories, protein, carbs, fat, session_id, portion)
-                VALUES (?, ?, ?, ?, ?, ?, ?, 1.0)
-            ''', (filepath, food['food_name'], food['calories'], food['protein'], food['carbs'], food['fat'], session_id))
+                INSERT INTO meals (image_path, food_name, calories, protein, carbs, fat, session_id, portion, weight)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 1.0, ?)
+            ''', (filepath, food['food_name'], food['calories'], food['protein'], food['carbs'], food['fat'], session_id, food.get('weight', 100)))
             food['id'] = cursor.lastrowid
             food['portion'] = 1.0
             saved.append(food)
@@ -253,7 +255,8 @@ def voice_input():
     "calories": 估计热量(大卡),
     "protein": 估计蛋白质(克),
     "carbs": 估计碳水(克),
-    "fat": 估计脂肪(克)
+    "fat": 估计脂肪(克),
+    "weight": 估计重量(克)
   }}
 ]
 严格只输出 JSON，不要加任何解释。"""
@@ -296,9 +299,9 @@ def voice_input():
         saved = []
         for food in foods:
             cursor.execute('''
-                INSERT INTO meals (image_path, food_name, calories, protein, carbs, fat, session_id, portion)
-                VALUES (?, ?, ?, ?, ?, ?, ?, 1.0)
-            ''', ('', food['food_name'], food['calories'], food['protein'], food['carbs'], food['fat'], session_id))
+                INSERT INTO meals (image_path, food_name, calories, protein, carbs, fat, session_id, portion, weight)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 1.0, ?)
+            ''', ('', food['food_name'], food['calories'], food['protein'], food['carbs'], food['fat'], session_id, food.get('weight', 100)))
             food['id'] = cursor.lastrowid
             food['portion'] = 1.0
             saved.append(food)

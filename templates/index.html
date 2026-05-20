@@ -631,12 +631,13 @@ function showResult(json) {
   const foods = json.foods || [];
   let html = '';
   foods.forEach((f, i) => {
+    const origWeight = f.weight || 100;
     html += `
       <div class="bg-surface-container-lowest rounded-xl shadow-sm border border-surface-variant p-stack-md">
         <div class="flex justify-between items-start mb-3">
           <div>
             <h3 class="font-headline-md text-headline-md text-on-background">${f.food_name}</h3>
-            <p class="font-label-md text-label-md text-outline">每份 <span id="calVal-${f.id}">${f.calories}</span> kcal</p>
+            <p class="font-label-md text-label-md text-outline">每份 ${origWeight}g | <span id="calVal-${f.id}">${f.calories}</span> kcal</p>
           </div>
           <span class="font-stats-xl text-stats-xl text-primary"><span id="adjCal-${f.id}">${f.calories}</span><span class="text-xl font-body-md text-outline ml-1">kcal</span></span>
         </div>
@@ -648,9 +649,9 @@ function showResult(json) {
         <div class="flex items-center gap-3">
           <span class="font-label-md text-label-md text-on-surface-variant">x</span>
           <input type="range" min="0.25" max="5.0" step="0.25" value="1.0" class="flex-1 h-1 accent-primary"
-            oninput="adjustPortion(${f.id}, this.value, ${f.calories}, ${f.protein}, ${f.carbs}, ${f.fat})"
+            oninput="adjustPortion(${f.id}, this.value, ${f.calories}, ${f.protein}, ${f.carbs}, ${f.fat}, ${origWeight})"
             onchange="savePortion(${f.id}, this.value)">
-          <span class="font-label-md text-label-md text-primary whitespace-nowrap" id="portionLabel-${f.id}">1.0x</span>
+          <span class="font-label-md text-label-md text-primary whitespace-nowrap" id="portionLabel-${f.id}">1.00x (${origWeight}g)</span>
         </div>
       </div>`;
   });
@@ -661,9 +662,10 @@ function showResult(json) {
   switchTab('result');
 }
 
-function adjustPortion(id, portion, origCal, origPro, origCarbs, origFat) {
+function adjustPortion(id, portion, origCal, origPro, origCarbs, origFat, origWeight) {
   const p = parseFloat(portion);
-  document.getElementById('portionLabel-' + id).textContent = p.toFixed(2) + 'x';
+  const w = Math.round(origWeight * p);
+  document.getElementById('portionLabel-' + id).textContent = p.toFixed(2) + 'x (' + w + 'g)';
   document.getElementById('adjCal-' + id).textContent = Math.round(origCal * p);
   document.getElementById('adjPro-' + id).textContent = Math.round(origPro * p);
   document.getElementById('adjCarbs-' + id).textContent = Math.round(origCarbs * p);
@@ -929,7 +931,10 @@ async function fetchMeals() {
         totalCarbs += m.carbs||0;
         totalFat += m.fat||0;
       });
-      const foodNames = g.items.map(m => m.food_name + ' ' + (m.calories) + 'kcal').join('<br>');
+      const foodNames = g.items.map(m => {
+        const w = Math.round((m.weight || 100) * (m.portion || 1.0));
+        return `${m.food_name} (${w}g) ${m.calories}kcal`;
+      }).join('<br>');
       html += `
         <div class="bg-surface-container-lowest rounded-xl shadow-sm border border-surface-variant p-stack-md" id="meal-group-${g.session_id}">
           <div class="flex gap-3">
@@ -989,7 +994,10 @@ async function fetchHistory() {
     let html = '';
     Object.values(groups).forEach(g => {
       const imgSrc = g.image_path ? (API_BASE + '/' + g.image_path) : '';
-      const foodNames = g.items.map(m => `${m.food_name} (${m.portion||1}x) ${m.calories}kcal`).join('<br>');
+      const foodNames = g.items.map(m => {
+        const w = Math.round((m.weight || 100) * (m.portion || 1.0));
+        return `${m.food_name} (${w}g) ${m.calories}kcal`;
+      }).join('<br>');
       const groupCal = g.items.reduce((s, m) => s + (m.calories||0), 0);
       html += `
         <div class="bg-surface-container-lowest rounded-xl shadow-sm border border-surface-variant p-stack-md">
