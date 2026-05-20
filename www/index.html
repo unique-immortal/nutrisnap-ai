@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html class="light" lang="zh">
 <head>
 <meta charset="utf-8"/>
@@ -378,6 +378,46 @@ html.dark .card-premium:hover {
   </main>
 </div>
 
+<!-- Manual Food Entry Modal -->
+<div id="manualFoodModal" class="fixed inset-0 bg-black/40 z-[100] items-center justify-center hidden" onclick="if(event.target===this)closeManualFoodModal()">
+  <div class="bg-surface-container-lowest rounded-2xl p-6 mx-6 max-w-sm w-full shadow-xl" onclick="event.stopPropagation()">
+    <div class="flex items-start justify-between gap-3 mb-4">
+      <div>
+        <h3 class="font-headline-md text-headline-md text-on-background">手动补录食物</h3>
+        <p class="text-xs text-on-surface-variant mt-1" id="manualFoodReason">AI 未识别到食物时，可手动补录。</p>
+      </div>
+      <button onclick="closeManualFoodModal()" class="text-outline hover:text-on-background p-1">
+        <span class="material-symbols-outlined">close</span>
+      </button>
+    </div>
+
+    <div class="flex flex-wrap gap-2 mb-4">
+      <button type="button" onclick="fillManualFoodPreset('米饭', 200, 4, 44, 0, 150)" class="px-3 py-1.5 rounded-full bg-surface-container text-xs text-on-surface border border-outline-variant">米饭</button>
+      <button type="button" onclick="fillManualFoodPreset('鸡胸肉', 165, 31, 0, 4, 100)" class="px-3 py-1.5 rounded-full bg-surface-container text-xs text-on-surface border border-outline-variant">鸡胸肉</button>
+      <button type="button" onclick="fillManualFoodPreset('鸡蛋', 78, 6, 1, 5, 50)" class="px-3 py-1.5 rounded-full bg-surface-container text-xs text-on-surface border border-outline-variant">鸡蛋</button>
+      <button type="button" onclick="fillManualFoodPreset('苹果', 95, 0, 25, 0, 180)" class="px-3 py-1.5 rounded-full bg-surface-container text-xs text-on-surface border border-outline-variant">苹果</button>
+    </div>
+
+    <div class="flex flex-col gap-3">
+      <input type="text" id="manualFoodName" placeholder="食物名称" class="w-full bg-surface-container rounded-xl px-4 py-3 font-body-md text-body-md text-on-background border border-outline-variant focus:border-primary focus:outline-none" />
+      <div class="grid grid-cols-2 gap-3">
+        <input type="number" id="manualFoodWeight" min="1" max="2000" placeholder="重量 g" class="w-full bg-surface-container rounded-xl px-4 py-3 font-body-md text-body-md text-on-background border border-outline-variant focus:border-primary focus:outline-none" />
+        <input type="number" id="manualFoodCalories" min="0" max="5000" placeholder="热量 kcal" class="w-full bg-surface-container rounded-xl px-4 py-3 font-body-md text-body-md text-on-background border border-outline-variant focus:border-primary focus:outline-none" />
+      </div>
+      <div class="grid grid-cols-3 gap-2">
+        <input type="number" id="manualFoodProtein" min="0" max="300" placeholder="蛋白 g" class="w-full bg-surface-container rounded-xl px-3 py-3 text-sm text-on-background border border-outline-variant focus:border-primary focus:outline-none" />
+        <input type="number" id="manualFoodCarbs" min="0" max="500" placeholder="碳水 g" class="w-full bg-surface-container rounded-xl px-3 py-3 text-sm text-on-background border border-outline-variant focus:border-primary focus:outline-none" />
+        <input type="number" id="manualFoodFat" min="0" max="300" placeholder="脂肪 g" class="w-full bg-surface-container rounded-xl px-3 py-3 text-sm text-on-background border border-outline-variant focus:border-primary focus:outline-none" />
+      </div>
+    </div>
+
+    <div class="flex gap-3 mt-5">
+      <button onclick="closeManualFoodModal()" class="flex-1 bg-surface-container-high text-on-surface font-body-lg text-body-lg py-3 rounded-xl transition-colors">取消</button>
+      <button onclick="saveManualFood()" class="flex-1 bg-primary text-on-primary font-body-lg text-body-lg py-3 rounded-xl hover:scale-[1.02] active:scale-95 transition-transform">保存</button>
+    </div>
+  </div>
+</div>
+
 <!-- Voice Input Modal -->
 <div id="voiceModal" class="fixed inset-0 bg-background/80 backdrop-blur-xl z-[999] flex items-center justify-center p-6 transition-all duration-300 hidden" style="display:none">
   <div class="bg-surface-container-lowest border border-surface-variant w-full max-w-sm rounded-3xl p-8 shadow-2xl flex flex-col gap-6 animate-slide-up relative overflow-hidden text-center">
@@ -592,7 +632,7 @@ html.dark .card-premium:hover {
     <button onclick="sendCoachMsg('推荐高蛋白食物')" class="flex-shrink-0 bg-surface-container-high text-on-surface-variant font-label-md text-label-md px-4 py-2 rounded-full border border-outline-variant hover:bg-surface-variant transition-colors">推荐高蛋白食物</button>
   </div>
   <div class="flex gap-2 px-container-margin pb-3 flex-shrink-0">
-    <input id="coachInput" type="text" placeholder="咨询 AI 教练..." class="flex-1 bg-surface-container rounded-full px-4 py-3 font-body-md text-body-md text-on-background border border-outline-variant focus:border-primary focus:outline-none" onkeydown="if(event.key==='Enter')sendCoachMsg()"/>
+    <input id="coachInput" type="text" placeholder="咨询 AI 教练..." class="flex-1 bg-surface-container rounded-full px-4 py-3 font-body-md text-body-md text-on-background border border-outline-variant focus:border-primary focus:outline-none" onkeydown="handleCoachInputKeydown(event)"/>
     <button onclick="sendCoachMsg()" class="w-12 h-12 bg-primary text-on-primary rounded-full flex items-center justify-center shadow-md hover:scale-105 active:scale-95 transition-transform flex-shrink-0">
       <span class="material-symbols-outlined" style="font-variation-settings:'FILL' 1">arrow_upward</span>
     </button>
@@ -788,17 +828,17 @@ html.dark .card-premium:hover {
       <div class="grid grid-cols-2 gap-3">
         <div>
           <label for="bmrAge" class="text-xs text-on-surface-variant font-semibold mb-1 block">年龄 (岁)</label>
-          <input type="number" id="bmrAge" placeholder="例如: 25" class="w-full bg-surface-container rounded-xl px-4 py-3 font-body-md text-body-md text-on-background border border-outline-variant focus:border-primary focus:outline-none" />
+          <input type="number" id="bmrAge" min="15" max="120" placeholder="例如: 25" class="w-full bg-surface-container rounded-xl px-4 py-3 font-body-md text-body-md text-on-background border border-outline-variant focus:border-primary focus:outline-none" />
         </div>
         <div>
           <label for="bmrHeight" class="text-xs text-on-surface-variant font-semibold mb-1 block">身高 (cm)</label>
-          <input type="number" id="bmrHeight" placeholder="例如: 175" class="w-full bg-surface-container rounded-xl px-4 py-3 font-body-md text-body-md text-on-background border border-outline-variant focus:border-primary focus:outline-none" />
+          <input type="number" id="bmrHeight" min="80" max="250" placeholder="例如: 175" class="w-full bg-surface-container rounded-xl px-4 py-3 font-body-md text-body-md text-on-background border border-outline-variant focus:border-primary focus:outline-none" />
         </div>
       </div>
       
       <div>
         <label for="bmrWeight" class="text-xs text-on-surface-variant font-semibold mb-1 block">体重 (kg)</label>
-        <input type="number" step="0.1" id="bmrWeight" placeholder="例如: 70" class="w-full bg-surface-container rounded-xl px-4 py-3 font-body-md text-body-md text-on-background border border-outline-variant focus:border-primary focus:outline-none" />
+        <input type="number" step="0.1" min="20" max="200" id="bmrWeight" placeholder="例如: 70" class="w-full bg-surface-container rounded-xl px-4 py-3 font-body-md text-body-md text-on-background border border-outline-variant focus:border-primary focus:outline-none" />
       </div>
       
       <div>
@@ -850,7 +890,7 @@ html.dark .card-premium:hover {
       <div class="grid grid-cols-2 gap-3">
         <div>
           <label for="exDuration" class="text-xs text-on-surface-variant font-semibold mb-1 block">时长 (分钟)</label>
-          <input type="number" id="exDuration" placeholder="30" class="w-full bg-surface-container rounded-xl px-4 py-3 font-body-md text-body-md text-on-background border border-outline-variant focus:border-primary focus:outline-none" oninput="recommendExerciseCalories()" />
+          <input type="number" id="exDuration" min="1" max="600" value="30" placeholder="30" class="w-full bg-surface-container rounded-xl px-4 py-3 font-body-md text-body-md text-on-background border border-outline-variant focus:border-primary focus:outline-none" oninput="recommendExerciseCalories()" />
         </div>
         <div>
           <label for="exCalories" class="text-xs text-on-surface-variant font-semibold mb-1 block">消耗 (kcal)</label>
@@ -958,7 +998,7 @@ function getAuthHeaders() {
 
 async function syncDailySummary(dateStr) {
   const user = getCurrentUser();
-  if (!user || user === 'guest' || user === 'anonymous') return;
+  if (!user || user === 'guest' || user === 'anonymous' || user === 'local_user' || isLocalMode()) return;
   
   const meals = MealStorage.getMeals();
   const exercises = ExerciseStorage.getExercises();
@@ -1368,7 +1408,7 @@ async function doAnalyze() {
     if (res.ok && json.success) {
       showResult(json);
     } else {
-      alert(json.error || 'Analysis failed');
+      showManualFoodModal(json.error || 'AI 未识别到食物，可以手动补录');
       document.getElementById('analyzeBtn').classList.remove('hidden');
     }
   } catch (err) {
@@ -1384,6 +1424,9 @@ function showResult(json) {
     document.getElementById('resultImgContainer').classList.add('hidden');
     document.getElementById('resultVoiceContainer').classList.remove('hidden');
     document.getElementById('resultVoiceText').textContent = voiceTextForDisplay ? `“ ${voiceTextForDisplay} ”` : "语音记录分析";
+  } else if (json.source === 'manual') {
+    document.getElementById('resultImgContainer').classList.add('hidden');
+    document.getElementById('resultVoiceContainer').classList.add('hidden');
   } else {
     document.getElementById('resultImgContainer').classList.remove('hidden');
     document.getElementById('resultVoiceContainer').classList.add('hidden');
@@ -1629,6 +1672,72 @@ function resetScan() {
   document.getElementById('uploadHint').classList.remove('hidden');
   document.getElementById('analyzeBtn').classList.add('hidden');
   switchTab('home');
+}
+
+function showManualFoodModal(reason) {
+  const modal = document.getElementById('manualFoodModal');
+  document.getElementById('manualFoodReason').textContent = reason || 'AI 未识别到食物时，可手动补录。';
+  ['manualFoodName', 'manualFoodWeight', 'manualFoodCalories', 'manualFoodProtein', 'manualFoodCarbs', 'manualFoodFat'].forEach(id => {
+    document.getElementById(id).value = '';
+  });
+  modal.classList.remove('hidden');
+  modal.style.display = 'flex';
+  setTimeout(() => document.getElementById('manualFoodName').focus(), 50);
+}
+
+function closeManualFoodModal() {
+  const modal = document.getElementById('manualFoodModal');
+  modal.style.display = 'none';
+  modal.classList.add('hidden');
+}
+
+function fillManualFoodPreset(name, calories, protein, carbs, fat, weight) {
+  document.getElementById('manualFoodName').value = name;
+  document.getElementById('manualFoodCalories').value = calories;
+  document.getElementById('manualFoodProtein').value = protein;
+  document.getElementById('manualFoodCarbs').value = carbs;
+  document.getElementById('manualFoodFat').value = fat;
+  document.getElementById('manualFoodWeight').value = weight;
+}
+
+function saveManualFood() {
+  const name = document.getElementById('manualFoodName').value.trim();
+  const calories = parseInt(document.getElementById('manualFoodCalories').value);
+  const protein = parseInt(document.getElementById('manualFoodProtein').value) || 0;
+  const carbs = parseInt(document.getElementById('manualFoodCarbs').value) || 0;
+  const fat = parseInt(document.getElementById('manualFoodFat').value) || 0;
+  const weight = parseInt(document.getElementById('manualFoodWeight').value) || 100;
+
+  if (!name) {
+    alert('请输入食物名称');
+    return;
+  }
+  if (isNaN(calories) || calories < 0 || calories > 5000) {
+    alert('请输入 0-5000 kcal 范围内的热量');
+    return;
+  }
+  if (weight < 1 || weight > 2000) {
+    alert('请输入 1-2000g 范围内的重量');
+    return;
+  }
+
+  closeManualFoodModal();
+  showResult({
+    success: true,
+    source: 'manual',
+    session_id: 'manual_' + Date.now(),
+    foods: [{
+      id: Date.now(),
+      food_name: name,
+      calories,
+      protein,
+      carbs,
+      fat,
+      weight,
+      portion: 1.0
+    }],
+    image_url: ''
+  });
 }
 
 // ===================== VOICE INPUT =====================
@@ -1934,6 +2043,18 @@ async function saveBMRProfile() {
     alert('请填写完整的身体参数');
     return;
   }
+  if (age < 15 || age > 120) {
+    alert('年龄需在 15-120 岁之间');
+    return;
+  }
+  if (height < 80 || height > 250) {
+    alert('身高需在 80-250 cm 之间');
+    return;
+  }
+  if (weight < 20 || weight > 200) {
+    alert('体重需在 20-200 kg 之间');
+    return;
+  }
   
   const payload = { gender, age, height, weight, activity_level };
   
@@ -1948,13 +2069,17 @@ async function saveBMRProfile() {
   applyTargets();
   
   // If logged in, upload to the server
-  if (user !== 'guest' && user !== 'anonymous') {
+  if (!isLocalMode() && user !== 'guest' && user !== 'anonymous' && user !== 'local_user') {
     try {
-      await fetch(API_BASE + '/api/profile', {
+      const res = await fetch(API_BASE + '/api/profile', {
         method: 'POST',
         headers: getAuthHeaders(),
         body: JSON.stringify(payload)
       });
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        throw new Error(json.error || '服务器未保存身体数据');
+      }
       // Sync today's summary since weight change might impact MET calculations
       syncDailySummary(new Date().toISOString().split('T')[0]);
     } catch (err) {
@@ -1980,9 +2105,10 @@ function showExerciseLogModal() {
   modal.style.display = 'flex';
   
   document.getElementById('exName').value = '';
-  document.getElementById('exDuration').value = '';
+  document.getElementById('exDuration').value = '30';
   document.getElementById('exCalories').value = '';
   updateExTypeSelection('aerobic');
+  recommendExerciseCalories();
   
   // Clear muscle pills selection
   activeMusclePills = [];
@@ -2001,6 +2127,8 @@ function updateExTypeSelection(type) {
   const btnAerobic = document.getElementById('btnExAerobic');
   const btnStrength = document.getElementById('btnExStrength');
   const musclesSect = document.getElementById('targetMusclesSection');
+  document.querySelector('input[name="exType"][value="aerobic"]').checked = type === 'aerobic';
+  document.querySelector('input[name="exType"][value="strength"]').checked = type === 'strength';
   
   if (type === 'aerobic') {
     btnAerobic.classList.add('bg-primary/10', 'border-primary');
@@ -2188,7 +2316,7 @@ async function fetchTodayData() {
       list.innerHTML = '<p class="text-outline text-center py-8">暂无记录，点击底部扫描按钮或手动记录开始吧！</p>';
       
       const user = getCurrentUser();
-      if (user && user !== 'guest' && user !== 'anonymous') {
+      if (!isLocalMode() && user && user !== 'guest' && user !== 'anonymous' && user !== 'local_user') {
         try {
           const res = await fetch(API_BASE + '/api/daily-summaries', {
             headers: getAuthHeaders()
@@ -2424,7 +2552,10 @@ async function confirmDelete() {
     ExerciseStorage.deleteExercise(exerciseToDelete);
     const el = document.getElementById('exercise-item-' + exerciseToDelete);
     if (el) { el.style.opacity='0'; el.style.transition='all .3s'; setTimeout(()=>el.remove(),300); }
-    setTimeout(() => { fetchTodayData(); fetchHistory(); }, 400);
+    await fetchTodayData();
+    fetchWeeklyReport();
+    fetchAISuggestions();
+    setTimeout(() => { fetchHistory(); }, 350);
     exerciseToDelete = null;
     return;
   }
@@ -2434,7 +2565,10 @@ async function confirmDelete() {
   MealStorage.deleteSession(sessionToDelete);
   const el = document.getElementById('meal-group-' + sessionToDelete);
   if (el) { el.style.opacity='0'; el.style.transition='all .3s'; setTimeout(()=>el.remove(),300); }
-  setTimeout(() => { fetchMeals(); fetchHistory(); }, 400);
+  await fetchMeals();
+  fetchWeeklyReport();
+  fetchAISuggestions();
+  setTimeout(() => { fetchHistory(); }, 350);
   sessionToDelete = null;
 }
 
@@ -2626,6 +2760,12 @@ function parseMarkdownToHTML(md) {
 }
 
 // ===================== AI COACH =====================
+function handleCoachInputKeydown(event) {
+  if (event.key !== 'Enter' || event.isComposing || event.shiftKey) return;
+  event.preventDefault();
+  sendCoachMsg();
+}
+
 function sendCoachMsg(quickMsg) {
   const input = document.getElementById('coachInput');
   const msg = quickMsg || input.value.trim();
@@ -2812,13 +2952,17 @@ async function updateProfileUI() {
   };
 
   if (hasProfile && profile) {
-    document.getElementById('profileGender').textContent = profile.gender === 'female' ? '女' : '男';
-    document.getElementById('profileAge').textContent = profile.age + ' 岁';
-    document.getElementById('profileHeight').textContent = profile.height + ' cm';
-    document.getElementById('profileWeight').textContent = profile.weight + ' kg';
-    document.getElementById('profileActivity').textContent = actMap[profile.activity_level] || '中度运动';
-    document.getElementById('profileBMR').textContent = profile.bmr + ' kcal';
-    document.getElementById('profileTDEE').textContent = profile.tdee + ' kcal';
+    const setTextIfExists = (id, value) => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = value;
+    };
+    setTextIfExists('profileGender', profile.gender === 'female' ? '女' : '男');
+    setTextIfExists('profileAge', profile.age + ' 岁');
+    setTextIfExists('profileHeight', profile.height + ' cm');
+    setTextIfExists('profileWeight', profile.weight + ' kg');
+    setTextIfExists('profileActivity', actMap[profile.activity_level] || '中度运动');
+    setTextIfExists('profileBMR', profile.bmr + ' kcal');
+    setTextIfExists('profileTDEE', profile.tdee + ' kcal');
 
     // Update the bento card summary text
     const bmrSummary = document.getElementById('bmrSummaryText');

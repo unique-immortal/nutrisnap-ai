@@ -206,6 +206,35 @@ def uploaded_file(filename):
 def hash_password(password):
     return hashlib.sha256(password.encode('utf-8')).hexdigest()
 
+def validate_profile_payload(data):
+    try:
+        gender = data.get('gender')
+        age = int(data.get('age'))
+        height = float(data.get('height'))
+        weight = float(data.get('weight'))
+        activity_level = data.get('activity_level') or 'sedentary'
+    except (TypeError, ValueError):
+        return None, "请填写完整且有效的身体参数"
+
+    if gender not in ('male', 'female'):
+        return None, "请选择有效的性别"
+    if not 15 <= age <= 120:
+        return None, "年龄需在 15-120 岁之间"
+    if not 80 <= height <= 250:
+        return None, "身高需在 80-250 cm 之间"
+    if not 20 <= weight <= 200:
+        return None, "体重需在 20-200 kg 之间"
+    if activity_level not in ('sedentary', 'lightly_active', 'moderately_active', 'very_active', 'highly_active'):
+        return None, "请选择有效的活动量级别"
+
+    return {
+        'gender': gender,
+        'age': age,
+        'height': height,
+        'weight': weight,
+        'activity_level': activity_level
+    }, None
+
 @app.route('/api/register', methods=['POST'])
 def register():
     data = request.get_json() or {}
@@ -219,14 +248,21 @@ def register():
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute("SELECT 1 FROM users WHERE username = ?", (username,))
-        if cursor.fetchone():
-            return jsonify({"error": "用户名已存在"}), 400
-        
+        cursor.execute("SELECT password_hash FROM users WHERE username = ?", (username,))
+        existing = cursor.fetchone()
         pw_hash = hash_password(password)
-        cursor.execute("INSERT INTO users (username, password_hash) VALUES (?, ?)", (username, pw_hash))
+
+        if existing:
+            if existing['password_hash']:
+                return jsonify({"error": "用户名已存在，请换一个用户名或直接登录"}), 409
+            # Profiles can create placeholder rows before a real registration.
+            cursor.execute("UPDATE users SET password_hash = ? WHERE username = ?", (pw_hash, username))
+        else:
+            cursor.execute("INSERT INTO users (username, password_hash) VALUES (?, ?)", (username, pw_hash))
         conn.commit()
-        return jsonify({"success": True, "message": "注册成功"})
+        return jsonify({"success": True, "message": "注册成功", "username": username})
+    except sqlite3.IntegrityError:
+        return jsonify({"error": "用户名已存在，请换一个用户名或直接登录"}), 409
     except Exception as e:
         return jsonify({"error": f"注册失败: {str(e)}"}), 500
     finally:
@@ -881,17 +917,23 @@ def profile_bmr():
     
     if request.method == 'POST':
         data = request.get_json() or {}
-        gender = data.get('gender')
-        age = data.get('age')
-        height = data.get('height')
-        weight = data.get('weight')
-        activity_level = data.get('activity_level')
+        profile, validation_error = validate_profile_payload(data)
+        if validation_error:
+            conn.close()
+            return jsonify({"error": validation_error}), 400
         
         cursor.execute('''
             UPDATE users 
             SET gender = ?, age = ?, height = ?, weight = ?, activity_level = ?
             WHERE username = ?
-        ''', (gender, age, height, weight, activity_level, username))
+        ''', (
+            profile['gender'],
+            profile['age'],
+            profile['height'],
+            profile['weight'],
+            profile['activity_level'],
+            username
+        ))
         conn.commit()
         
     row = cursor.execute('''
@@ -951,9 +993,21 @@ def manage_exercises():
     if request.method == 'POST':
         data = request.get_json() or {}
         name = data.get('exercise_name', '未知运动').strip()
-        calories = int(data.get('calories', 0))
-        duration = int(data.get('duration', 0))
+        try:
+            calories = int(data.get('calories', 0))
+            duration = int(data.get('duration', 0))
+        except (TypeError, ValueError):
+            conn.close()
+            return jsonify({"error": "运动时长和消耗热量必须是数字"}), 400
+        if duration <= 0 or duration > 600:
+            conn.close()
+            return jsonify({"error": "运动时长需在 1-600 分钟之间"}), 400
+        if calories < 0 or calories > 5000:
+            conn.close()
+            return jsonify({"error": "运动消耗需在 0-5000 kcal 之间"}), 400
         ex_type = data.get('exercise_type', 'aerobic')
+        if ex_type not in ('aerobic', 'strength'):
+            ex_type = 'aerobic'
         muscles = data.get('target_muscles', '')
         
         cursor.execute('''
