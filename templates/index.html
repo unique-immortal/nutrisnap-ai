@@ -7,6 +7,7 @@
 <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 <script>
 tailwind.config = {
   darkMode: "class",
@@ -48,7 +49,6 @@ html,body{overscroll-behavior:none;-webkit-tap-highlight-color:transparent}
 .page{display:none;flex-direction:column;min-height:calc(100dvh - 80px);animation:fadeIn .25s ease}
 .page.active{display:flex}
 @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
-.progress-ring{transition:stroke-dashoffset 1s ease-out}
 .spinner-ai{border:3px solid rgba(15,82,56,.15);width:28px;height:28px;border-radius:50%;border-left-color:#0f5238;animation:spin .8s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 .pulse-scan{animation:pulse-border 2s cubic-bezier(.4,0,.6,1) infinite}
@@ -56,15 +56,13 @@ html,body{overscroll-behavior:none;-webkit-tap-highlight-color:transparent}
 input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;height:20px;width:20px;border-radius:50%;background:#0f5238;cursor:pointer;margin-top:-8px;box-shadow:0 2px 4px rgba(0,0,0,.15)}
 input[type=range]::-webkit-slider-runnable-track{width:100%;height:4px;cursor:pointer;background:#e1e3df;border-radius:2px}
 input[type=range]:focus{outline:none}
-.bottom-sheet{transform:translateY(100%);transition:transform .35s cubic-bezier(.22,1,.36,1)}
-.bottom-sheet.show{transform:translateY(0)}
 .animate-slide-up{animation:slideUp .3s cubic-bezier(.22,1,.36,1)}
 @keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
 </style>
 </head>
 <body class="bg-background text-on-background font-body-md min-h-screen pb-28">
 
-<!-- ========== PAGE: 首页 (Home) ========== -->
+<!-- ========== PAGE: Home ========== -->
 <div class="page active" id="page-home">
   <header class="flex justify-between items-center px-container-margin py-stack-md sticky top-0 bg-background z-40">
     <div class="flex items-center gap-3">
@@ -81,19 +79,17 @@ input[type=range]:focus{outline:none}
       <span class="font-label-md text-label-md text-primary" id="headerCalBadge">0 kcal</span>
     </div>
   </header>
-
   <main class="px-container-margin flex flex-col gap-stack-lg pb-24">
-    <!-- Progress Rings -->
     <section class="grid grid-cols-2 gap-gutter">
       <div class="bg-surface-container-lowest rounded-xl shadow-sm border border-surface-variant p-stack-lg flex flex-col items-center justify-center">
         <div class="relative w-32 h-32 flex items-center justify-center">
           <svg class="w-full h-full -rotate-90" viewBox="0 0 100 100">
             <circle class="text-primary opacity-10" cx="50" cy="50" fill="none" r="40" stroke="currentColor" stroke-width="10"/>
-            <circle id="calRing" class="text-primary progress-ring" cx="50" cy="50" fill="none" r="40" stroke="currentColor" stroke-dasharray="251.2" stroke-dashoffset="251.2" stroke-linecap="round" stroke-width="10"/>
+            <circle id="calRing" class="text-primary" cx="50" cy="50" fill="none" r="40" stroke="currentColor" stroke-dasharray="251.2" stroke-dashoffset="251.2" stroke-linecap="round" stroke-width="10" style="transition:stroke-dashoffset 1s ease-out"/>
           </svg>
           <div class="absolute inset-0 flex flex-col items-center justify-center text-center">
             <span class="font-stats-xl text-stats-xl text-on-background" id="totalCal">0</span>
-            <span class="font-label-md text-label-md text-on-surface-variant mt-stack-sm">/ 2,000</span>
+            <span class="font-label-md text-label-md text-on-surface-variant mt-stack-sm">/ <span id="calTargetLabel">2,000</span></span>
           </div>
         </div>
         <h2 class="font-headline-md text-headline-md text-on-background mt-stack-md">热量</h2>
@@ -102,11 +98,11 @@ input[type=range]:focus{outline:none}
         <div class="relative w-32 h-32 flex items-center justify-center">
           <svg class="w-full h-full -rotate-90" viewBox="0 0 100 100">
             <circle class="text-tertiary-container opacity-10" cx="50" cy="50" fill="none" r="40" stroke="currentColor" stroke-width="10"/>
-            <circle id="proRing" class="text-tertiary-container progress-ring" cx="50" cy="50" fill="none" r="40" stroke="currentColor" stroke-dasharray="251.2" stroke-dashoffset="251.2" stroke-linecap="round" stroke-width="10"/>
+            <circle id="proRing" class="text-tertiary-container" cx="50" cy="50" fill="none" r="40" stroke="currentColor" stroke-dasharray="251.2" stroke-dashoffset="251.2" stroke-linecap="round" stroke-width="10" style="transition:stroke-dashoffset 1s ease-out"/>
           </svg>
           <div class="absolute inset-0 flex flex-col items-center justify-center text-center">
             <span class="font-stats-xl text-stats-xl text-on-background" id="totalPro">0</span>
-            <span class="font-label-md text-label-md text-on-surface-variant mt-stack-sm">/ 120g</span>
+            <span class="font-label-md text-label-md text-on-surface-variant mt-stack-sm">/ <span id="proTargetLabel">120</span>g</span>
           </div>
         </div>
         <div class="flex items-center gap-1 mt-stack-md">
@@ -115,7 +111,6 @@ input[type=range]:focus{outline:none}
         </div>
       </div>
     </section>
-    <!-- Macro Row -->
     <section class="grid grid-cols-2 gap-gutter">
       <div class="bg-surface-container-lowest rounded-xl shadow-sm border border-surface-variant p-stack-md flex justify-between items-center">
         <span class="font-label-md text-label-md text-on-surface-variant">碳水</span>
@@ -126,7 +121,6 @@ input[type=range]:focus{outline:none}
         <span class="font-headline-md text-headline-md text-on-background"><span id="totalFat">0</span>g</span>
       </div>
     </section>
-    <!-- Meal History -->
     <section class="flex flex-col gap-stack-md">
       <h2 class="font-headline-lg-mobile text-headline-lg-mobile text-on-background border-b border-surface-variant pb-stack-sm">今日记录</h2>
       <div id="mealList" class="flex flex-col gap-stack-md">
@@ -136,20 +130,21 @@ input[type=range]:focus{outline:none}
   </main>
 </div>
 
-<!-- ========== PAGE: 扫描 (Scan/Upload) ========== -->
+<!-- ========== PAGE: Scan ========== -->
 <div class="page" id="page-scan">
   <header class="flex justify-between items-center px-container-margin py-stack-md sticky top-0 bg-background z-40">
     <div class="flex items-center gap-3">
       <button onclick="switchTab('home')" class="text-on-surface-variant hover:bg-surface-container p-2 rounded-full"><span class="material-symbols-outlined">arrow_back</span></button>
-      <h1 class="font-headline-md text-headline-md text-primary">AI 食物扫描</h1>
-    </div>
-    <div class="flex items-center gap-1">
-      <span class="w-2 h-2 rounded-full bg-primary animate-pulse"></span>
-      <span class="font-label-md text-label-md text-primary">AI 就绪</span>
+      <h1 class="font-headline-md text-headline-md text-primary">AI 食物记录</h1>
     </div>
   </header>
-
   <main class="px-container-margin flex-1 flex flex-col items-center justify-center gap-stack-lg pb-8">
+    <!-- Voice Input Button -->
+    <button id="voiceBtn" onclick="startVoiceInput()" class="w-full max-w-xs flex items-center justify-center gap-2 bg-surface-container border border-outline-variant rounded-full px-4 py-3 hover:bg-surface-container-high transition-colors">
+      <span class="material-symbols-outlined text-primary">mic</span>
+      <span class="font-body-md text-body-md text-on-surface-variant">语音输入</span>
+    </button>
+    <div class="font-label-md text-label-md text-outline">— 或拍照 —</div>
     <!-- Upload Area -->
     <div id="uploadArea" class="w-full aspect-square max-w-xs rounded-2xl border-4 border-dashed border-outline-variant bg-surface-container flex flex-col items-center justify-center cursor-pointer hover:bg-surface-container-high transition-colors relative overflow-hidden" onclick="document.getElementById('fileInput').click()">
       <input type="file" id="fileInput" accept="image/*" capture="environment" class="hidden" onchange="handleFile(event)"/>
@@ -160,12 +155,10 @@ input[type=range]:focus{outline:none}
       </div>
       <img id="imgPreview" class="hidden absolute inset-0 w-full h-full object-cover"/>
     </div>
-    <!-- Analyze Button -->
     <button id="analyzeBtn" class="hidden w-full max-w-xs bg-primary hover:bg-primary-container text-on-primary font-headline-md text-headline-md py-4 rounded-xl transition-colors shadow-lg flex items-center justify-center gap-2 pulse-scan" onclick="doAnalyze()">
       <span class="material-symbols-outlined" style="font-variation-settings:'FILL' 1">search_insights</span>
       <span>开始 AI 分析</span>
     </button>
-    <!-- Loading State -->
     <div id="analyzeLoading" class="hidden flex flex-col items-center gap-3 py-8">
       <div class="spinner-ai"></div>
       <p class="font-body-lg text-body-lg text-primary font-semibold">AI 识别中...</p>
@@ -174,7 +167,27 @@ input[type=range]:focus{outline:none}
   </main>
 </div>
 
-<!-- ========== PAGE: 结果 (Result) ========== -->
+<!-- Voice Input Modal -->
+<div id="voiceModal" class="fixed inset-0 bg-black/50 z-[100] items-center justify-center hidden" style="display:none">
+  <div class="bg-surface-container-lowest rounded-2xl p-6 mx-6 max-w-sm w-full shadow-xl text-center">
+    <div id="voiceListening" class="flex flex-col items-center gap-4">
+      <div class="w-20 h-20 rounded-full bg-primary flex items-center justify-center pulse-scan">
+        <span class="material-symbols-outlined text-[36px] text-on-primary" style="font-variation-settings:'FILL' 1">mic</span>
+      </div>
+      <p class="font-headline-md text-headline-md text-on-background">正在聆听...</p>
+      <p class="font-body-md text-body-md text-on-surface-variant" id="voiceText">请说出你吃了什么</p>
+      <button onclick="stopVoiceInput()" class="bg-primary text-on-primary font-body-lg text-body-lg py-3 px-8 rounded-xl">停止录音</button>
+    </div>
+    <div id="voiceProcessing" class="hidden flex flex-col items-center gap-4">
+      <div class="spinner-ai"></div>
+      <p class="font-headline-md text-headline-md text-primary">AI 分析中...</p>
+      <p class="font-body-md text-body-md text-on-surface-variant" id="voiceFinalText"></p>
+    </div>
+    <button onclick="closeVoiceModal()" class="mt-4 text-on-surface-variant font-label-md text-label-md">取消</button>
+  </div>
+</div>
+
+<!-- ========== PAGE: Result (multi-food) ========== -->
 <div class="page" id="page-result">
   <header class="flex justify-between items-center px-container-margin py-stack-md sticky top-0 bg-background z-40">
     <div class="flex items-center gap-3">
@@ -182,52 +195,71 @@ input[type=range]:focus{outline:none}
       <h1 class="font-headline-md text-headline-md text-primary">AI 营养分析</h1>
     </div>
     <div class="bg-primary text-on-primary font-label-md text-label-md px-3 py-1.5 rounded-full flex items-center gap-1">
-      <span class="material-symbols-outlined text-sm" style="font-variation-settings:'FILL' 1">verified</span> 扫描完成
+      <span class="material-symbols-outlined text-sm" style="font-variation-settings:'FILL' 1">verified</span> 完成
     </div>
   </header>
   <main class="px-container-margin flex-1 flex flex-col gap-stack-lg pb-32">
-    <!-- Image Preview -->
     <div class="w-full h-48 rounded-xl overflow-hidden shadow-md border border-outline-variant">
       <img id="resultImg" class="w-full h-full object-cover" src="" alt="Food"/>
     </div>
-    <!-- Nutrition Summary -->
-    <section class="bg-surface-container-lowest rounded-xl p-6 shadow-sm border border-surface-variant flex flex-col gap-4">
-      <h2 class="font-headline-md text-headline-md text-on-background">营养总览</h2>
-      <div class="flex justify-between items-end pb-4 border-b border-surface-variant">
-        <div>
-          <span class="font-label-md text-label-md text-outline">食物</span>
-          <div class="font-headline-lg-mobile text-headline-lg-mobile text-primary" id="resFoodName">--</div>
-        </div>
-        <div>
-          <span class="font-label-md text-label-md text-outline">卡路里</span>
-          <div class="font-stats-xl text-stats-xl text-on-background"><span id="resCal">0</span><span class="text-xl font-body-md text-outline ml-1">kcal</span></div>
-        </div>
+    <div id="resultFoods" class="flex flex-col gap-stack-md"></div>
+    <!-- Summary totals -->
+    <section class="bg-primary text-on-primary rounded-xl p-6 shadow-sm">
+      <h2 class="font-label-md text-label-md opacity-80 mb-2">总计</h2>
+      <div class="flex justify-between items-end mb-3">
+        <span class="font-stats-xl text-stats-xl"><span id="sumCal">0</span> kcal</span>
+        <span class="font-body-md text-body-md opacity-80"><span id="foodCount">0</span> 种食物</span>
       </div>
-      <div class="grid grid-cols-3 gap-4 pt-2">
-        <div class="flex flex-col gap-stack-sm">
-          <span class="font-label-md text-label-md text-outline">蛋白质</span>
-          <span class="font-headline-md text-headline-md text-on-background flex items-center gap-1"><span id="resPro">0</span>g <span class="w-2 h-2 rounded-full bg-secondary"></span></span>
-        </div>
-        <div class="flex flex-col gap-stack-sm">
-          <span class="font-label-md text-label-md text-outline">碳水</span>
-          <span class="font-headline-md text-headline-md text-on-background flex items-center gap-1"><span id="resCarbs">0</span>g <span class="w-2 h-2 rounded-full bg-tertiary"></span></span>
-        </div>
-        <div class="flex flex-col gap-stack-sm">
-          <span class="font-label-md text-label-md text-outline">脂肪</span>
-          <span class="font-headline-md text-headline-md text-on-background flex items-center gap-1"><span id="resFat">0</span>g <span class="w-2 h-2 rounded-full bg-error"></span></span>
-        </div>
+      <div class="grid grid-cols-3 gap-2">
+        <div><span class="text-sm opacity-70">蛋白质 </span><span class="font-headline-md" id="sumPro">0</span>g</div>
+        <div><span class="text-sm opacity-70">碳水 </span><span class="font-headline-md" id="sumCarbs">0</span>g</div>
+        <div><span class="text-sm opacity-70">脂肪 </span><span class="font-headline-md" id="sumFat">0</span>g</div>
       </div>
     </section>
   </main>
-  <!-- Sticky Buttons -->
   <div class="fixed bottom-0 left-0 w-full bg-surface-container-lowest border-t border-surface-variant p-container-margin shadow-md z-40">
-    <div class="max-w-3xl mx-auto flex flex-col gap-3">
-      <button class="w-full bg-primary text-on-primary font-headline-md text-headline-md py-4 rounded-xl shadow-sm" onclick="resetScan()">继续记录</button>
-    </div>
+    <button class="w-full bg-primary text-on-primary font-headline-md text-headline-md py-4 rounded-xl shadow-sm" onclick="resetScan()">继续记录</button>
   </div>
 </div>
 
-<!-- ========== PAGE: AI教练 (Coach) ========== -->
+<!-- ========== PAGE: Report (weekly charts) ========== -->
+<div class="page" id="page-report">
+  <header class="flex justify-between items-center px-container-margin py-stack-md sticky top-0 bg-background z-40">
+    <h1 class="font-headline-md text-headline-md text-primary">营养周报</h1>
+    <button onclick="switchTab('history')" class="text-primary font-label-md text-label-md">全部记录 →</button>
+  </header>
+  <main class="px-container-margin flex-1 flex flex-col gap-stack-lg pb-24">
+    <!-- Weekly Stats Cards -->
+    <section class="grid grid-cols-2 gap-gutter">
+      <div class="bg-surface-container-lowest rounded-xl shadow-sm border border-surface-variant p-stack-md">
+        <span class="font-label-md text-label-md text-outline">本周平均</span>
+        <div class="font-stats-xl text-stats-xl text-primary" id="avgCal">0</div>
+        <span class="font-label-md text-label-md text-outline">kcal/天</span>
+      </div>
+      <div class="bg-surface-container-lowest rounded-xl shadow-sm border border-surface-variant p-stack-md">
+        <span class="font-label-md text-label-md text-outline">平均蛋白质</span>
+        <div class="font-stats-xl text-stats-xl text-tertiary" id="avgPro">0</div>
+        <span class="font-label-md text-label-md text-outline">g/天</span>
+      </div>
+    </section>
+    <!-- Calorie Trend Chart -->
+    <section class="bg-surface-container-lowest rounded-xl shadow-sm border border-surface-variant p-stack-md">
+      <h2 class="font-headline-md text-headline-md text-on-background mb-4">热量趋势</h2>
+      <div class="relative w-full" style="height:200px">
+        <canvas id="calorieChart"></canvas>
+      </div>
+    </section>
+    <!-- Macro Stacked Bar -->
+    <section class="bg-surface-container-lowest rounded-xl shadow-sm border border-surface-variant p-stack-md">
+      <h2 class="font-headline-md text-headline-md text-on-background mb-4">宏量营养素</h2>
+      <div class="relative w-full" style="height:200px">
+        <canvas id="macroChart"></canvas>
+      </div>
+    </section>
+  </main>
+</div>
+
+<!-- ========== PAGE: Coach ========== -->
 <div class="page" id="page-coach" style="height:calc(100dvh - 70px);">
   <header class="flex justify-between items-center px-container-margin py-stack-md bg-background z-40 flex-shrink-0">
     <div class="flex items-center gap-3">
@@ -243,17 +275,15 @@ input[type=range]:focus{outline:none}
         <span class="material-symbols-outlined text-on-primary text-sm" style="font-variation-settings:'FILL' 1">psychology</span>
       </div>
       <div class="bg-surface-container rounded-2xl rounded-tl-none px-4 py-3 max-w-[80%]">
-        <p class="font-body-md text-body-md text-on-background">你好！我是你的 AI 营养教练。我可以根据你今天的饮食记录给你建议。试试问我：“今天吃什么好？”</p>
+        <p class="font-body-md text-body-md text-on-background">你好！我是你的 AI 营养教练。你可以问我关于饮食的任何问题。试试："今天还能吃什么？"</p>
       </div>
     </div>
   </div>
-  <!-- Quick Actions -->
   <div class="flex gap-2 overflow-x-auto px-container-margin pb-2 pt-2 flex-shrink-0">
     <button onclick="sendCoachMsg('今天还能吃什么？')" class="flex-shrink-0 bg-surface-container-high text-on-surface-variant font-label-md text-label-md px-4 py-2 rounded-full border border-outline-variant hover:bg-surface-variant transition-colors">今天还能吃什么？</button>
     <button onclick="sendCoachMsg('还剩多少热量额度？')" class="flex-shrink-0 bg-surface-container-high text-on-surface-variant font-label-md text-label-md px-4 py-2 rounded-full border border-outline-variant hover:bg-surface-variant transition-colors">还剩多少热量额度？</button>
     <button onclick="sendCoachMsg('推荐高蛋白食物')" class="flex-shrink-0 bg-surface-container-high text-on-surface-variant font-label-md text-label-md px-4 py-2 rounded-full border border-outline-variant hover:bg-surface-variant transition-colors">推荐高蛋白食物</button>
   </div>
-  <!-- Input -->
   <div class="flex gap-2 px-container-margin pb-3 flex-shrink-0">
     <input id="coachInput" type="text" placeholder="咨询 AI 教练..." class="flex-1 bg-surface-container rounded-full px-4 py-3 font-body-md text-body-md text-on-background border border-outline-variant focus:border-primary focus:outline-none" onkeydown="if(event.key==='Enter')sendCoachMsg()"/>
     <button onclick="sendCoachMsg()" class="w-12 h-12 bg-primary text-on-primary rounded-full flex items-center justify-center shadow-md hover:scale-105 active:scale-95 transition-transform flex-shrink-0">
@@ -262,7 +292,7 @@ input[type=range]:focus{outline:none}
   </div>
 </div>
 
-<!-- ========== PAGE: 记录 (History) ========== -->
+<!-- ========== PAGE: History ========== -->
 <div class="page" id="page-history">
   <header class="flex justify-between items-center px-container-margin py-stack-md sticky top-0 bg-background z-40">
     <h1 class="font-headline-md text-headline-md text-primary">饮食记录</h1>
@@ -277,7 +307,7 @@ input[type=range]:focus{outline:none}
   </main>
 </div>
 
-<!-- ========== PAGE: 个人 (Profile) ========== -->
+<!-- ========== PAGE: Profile ========== -->
 <div class="page" id="page-profile">
   <header class="flex justify-between items-center px-container-margin py-stack-md sticky top-0 bg-background z-40">
     <h1 class="font-headline-md text-headline-md text-primary">个人中心</h1>
@@ -332,12 +362,11 @@ input[type=range]:focus{outline:none}
       </div>
       <div>
         <h3 class="font-headline-md text-headline-md text-on-background">NutriSnap AI</h3>
-        <p class="font-label-md text-label-md text-outline">v1.0.0</p>
+        <p class="font-label-md text-label-md text-outline">v2.0</p>
       </div>
     </div>
-    <p class="font-body-md text-body-md text-on-surface-variant mb-2">一款基于 Google Gemini AI 的智能饮食记录工具。拍照即可自动识别食物热量与营养成分。</p>
-    <p class="font-label-md text-label-md text-outline mb-4">技术栈：Flask + Gemini API + Tailwind CSS</p>
-    <button onclick="document.getElementById('aboutModal').style.display='none'" class="w-full bg-primary text-on-primary font-body-lg text-body-lg py-3 rounded-xl">知道了</button>
+    <p class="font-body-md text-body-md text-on-surface-variant mb-2">基于 Gemini AI 的智能饮食记录工具。支持拍照多食物识别、语音输入、分量调节、每周营养报告。</p>
+    <button onclick="document.getElementById('aboutModal').style.display='none'" class="w-full bg-primary text-on-primary font-body-lg text-body-lg py-3 rounded-xl mt-4">知道了</button>
   </div>
 </div>
 
@@ -363,7 +392,7 @@ input[type=range]:focus{outline:none}
       </div>
       <div>
         <h3 class="font-headline-md text-headline-md text-on-background">删除记录</h3>
-        <p class="font-body-md text-body-md text-on-surface-variant">确定要永久删除这条饮食记录吗？</p>
+        <p class="font-body-md text-body-md text-on-surface-variant" id="deleteMsg">确定要永久删除吗？</p>
       </div>
     </div>
     <div class="flex flex-col gap-3 pb-4">
@@ -374,7 +403,7 @@ input[type=range]:focus{outline:none}
 </div>
 
 <!-- ========== Bottom Navigation ========== -->
-<nav class="fixed bottom-0 w-full bg-surface-container-lowest shadow-[0_-4px_10px_rgba(0,0,0,.08)] z-50 flex justify-around items-center px-gutter py-stack-sm safe-area-bottom" id="bottomNav">
+<nav class="fixed bottom-0 w-full bg-surface-container-lowest shadow-[0_-4px_10px_rgba(0,0,0,.08)] z-50 flex justify-around items-center px-gutter py-stack-sm" id="bottomNav">
   <a class="nav-item flex flex-col items-center justify-center p-2 rounded-xl transition-colors cursor-pointer" data-tab="home" onclick="switchTab('home')">
     <span class="material-symbols-outlined mb-0.5 nav-icon">home</span>
     <span class="font-label-md text-label-md text-[11px] nav-label">首页</span>
@@ -383,13 +412,12 @@ input[type=range]:focus{outline:none}
     <span class="material-symbols-outlined mb-0.5 nav-icon">psychology</span>
     <span class="font-label-md text-label-md text-[11px] nav-label">教练</span>
   </a>
-  <!-- FAB -->
   <a class="flex items-center justify-center bg-primary text-on-primary rounded-full w-14 h-14 -mt-6 shadow-lg border-4 border-surface-container-lowest relative z-10 hover:scale-105 active:scale-95 transition-transform cursor-pointer" onclick="switchTab('scan')">
     <span class="material-symbols-outlined text-[28px]" style="font-variation-settings:'FILL' 1">add</span>
   </a>
-  <a class="nav-item flex flex-col items-center justify-center p-2 rounded-xl transition-colors cursor-pointer" data-tab="history" onclick="switchTab('history')">
+  <a class="nav-item flex flex-col items-center justify-center p-2 rounded-xl transition-colors cursor-pointer" data-tab="report" onclick="switchTab('report')">
     <span class="material-symbols-outlined mb-0.5 nav-icon">bar_chart</span>
-    <span class="font-label-md text-label-md text-[11px] nav-label">记录</span>
+    <span class="font-label-md text-label-md text-[11px] nav-label">报告</span>
   </a>
   <a class="nav-item flex flex-col items-center justify-center p-2 rounded-xl transition-colors cursor-pointer" data-tab="profile" onclick="switchTab('profile')">
     <span class="material-symbols-outlined mb-0.5 nav-icon">person</span>
@@ -399,42 +427,32 @@ input[type=range]:focus{outline:none}
 
 <script>
 // ===================== CONFIG =====================
-const API_BASE = "";  // 留空 = 同源 (本地或Cloud Run皆可)
-
-// ===================== STATE =====================
+const API_BASE = "";
 let selectedFile = null;
 let calTarget = parseInt(localStorage.getItem('calTarget')) || 2000;
 let proTarget = parseInt(localStorage.getItem('proTarget')) || 120;
+let calChart = null;
+let macroChart = null;
 
 // ===================== TAB SWITCHING =====================
 function switchTab(tab) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   const targetPage = document.getElementById('page-' + tab);
   if (targetPage) targetPage.classList.add('active');
-  
-  // Update nav highlights
+
   document.querySelectorAll('.nav-item').forEach(n => {
     const isActive = n.dataset.tab === tab;
     const icon = n.querySelector('.nav-icon');
-    const label = n.querySelector('.nav-label');
     if (icon) icon.style.fontVariationSettings = isActive ? "'FILL' 1" : "'FILL' 0";
-    if (isActive) {
-      n.classList.add('text-primary');
-      n.classList.remove('text-on-surface-variant');
-    } else {
-      n.classList.remove('text-primary');
-      n.classList.add('text-on-surface-variant');
-    }
+    n.classList.toggle('text-primary', isActive);
+    n.classList.toggle('text-on-surface-variant', !isActive);
   });
-  
-  // Hide bottom nav on result page
+
   document.getElementById('bottomNav').style.display = (tab === 'result') ? 'none' : '';
-  
-  // Fetch data when visiting relevant pages
+
   if (tab === 'home') fetchMeals();
   if (tab === 'history') fetchHistory();
-  
-  // Scroll to top
+  if (tab === 'report') fetchWeeklyReport();
   window.scrollTo(0, 0);
 }
 
@@ -459,15 +477,13 @@ async function doAnalyze() {
   if (!selectedFile) return;
   document.getElementById('analyzeBtn').classList.add('hidden');
   document.getElementById('analyzeLoading').classList.remove('hidden');
-
   const fd = new FormData();
   fd.append('image', selectedFile);
-
   try {
     const res = await fetch(API_BASE + '/api/analyze', { method: 'POST', body: fd });
     const json = await res.json();
     if (res.ok && json.success) {
-      showResult(json.data);
+      showResult(json);
     } else {
       alert(json.error || 'Analysis failed');
       document.getElementById('analyzeBtn').classList.remove('hidden');
@@ -480,15 +496,87 @@ async function doAnalyze() {
   }
 }
 
-function showResult(data) {
-  document.getElementById('resFoodName').textContent = data.food_name || '--';
-  document.getElementById('resCal').textContent = data.calories || 0;
-  document.getElementById('resPro').textContent = data.protein || 0;
-  document.getElementById('resCarbs').textContent = data.carbs || 0;
-  document.getElementById('resFat').textContent = data.fat || 0;
-  // Show the preview image on result page too
-  document.getElementById('resultImg').src = document.getElementById('imgPreview').src;
+function showResult(json) {
+  document.getElementById('resultImg').src = document.getElementById('imgPreview').src ? document.getElementById('imgPreview').src : (API_BASE + '/' + json.image_url);
+  const foods = json.foods || [];
+  let html = '';
+  foods.forEach((f, i) => {
+    html += `
+      <div class="bg-surface-container-lowest rounded-xl shadow-sm border border-surface-variant p-stack-md">
+        <div class="flex justify-between items-start mb-3">
+          <div>
+            <h3 class="font-headline-md text-headline-md text-on-background">${f.food_name}</h3>
+            <p class="font-label-md text-label-md text-outline">每份 <span id="calVal-${f.id}">${f.calories}</span> kcal</p>
+          </div>
+          <span class="font-stats-xl text-stats-xl text-primary"><span id="adjCal-${f.id}">${f.calories}</span><span class="text-xl font-body-md text-outline ml-1">kcal</span></span>
+        </div>
+        <div class="grid grid-cols-3 gap-2 mb-2">
+          <div><span class="font-label-md text-label-md text-outline">蛋白 </span><span class="font-headline-md text-headline-md" id="adjPro-${f.id}">${f.protein}</span>g</div>
+          <div><span class="font-label-md text-label-md text-outline">碳水 </span><span class="font-headline-md text-headline-md" id="adjCarbs-${f.id}">${f.carbs}</span>g</div>
+          <div><span class="font-label-md text-label-md text-outline">脂肪 </span><span class="font-headline-md text-headline-md" id="adjFat-${f.id}">${f.fat}</span>g</div>
+        </div>
+        <div class="flex items-center gap-3">
+          <span class="font-label-md text-label-md text-on-surface-variant">x</span>
+          <input type="range" min="0.25" max="5.0" step="0.25" value="1.0" class="flex-1 h-1 accent-primary"
+            oninput="adjustPortion(${f.id}, this.value, ${f.calories}, ${f.protein}, ${f.carbs}, ${f.fat})"
+            onchange="savePortion(${f.id}, this.value)">
+          <span class="font-label-md text-label-md text-primary whitespace-nowrap" id="portionLabel-${f.id}">1.0x</span>
+        </div>
+      </div>`;
+  });
+  document.getElementById('resultFoods').innerHTML = html;
+  updateSummary(foods);
+  document.getElementById('analyzeBtn').classList.add('hidden');
+  document.getElementById('analyzeLoading').classList.add('hidden');
   switchTab('result');
+}
+
+function adjustPortion(id, portion, origCal, origPro, origCarbs, origFat) {
+  const p = parseFloat(portion);
+  document.getElementById('portionLabel-' + id).textContent = p.toFixed(2) + 'x';
+  document.getElementById('adjCal-' + id).textContent = Math.round(origCal * p);
+  document.getElementById('adjPro-' + id).textContent = Math.round(origPro * p);
+  document.getElementById('adjCarbs-' + id).textContent = Math.round(origCarbs * p);
+  document.getElementById('adjFat-' + id).textContent = Math.round(origFat * p);
+  // Recompute summary from DOM
+  let totalCal=0, totalPro=0, totalCarbs=0, totalFat=0, count=0;
+  document.querySelectorAll('[id^="adjCal-"]').forEach(el => {
+    totalCal += parseInt(el.textContent) || 0;
+    count++;
+  });
+  document.querySelectorAll('[id^="adjPro-"]').forEach(el => { totalPro += parseInt(el.textContent) || 0; });
+  document.querySelectorAll('[id^="adjCarbs-"]').forEach(el => { totalCarbs += parseInt(el.textContent) || 0; });
+  document.querySelectorAll('[id^="adjFat-"]').forEach(el => { totalFat += parseInt(el.textContent) || 0; });
+  document.getElementById('sumCal').textContent = totalCal;
+  document.getElementById('sumPro').textContent = totalPro + 'g';
+  document.getElementById('sumCarbs').textContent = totalCarbs + 'g';
+  document.getElementById('sumFat').textContent = totalFat + 'g';
+  document.getElementById('foodCount').textContent = count;
+}
+
+async function savePortion(id, portion) {
+  try {
+    await fetch(API_BASE + '/api/meals/' + id, {
+      method: 'PATCH',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({portion: parseFloat(portion)})
+    });
+  } catch(e) { console.error('Save portion error:', e); }
+}
+
+function updateSummary(foods) {
+  let totalCal=0, totalPro=0, totalCarbs=0, totalFat=0;
+  foods.forEach(f => {
+    totalCal += f.calories||0;
+    totalPro += f.protein||0;
+    totalCarbs += f.carbs||0;
+    totalFat += f.fat||0;
+  });
+  document.getElementById('sumCal').textContent = totalCal;
+  document.getElementById('sumPro').textContent = totalPro + 'g';
+  document.getElementById('sumCarbs').textContent = totalCarbs + 'g';
+  document.getElementById('sumFat').textContent = totalFat + 'g';
+  document.getElementById('foodCount').textContent = foods.length;
 }
 
 function resetScan() {
@@ -501,6 +589,77 @@ function resetScan() {
   switchTab('home');
 }
 
+// ===================== VOICE INPUT =====================
+let recognition = null;
+let voiceTranscript = '';
+
+function startVoiceInput() {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) {
+    alert('您的浏览器不支持语音输入。请使用 Chrome 浏览器。');
+    return;
+  }
+  voiceTranscript = '';
+  const m = document.getElementById('voiceModal');
+  m.style.display = 'flex';
+  m.classList.remove('hidden');
+  document.getElementById('voiceListening').classList.remove('hidden');
+  document.getElementById('voiceProcessing').classList.add('hidden');
+  document.getElementById('voiceText').textContent = '请说出你吃了什么';
+
+  recognition = new SpeechRecognition();
+  recognition.lang = 'zh-CN';
+  recognition.interimResults = true;
+  recognition.continuous = false;
+  recognition.onresult = (e) => {
+    voiceTranscript = Array.from(e.results).map(r => r[0].transcript).join('');
+    document.getElementById('voiceText').textContent = voiceTranscript || '正在聆听...';
+  };
+  recognition.onerror = (e) => {
+    console.error('Speech error:', e);
+    document.getElementById('voiceText').textContent = '识别失败，请重试';
+  };
+  recognition.onend = () => {
+    if (voiceTranscript) {
+      setTimeout(() => sendVoiceText(voiceTranscript), 1000);
+    }
+  };
+  recognition.start();
+}
+
+function stopVoiceInput() {
+  if (recognition) recognition.stop();
+}
+
+async function sendVoiceText(text) {
+  document.getElementById('voiceListening').classList.add('hidden');
+  document.getElementById('voiceProcessing').classList.remove('hidden');
+  document.getElementById('voiceFinalText').textContent = '"' + text + '"';
+  try {
+    const res = await fetch(API_BASE + '/api/voice-input', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({text: text})
+    });
+    const json = await res.json();
+    closeVoiceModal();
+    if (res.ok && json.success) {
+      showResult(json);
+    } else {
+      alert(json.error || '语音识别失败');
+    }
+  } catch (err) {
+    closeVoiceModal();
+    alert('Network error: ' + err.message);
+  }
+}
+
+function closeVoiceModal() {
+  const m = document.getElementById('voiceModal');
+  m.style.display = 'none';
+  m.classList.add('hidden');
+}
+
 // ===================== FETCH MEALS =====================
 async function fetchMeals() {
   try {
@@ -508,40 +667,44 @@ async function fetchMeals() {
     const json = await res.json();
     const list = document.getElementById('mealList');
     const meals = json.data || [];
-
     if (meals.length === 0) {
       list.innerHTML = '<p class="text-outline text-center py-8">暂无记录，点击底部扫描按钮开始吧！</p>';
       updateRings(0, 0, 0, 0);
       return;
     }
+    // Group by session_id
+    const groups = {};
+    meals.forEach(m => {
+      const sid = m.session_id || 'solo_' + m.id;
+      if (!groups[sid]) groups[sid] = {items:[], image_path: '', session_id: sid};
+      groups[sid].items.push(m);
+      if (m.image_path) groups[sid].image_path = m.image_path;
+    });
 
     let totalCal=0, totalPro=0, totalCarbs=0, totalFat=0;
     let html = '';
-    meals.forEach(m => {
-      totalCal += m.calories||0;
-      totalPro += m.protein||0;
-      totalCarbs += m.carbs||0;
-      totalFat += m.fat||0;
-      const imgSrc = m.image_path ? (API_BASE + '/' + m.image_path) : '';
+    Object.values(groups).forEach(g => {
+      const imgSrc = g.image_path ? (API_BASE + '/' + g.image_path) : '';
+      meals.forEach(m => {
+        totalCal += m.calories||0;
+        totalPro += m.protein||0;
+        totalCarbs += m.carbs||0;
+        totalFat += m.fat||0;
+      });
+      const foodNames = g.items.map(m => m.food_name + ' ' + (m.calories) + 'kcal').join('<br>');
       html += `
-        <div class="bg-surface-container-lowest rounded-xl shadow-sm border border-surface-variant p-stack-md flex justify-between items-center" id="meal-${m.id}">
-          <div class="flex items-center gap-3">
-            <div class="w-12 h-12 rounded-lg bg-surface-container-high overflow-hidden flex items-center justify-center">
+        <div class="bg-surface-container-lowest rounded-xl shadow-sm border border-surface-variant p-stack-md" id="meal-group-${g.session_id}">
+          <div class="flex gap-3">
+            <div class="w-12 h-12 rounded-lg bg-surface-container-high overflow-hidden flex-shrink-0 flex items-center justify-center">
               ${imgSrc ? `<img src="${imgSrc}" class="w-full h-full object-cover"/>` : `<span class="material-symbols-outlined text-outline">restaurant</span>`}
             </div>
-            <div>
-              <h4 class="font-body-lg text-body-lg font-semibold text-on-background">${m.food_name}</h4>
-              <p class="font-label-md text-label-md text-outline">${m.created_at||''}</p>
+            <div class="flex-1">
+              <div class="font-body-md text-body-md text-on-background leading-relaxed mb-1">${foodNames}</div>
+              <p class="font-label-md text-label-md text-outline">${g.items[0].created_at||''}</p>
             </div>
           </div>
-          <div class="flex items-center gap-3">
-            <div class="text-right">
-              <div class="font-headline-md text-headline-md text-on-background">${m.calories} <span class="font-body-md text-body-md text-on-surface-variant font-normal">kcal</span></div>
-              <div class="font-label-md text-label-md text-primary">${m.protein||0}g 蛋白质</div>
-            </div>
-            <button onclick="deleteMeal(${m.id})" class="w-8 h-8 rounded-full flex items-center justify-center text-outline hover:text-error hover:bg-error-container transition-colors">
-              <span class="material-symbols-outlined text-[18px]">delete</span>
-            </button>
+          <div class="flex justify-end mt-2">
+            <button onclick="deleteSession('${g.session_id}')" class="text-xs text-outline hover:text-error px-2 py-1 rounded-full hover:bg-error-container transition-colors">删除</button>
           </div>
         </div>`;
     });
@@ -561,7 +724,10 @@ function updateRings(cal, pro, carbs, fat) {
   document.getElementById('totalPro').textContent = pro + 'g';
   document.getElementById('totalCarbs').textContent = carbs;
   document.getElementById('totalFat').textContent = fat;
+
   document.getElementById('headerCalBadge').textContent = cal.toLocaleString() + ' kcal';
+  document.getElementById('calTargetLabel').textContent = calTarget.toLocaleString();
+  document.getElementById('proTargetLabel').textContent = proTarget;
 }
 
 // ===================== FETCH HISTORY =====================
@@ -575,74 +741,127 @@ async function fetchHistory() {
       list.innerHTML = '<p class="text-outline text-center py-8">暂无记录</p>';
       return;
     }
-    let html = '';
+    const groups = {};
     meals.forEach(m => {
-      const imgSrc = m.image_path ? (API_BASE + '/' + m.image_path) : '';
+      const sid = m.session_id || 'solo_' + m.id;
+      if (!groups[sid]) groups[sid] = {items:[], image_path: ''};
+      groups[sid].items.push(m);
+      if (m.image_path) groups[sid].image_path = m.image_path;
+    });
+    let html = '';
+    Object.values(groups).forEach(g => {
+      const imgSrc = g.image_path ? (API_BASE + '/' + g.image_path) : '';
+      const foodNames = g.items.map(m => `${m.food_name} (${m.portion||1}x) ${m.calories}kcal`).join('<br>');
+      const groupCal = g.items.reduce((s, m) => s + (m.calories||0), 0);
       html += `
-        <div class="bg-surface-container-lowest rounded-xl shadow-sm border border-surface-variant p-stack-md flex justify-between items-center" id="hist-${m.id}">
-          <div class="flex items-center gap-3">
-            <div class="w-12 h-12 rounded-lg bg-surface-container-high overflow-hidden flex items-center justify-center">
+        <div class="bg-surface-container-lowest rounded-xl shadow-sm border border-surface-variant p-stack-md">
+          <div class="flex gap-3 items-start">
+            <div class="w-12 h-12 rounded-lg bg-surface-container-high overflow-hidden flex-shrink-0 flex items-center justify-center">
               ${imgSrc ? `<img src="${imgSrc}" class="w-full h-full object-cover"/>` : `<span class="material-symbols-outlined text-outline">restaurant</span>`}
             </div>
-            <div>
-              <h4 class="font-body-lg text-body-lg font-semibold text-on-background">${m.food_name}</h4>
-              <p class="font-label-md text-label-md text-outline">${m.created_at||''}</p>
+            <div class="flex-1">
+              <div class="font-body-md text-body-md text-on-background leading-relaxed mb-1">${foodNames}</div>
+              <div class="flex justify-between items-center">
+                <p class="font-label-md text-label-md text-outline">${g.items[0].created_at||''}</p>
+                <span class="font-headline-md text-headline-md text-primary">${groupCal} kcal</span>
+              </div>
             </div>
-          </div>
-          <div class="flex items-center gap-3">
-            <div class="text-right">
-              <div class="font-headline-md text-headline-md text-on-background">${m.calories} <span class="font-body-md text-body-md text-on-surface-variant font-normal">kcal</span></div>
-              <div class="font-label-md text-label-md text-primary">${m.protein||0}g 蛋白</div>
-            </div>
-            <button onclick="deleteMeal(${m.id})" class="w-8 h-8 rounded-full flex items-center justify-center text-outline hover:text-error hover:bg-error-container transition-colors">
-              <span class="material-symbols-outlined text-[18px]">delete</span>
-            </button>
+            <button onclick="deleteSession('${g.items[0].session_id}')" class="text-outline hover:text-error p-1"><span class="material-symbols-outlined text-[18px]">delete</span></button>
           </div>
         </div>`;
     });
     list.innerHTML = html;
-  } catch (err) {
-    console.error('Fetch history error:', err);
-  }
+  } catch(e) { console.error(e); }
 }
 
-// ===================== DELETE MEAL =====================
-let mealToDelete = null;
+// ===================== DELETE =====================
+let sessionToDelete = null;
 
-function deleteMeal(id) {
-  mealToDelete = id;
+function deleteSession(sid) {
+  sessionToDelete = sid;
+  document.getElementById('deleteMsg').textContent = '确定要永久删除这组饮食记录吗？';
   const m = document.getElementById('deleteConfirmModal');
   m.classList.remove('hidden');
   m.style.display = 'flex';
 }
 
 async function confirmDelete() {
-  if (!mealToDelete) return;
-  const id = mealToDelete;
+  if (!sessionToDelete) return;
   document.getElementById('deleteConfirmModal').style.display = 'none';
-  
   try {
-    const res = await fetch(API_BASE + '/api/meals/' + id, { method: 'DELETE' });
-    if (res.ok) {
-      // Animate removal
-      const el1 = document.getElementById('meal-' + id);
-      const el2 = document.getElementById('hist-' + id);
-      [el1, el2].forEach(el => {
-        if (el) {
-          el.style.transition = 'all 0.3s ease';
-          el.style.opacity = '0';
-          el.style.transform = 'translateX(100%)';
-          setTimeout(() => el.remove(), 300);
+    await fetch(API_BASE + '/api/meals/session/' + sessionToDelete, { method: 'DELETE' });
+    const el = document.getElementById('meal-group-' + sessionToDelete);
+    if (el) { el.style.opacity='0'; el.style.transition='all .3s'; setTimeout(()=>el.remove(),300); }
+    setTimeout(() => { fetchMeals(); fetchHistory(); }, 400);
+  } catch(e) { alert('删除失败: ' + e.message); }
+  sessionToDelete = null;
+}
+
+// ===================== WEEKLY REPORT =====================
+async function fetchWeeklyReport() {
+  try {
+    const res = await fetch(API_BASE + '/api/report/weekly');
+    const json = await res.json();
+    const data = json.data || [];
+    const days = data.map(d => d.day.slice(5)); // MM-DD
+    const cals = data.map(d => Math.round(d.total_calories || 0));
+    const pros = data.map(d => Math.round(d.total_protein || 0));
+    const carbs = data.map(d => Math.round(d.total_carbs || 0));
+    const fats = data.map(d => Math.round(d.total_fat || 0));
+
+    // Stats
+    const avgCal = cals.length ? Math.round(cals.reduce((a,b)=>a+b,0)/cals.length) : 0;
+    const avgPro = pros.length ? Math.round(pros.reduce((a,b)=>a+b,0)/pros.length) : 0;
+    document.getElementById('avgCal').textContent = avgCal;
+    document.getElementById('avgPro').textContent = avgPro;
+
+    // Calorie chart
+    if (calChart) calChart.destroy();
+    const calCtx = document.getElementById('calorieChart').getContext('2d');
+    calChart = new Chart(calCtx, {
+      type: 'line',
+      data: {
+        labels: days,
+        datasets: [
+          { label: '热量 (kcal)', data: cals, borderColor: '#0f5238', backgroundColor: 'rgba(15,82,56,0.1)', fill: true, tension: 0.3, pointRadius: 4, pointBackgroundColor: '#0f5238' },
+          { label: '目标', data: Array(7).fill(calTarget), borderColor: '#ba1a1a', borderDash: [6,3], borderWidth: 2, pointRadius: 0, fill: false }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          y: { beginAtZero: true, grid: { color: '#bfc9c1' }, ticks: { callback: v => v + ' kcal' } },
+          x: { grid: { display: false } }
         }
-      });
-      // Refresh data after short delay
-      setTimeout(() => { fetchMeals(); fetchHistory(); }, 400);
-    }
-  } catch (err) {
-    alert('删除失败: ' + err.message);
-  } finally {
-    mealToDelete = null;
-  }
+      }
+    });
+
+    // Macro chart
+    if (macroChart) macroChart.destroy();
+    const macroCtx = document.getElementById('macroChart').getContext('2d');
+    macroChart = new Chart(macroCtx, {
+      type: 'bar',
+      data: {
+        labels: days,
+        datasets: [
+          { label: '蛋白质', data: pros, backgroundColor: '#beead1' },
+          { label: '碳水', data: carbs, backgroundColor: '#00687e' },
+          { label: '脂肪', data: fats, backgroundColor: '#ba1a1a' }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { position: 'bottom', labels: { usePointStyle: true, padding: 16 } } },
+        scales: {
+          x: { stacked: true, grid: { display: false } },
+          y: { stacked: true, grid: { color: '#bfc9c1' }, ticks: { callback: v => v + 'g' } }
+        }
+      }
+    });
+  } catch(e) { console.error('Report error:', e); }
 }
 
 // ===================== AI COACH =====================
@@ -651,18 +870,14 @@ function sendCoachMsg(quickMsg) {
   const msg = quickMsg || input.value.trim();
   if (!msg) return;
   input.value = '';
-  
+
   const chat = document.getElementById('chatMessages');
-  // Add user message
   chat.innerHTML += `
     <div class="flex items-start gap-3 justify-end">
       <div class="bg-primary text-on-primary rounded-2xl rounded-tr-none px-4 py-3 max-w-[80%]">
         <p class="font-body-md text-body-md">${msg}</p>
       </div>
-    </div>`;
-  
-  // Add loading
-  chat.innerHTML += `
+    </div>
     <div class="flex items-start gap-3" id="coachLoading">
       <div class="w-8 h-8 rounded-full bg-tertiary-container flex items-center justify-center flex-shrink-0 mt-1">
         <span class="material-symbols-outlined text-on-primary text-sm" style="font-variation-settings:'FILL' 1">psychology</span>
@@ -672,15 +887,11 @@ function sendCoachMsg(quickMsg) {
       </div>
     </div>`;
   chat.scrollTop = chat.scrollHeight;
-  
-  // Generate coach response based on meal data
   generateCoachResponse(msg);
 }
 
 async function generateCoachResponse(userMsg) {
   const chat = document.getElementById('chatMessages');
-  
-  // Fetch current meal data for context
   let mealContext = '用户今天没有饮食记录。';
   try {
     const res = await fetch(API_BASE + '/api/meals');
@@ -689,12 +900,11 @@ async function generateCoachResponse(userMsg) {
     if (meals.length > 0) {
       let totalCal=0, totalPro=0;
       meals.forEach(m => { totalCal+=m.calories||0; totalPro+=m.protein||0; });
-      const names = meals.map(m => m.food_name).join('、');
-      mealContext = `用户今天已吃: ${names}。总热量 ${totalCal} kcal，蛋白质 ${totalPro}g。目标 2000 kcal / 120g 蛋白。`;
+      const names = [...new Set(meals.map(m => m.food_name))].join('、');
+      mealContext = `用户今天已吃: ${names}。总热量 ${totalCal} kcal，蛋白质 ${totalPro}g。目标 ${calTarget} kcal / ${proTarget}g 蛋白。`;
     }
   } catch(e) {}
-  
-  // Simple rule-based responses (no extra API call needed)
+
   let reply = '';
   const q = userMsg.toLowerCase();
   if (q.includes('热量') || q.includes('额度') || q.includes('剩')) {
@@ -704,10 +914,9 @@ async function generateCoachResponse(userMsg) {
   } else if (q.includes('蛋白') || q.includes('protein')) {
     reply = '高蛋白食物推荐：🍗鸡胸肉(31g/100g)、🥚鸡蛋(13g/个)、🦞虾仁(24g/100g)、🧀希腊酸奶(10g/100g)、🫘豆腐(8g/100g)。每餐摄入25-30g蛋白质最佳！';
   } else {
-    reply = `${mealContext} 有什么具体的饮食问题我可以帮你解答？比如问我“今天还能吃什么”或者“推荐高蛋白食物”。`;
+    reply = `${mealContext} 有什么具体的饮食问题我可以帮你解答？比如问我"今天还能吃什么"或者"推荐高蛋白食物"。`;
   }
-  
-  // Remove loading, add reply
+
   const loading = document.getElementById('coachLoading');
   if (loading) loading.remove();
   chat.innerHTML += `
@@ -722,54 +931,35 @@ async function generateCoachResponse(userMsg) {
   chat.scrollTop = chat.scrollHeight;
 }
 
-// ===================== PROFILE SETTINGS =====================
+// ===================== PROFILE =====================
 let currentEditType = '';
-
 function editTarget(type) {
   currentEditType = type;
   const m = document.getElementById('editTargetModal');
   const title = document.getElementById('editTargetTitle');
   const input = document.getElementById('editTargetInput');
-  
-  if (type === 'cal') {
-    title.textContent = '每日热量目标 (kcal)';
-    input.value = calTarget;
-  } else {
-    title.textContent = '每日蛋白质目标 (g)';
-    input.value = proTarget;
-  }
-  
+  title.textContent = type === 'cal' ? '每日热量目标 (kcal)' : '每日蛋白质目标 (g)';
+  input.value = type === 'cal' ? calTarget : proTarget;
   m.classList.remove('hidden');
   m.style.display = 'flex';
   input.focus();
 }
-
 function saveTarget() {
   const val = parseInt(document.getElementById('editTargetInput').value);
   if (val && val > 0) {
-    if (currentEditType === 'cal') {
-      calTarget = val;
-      localStorage.setItem('calTarget', calTarget);
-    } else {
-      proTarget = val;
-      localStorage.setItem('proTarget', proTarget);
-    }
+    if (currentEditType === 'cal') { calTarget = val; localStorage.setItem('calTarget', calTarget); }
+    else { proTarget = val; localStorage.setItem('proTarget', proTarget); }
     applyTargets();
-    fetchMeals(); // Refresh rings
+    fetchMeals();
   }
   document.getElementById('editTargetModal').style.display = 'none';
 }
-
 function applyTargets() {
   document.getElementById('calTargetDisplay').textContent = calTarget.toLocaleString() + ' kcal';
   document.getElementById('proTargetDisplay').textContent = proTarget + 'g';
-  // Update the ring labels on home page
-  const calLabel = document.querySelector('#page-home .grid .bg-surface-container-lowest:first-child .font-label-md');
-  const proLabel = document.querySelector('#page-home .grid .bg-surface-container-lowest:nth-child(2) .font-label-md');
-  if (calLabel) calLabel.textContent = '/ ' + calTarget.toLocaleString();
-  if (proLabel) proLabel.textContent = '/ ' + proTarget + 'g';
+  document.getElementById('calTargetLabel').textContent = calTarget.toLocaleString();
+  document.getElementById('proTargetLabel').textContent = proTarget;
 }
-
 function showAbout() {
   const m = document.getElementById('aboutModal');
   m.classList.remove('hidden');
