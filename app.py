@@ -25,10 +25,186 @@ UPLOAD_FOLDER = 'uploads'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
+import io
+import base64
+import requests
+
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
-if not GEMINI_API_KEY:
-    raise ValueError("GEMINI_API_KEY 环境变量未设置！请在 Cloud Run 或本地 .env 中配置后重启应用。")
-client = genai.Client(api_key=GEMINI_API_KEY)
+OPENROUTER_API_KEY = os.environ.get('OPENROUTER_API_KEY')
+
+if not GEMINI_API_KEY and not OPENROUTER_API_KEY:
+    raise ValueError("GEMINI_API_KEY 或 OPENROUTER_API_KEY 环境变量未设置！请在本地 .env 中配置后重启应用。")
+
+client = None
+if GEMINI_API_KEY:
+    try:
+        client = genai.Client(api_key=GEMINI_API_KEY)
+    except Exception as e:
+        print(f"初始化 Google GenAI client 失败: {e}")
+
+def call_llm(prompt_text, image=None, audio=None, mime_type=None, history=None, system_instruction=None, temperature=0.7):
+    """
+    Unified interface to call either OpenRouter API (if OPENROUTER_API_KEY is configured)
+    or fall back to official Google Gemini API (using client.models.generate_content).
+    """
+    if OPENROUTER_API_KEY:
+        # ----------------------------------------------------
+        # OpenRouter API Path
+        # ----------------------------------------------------
+        url = "https://openrouter.ai/api/v1/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://nutrisnap.ai",
+            "X-Title": "NutriSnap AI"
+        }
+        
+        # Build messages payload
+        messages = []
+        if system_instruction:
+            messages.append({"role": "system", "content": system_instruction})
+            
+        if history:
+            for h in history:
+                role = 'user' if h.get('role') == 'user' else 'assistant'
+                messages.append({"role": role, "content": h.get('content', '')})
+                
+        user_content = []
+        if prompt_text:
+            user_content.append({"type": "text", "text": prompt_text})
+            
+        if image:
+            # Encode PIL Image to base64
+            buffer = io.BytesIO()
+            image.save(buffer, format="JPEG")
+            img_b64 = base64.b64encode(buffer.getvalue()).decode('utf-8')
+            user_content.append({
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:image/jpeg;base64,{img_b64}"
+                }
+            })
+            
+        if audio:
+            # Encode audio bytes to base64
+            audio_b64 = base64.b64encode(audio).decode('utf-8')
+            mtype = mime_type or 'audio/webm'
+            user_content.append({
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:{mtype};base64,{audio_b64}"
+                }
+            })
+            
+        if user_content:
+            messages.append({"role": "user", "content": user_content})
+            
+        # Model candidates for OpenRouter
+        models_to_try = [
+            'google/gemini-2.5-flash',
+            'google/gemini-2.5-flash-lite',
+            'google/gemini-2.0-flash',
+            'google/gemini-1.5-flash',
+        ]
+        
+        last_error = None
+        for model in models_to_try:
+            payload = {
+                "model": model,
+                "messages": messages,
+                "temperature": temperature
+            }
+            try:
+                print(f"Calling OpenRouter model: {model}")
+                res = requests.post(url, headers=headers, json=payload, timeout=45)
+                res_json = res.json()
+                if res.status_code == 200 and 'choices' in res_json:
+                    reply = res_json['choices'][0]['message']['content']
+                    print(f"Success with OpenRouter model: {model}")
+                    return reply
+                else:
+                    error_msg = res_json.get('error', {}).get('message', res.text)
+                    print(f"OpenRouter model {model} failed: {error_msg}")
+                    last_error = Exception(f"OpenRouter error: {error_msg}")
+            except Exception as e:
+                print(f"OpenRouter network/request error with model {model}: {e}")
+                last_error = e
+                
+        raise last_error or Exception("OpenRouter request failed.")
+        
+    else:
+        # ----------------------------------------------------
+        # Google SDK Path (Fallback)
+        # ----------------------------------------------------
+        if not client:
+            raise ValueError("Google SDK Client 未初始化，且没有设置 OPENROUTER_API_KEY。")
+            
+        models_to_try = [
+            'gemini-3.5-flash',
+            'gemini-2.5-flash',
+            'gemini-2.5-flash-lite',
+            'gemini-2.0-flash',
+            'gemini-3.1-flash-lite',
+        ]
+        
+        # GenAI SDK contents format
+        contents = []
+        if history:
+            for h in history:
+                role = 'user' if h.get('role') == 'user' else 'model'
+                contents.append({
+                    'role': role,
+                    'parts': [{'text': h.get('content', '')}]
+                })
+                
+        parts = []
+        if prompt_text:
+            parts.append(prompt_text)
+        if image:
+            parts.append(image)
+        if audio:
+            from google.genai import types
+            parts.append(
+                types.Part.from_bytes(
+                    data=audio,
+                    mime_type=mime_type or 'audio/webm'
+                )
+            )
+            
+        if parts:
+            if history:
+                contents.append({
+                    'role': 'user',
+                    'parts': [{'text': p} if isinstance(p, str) else p for p in parts]
+                })
+            else:
+                contents = parts
+                
+        config = {'temperature': temperature}
+        if system_instruction:
+            config['system_instruction'] = system_instruction
+            
+        last_error = None
+        for model in models_to_try:
+            try:
+                print(f"Calling Google SDK model: {model}")
+                response = client.models.generate_content(
+                    model=model,
+                    contents=contents,
+                    config=config
+                )
+                print(f"Success with Google SDK model: {model}")
+                return response.text
+            except Exception as api_err:
+                last_error = api_err
+                err_str = str(api_err)
+                if '429' in err_str or 'RESOURCE_EXHAUSTED' in err_str or 'quota' in err_str.lower():
+                    print(f"Google SDK model {model} quota exhausted, skipping...")
+                    continue
+                print(f"Google SDK model {model} failed: {api_err}")
+                continue
+                
+        raise last_error or Exception("Google SDK request failed.")
 
 # ==========================================
 # 2. 数据库配置
@@ -328,37 +504,7 @@ If there are no food items in the image, return:
 {"error": "未检测到食物"}
 Strictly output JSON only, do not add any explanation or markdown formatting."""
 
-        models_to_try = [
-            'gemini-3.5-flash',
-            'gemini-2.5-flash',
-            'gemini-2.5-flash-lite',
-            'gemini-2.0-flash',
-            'gemini-3.1-flash-lite',
-        ]
-        result_text = None
-        last_error = None
-
-        for model_name in models_to_try:
-            try:
-                print(f"Trying model: {model_name}")
-                response = client.models.generate_content(
-                    model=model_name,
-                    contents=[prompt, img]
-                )
-                result_text = response.text
-                print(f"Success with model: {model_name}")
-                break
-            except Exception as api_err:
-                last_error = api_err
-                err_str = str(api_err)
-                if '429' in err_str or 'RESOURCE_EXHAUSTED' in err_str or 'quota' in err_str.lower():
-                    print(f"Model {model_name} quota exhausted, skipping...")
-                    continue
-                print(f"Model {model_name} failed: {api_err}")
-                continue
-
-        if result_text is None:
-            raise last_error
+        result_text = call_llm(prompt_text=prompt, image=img)
 
         foods = parse_ai_multi_result(result_text)
         if foods is None:
@@ -487,33 +633,7 @@ def voice_input():
 Strictly output JSON only, do not add any explanation or markdown formatting."""
 
     try:
-        models_to_try = [
-            'gemini-3.5-flash',
-            'gemini-2.5-flash',
-            'gemini-2.5-flash-lite',
-            'gemini-2.0-flash',
-            'gemini-3.1-flash-lite',
-        ]
-        result_text = None
-        last_error = None
-
-        for model_name in models_to_try:
-            try:
-                response = client.models.generate_content(
-                    model=model_name,
-                    contents=prompt
-                )
-                result_text = response.text
-                break
-            except Exception as api_err:
-                last_error = api_err
-                err_str = str(api_err)
-                if '429' in err_str or 'RESOURCE_EXHAUSTED' in err_str or 'quota' in err_str.lower():
-                    continue
-                continue
-
-        if result_text is None:
-            raise last_error
+        result_text = call_llm(prompt_text=prompt)
 
         parsed = parse_voice_input_result(result_text)
         if parsed is None or (not parsed['foods'] and not parsed['exercises']):
@@ -572,45 +692,8 @@ def speech_to_text():
         if len(audio_bytes) < 100:
             return jsonify({"error": "音频文件过小或无效"}), 400
 
-        from google.genai import types
-
-        models_to_try = [
-            'gemini-3.5-flash',
-            'gemini-2.5-flash',
-            'gemini-2.5-flash-lite',
-            'gemini-2.0-flash',
-            'gemini-1.5-flash',
-        ]
-        
-        result_text = None
-        last_error = None
-
         prompt = "请将这段录音直接转写成中文文本，不要包含任何额外的引导语、标点纠正解释，仅输出转写文本本身。如果是静音或没有说话，请直接返回空字符串。"
-
-        for model_name in models_to_try:
-            try:
-                response = client.models.generate_content(
-                    model=model_name,
-                    contents=[
-                        types.Part.from_bytes(
-                            data=audio_bytes,
-                            mime_type=mime_type
-                        ),
-                        prompt
-                    ]
-                )
-                result_text = response.text
-                break
-            except Exception as api_err:
-                last_error = api_err
-                err_str = str(api_err)
-                print(f"Failed STT with model {model_name}: {err_str}")
-                if '429' in err_str or 'RESOURCE_EXHAUSTED' in err_str or 'quota' in err_str.lower():
-                    continue
-                continue
-
-        if result_text is None:
-            raise last_error
+        result_text = call_llm(prompt_text=prompt, audio=audio_bytes, mime_type=mime_type)
 
         transcription = result_text.strip()
         # Clean quotes or markdown from the transcription
@@ -839,59 +922,15 @@ def coach_chat():
 4. 回复保持简洁、重点突出，字数控制在 250 字以内，方便手机端阅读。
 5. 只能回答跟饮食、营养、运动、健康相关的问题，其他无关话题请礼貌性拒绝。"""
 
-    # Format history for GenAI SDK
-    contents = []
-    for msg in history:
-        role = 'user' if msg.get('role') == 'user' else 'model'
-        content_text = msg.get('content', '')
-        if content_text:
-            contents.append({
-                'role': role,
-                'parts': [{'text': content_text}]
-            })
-            
-    if user_message:
-        contents.append({
-            'role': 'user',
-            'parts': [{'text': user_message}]
-        })
-
-    models_to_try = [
-        'gemini-3.5-flash',
-        'gemini-2.5-flash',
-        'gemini-2.5-flash-lite',
-        'gemini-2.0-flash',
-        'gemini-3.1-flash-lite',
-    ]
-
-    response_text = None
-    last_error = None
-
-    for model_name in models_to_try:
-        try:
-            print(f"Coach calling model: {model_name}")
-            response = client.models.generate_content(
-                model=model_name,
-                contents=contents,
-                config={
-                    'system_instruction': system_instruction,
-                    'temperature': 0.7,
-                }
-            )
-            response_text = response.text
-            print(f"Coach success with model: {model_name}")
-            break
-        except Exception as api_err:
-            last_error = api_err
-            err_str = str(api_err)
-            if '429' in err_str or 'RESOURCE_EXHAUSTED' in err_str or 'quota' in err_str.lower():
-                print(f"Coach model {model_name} quota exhausted, skipping...")
-                continue
-            print(f"Coach model {model_name} failed: {api_err}")
-            continue
-
-    if response_text is None:
-        return jsonify({"error": f"AI 营养教练服务繁忙，请稍后再试。详细错误: {str(last_error)}"}), 500
+    try:
+        response_text = call_llm(
+            prompt_text=user_message,
+            history=history,
+            system_instruction=system_instruction,
+            temperature=0.7
+        )
+    except Exception as api_err:
+        return jsonify({"error": f"AI 营养教练服务繁忙，请稍后再试。详细错误: {str(api_err)}"}), 500
 
     return jsonify({
         "success": True,
@@ -1142,31 +1181,7 @@ def report_suggestions():
 4. 语言亲切专业，使用列表和 Markdown 排版，字数控制在 250 字以内，多用 Emoji。"""
 
     try:
-        models_to_try = [
-            'gemini-3.5-flash',
-            'gemini-2.5-flash',
-            'gemini-2.5-flash-lite',
-            'gemini-2.0-flash',
-            'gemini-3.1-flash-lite',
-        ]
-        
-        response_text = None
-        last_error = None
-        
-        for model_name in models_to_try:
-            try:
-                response = client.models.generate_content(
-                    model=model_name,
-                    contents=prompt
-                )
-                response_text = response.text
-                break
-            except Exception as api_err:
-                last_error = api_err
-                continue
-                
-        if response_text is None:
-            raise last_error
+        response_text = call_llm(prompt_text=prompt)
             
         return jsonify({"success": True, "suggestions": response_text})
     except Exception as e:

@@ -35,10 +35,10 @@ tailwind.config = {
       fontSize: {
         "body-lg":["18px",{"lineHeight":"28px","fontWeight":"400"}],
         "body-md":["16px",{"lineHeight":"24px","fontWeight":"400"}],
-        "stats-xl":["40px",{"lineHeight":"40px","letterSpacing":"-0.03em","fontWeight":"800"}],
+        "stats-xl":["40px",{"lineHeight":"40px","letterSpacing":"0","fontWeight":"800"}],
         "headline-md":["24px",{"lineHeight":"32px","fontWeight":"600"}],
-        "headline-lg-mobile":["28px",{"lineHeight":"36px","letterSpacing":"-0.01em","fontWeight":"700"}],
-        "label-md":["14px",{"lineHeight":"20px","letterSpacing":"0.05em","fontWeight":"500"}]
+        "headline-lg-mobile":["28px",{"lineHeight":"36px","letterSpacing":"0","fontWeight":"700"}],
+        "label-md":["14px",{"lineHeight":"20px","letterSpacing":"0","fontWeight":"500"}]
       }
     }
   }
@@ -50,15 +50,15 @@ tailwind.config = {
   --on-background: #191c1a;
   --primary: #0f5238;
   --on-primary: #ffffff;
-  --primary-container: #2d6a4f;
-  --on-primary-container: #a8e7c5;
-  --primary-fixed: #b1f0ce;
-  --primary-fixed-dim: #95d4b3;
+  --primary-container: #166649;
+  --on-primary-container: #baf3d6;
+  --primary-fixed: #baf3d6;
+  --primary-fixed-dim: #9fe4bf;
   --secondary: #3f6653;
   --on-secondary: #ffffff;
   --secondary-container: #beead1;
-  --tertiary: #004e5f;
-  --tertiary-container: #00687e;
+  --tertiary: #00687e;
+  --tertiary-container: #004e5f;
   --tertiary-fixed: #b3ebff;
   --on-tertiary-fixed: #001f27;
   --surface: #f8faf6;
@@ -75,17 +75,19 @@ tailwind.config = {
   --inverse-on-surface: #eff1ed;
   --error: #ba1a1a;
   --error-container: #ffdad6;
+  --fat: #d97706;
+  --carb: #00687e;
 }
 
 html.dark {
   --background: #111412;
   --on-background: #e1e3df;
-  --primary: #95d4b3;
+  --primary: #9fe4bf;
   --on-primary: #003823;
-  --primary-container: #2d6a4f;
-  --on-primary-container: #a8e7c5;
-  --primary-fixed: #2d6a4f;
-  --primary-fixed-dim: #1e4d36;
+  --primary-container: #0f5238;
+  --on-primary-container: #baf3d6;
+  --primary-fixed: #0f5238;
+  --primary-fixed-dim: #0a3d28;
   --secondary: #beead1;
   --on-secondary: #0a3726;
   --secondary-container: #274e3c;
@@ -107,6 +109,8 @@ html.dark {
   --inverse-on-surface: #2e312f;
   --error: #ffb4ab;
   --error-container: #93000a;
+  --fat: #fbbf24;
+  --carb: #80d4eb;
 }
 
 html,body{
@@ -115,14 +119,26 @@ html,body{
   transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease;
 }
 
+body{
+  background:
+    linear-gradient(180deg, rgba(177,240,206,.28), rgba(248,250,246,0) 280px),
+    var(--background);
+}
+
+html.dark body{
+  background:
+    linear-gradient(180deg, rgba(45,106,79,.22), rgba(17,20,18,0) 280px),
+    var(--background);
+}
+
 .page{display:none;flex-direction:column;min-height:calc(100dvh - 80px);animation:fadeIn .25s ease}
 .page.active{display:flex}
 @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
-.spinner-ai{border:3px solid rgba(15,82,56,.15);width:28px;height:28px;border-radius:50%;border-left-color:#0f5238;animation:spin .8s linear infinite}
+.spinner-ai{border:3px solid color-mix(in srgb, var(--primary) 15%, transparent);width:28px;height:28px;border-radius:50%;border-left-color:var(--primary);animation:spin .8s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 .pulse-scan{animation:pulse-border 2s cubic-bezier(.4,0,.6,1) infinite}
-@keyframes pulse-border{0%,100%{box-shadow:0 0 12px rgba(15,82,56,.3)}50%{box-shadow:0 0 28px rgba(149,212,179,.6)}}
-input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;height:20px;width:20px;border-radius:50%;background:#0f5238;cursor:pointer;margin-top:-8px;box-shadow:0 2px 4px rgba(0,0,0,.15)}
+@keyframes pulse-border{0%,100%{box-shadow:0 0 12px color-mix(in srgb, var(--primary) 30%, transparent)}50%{box-shadow:0 0 28px rgba(149,212,179,.6)}}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;height:20px;width:20px;border-radius:50%;background:var(--primary);cursor:pointer;margin-top:-8px;box-shadow:0 2px 4px rgba(0,0,0,.15)}
 input[type=range]::-webkit-slider-runnable-track{width:100%;height:4px;cursor:pointer;background:#e1e3df;border-radius:2px}
 input[type=range]:focus{outline:none}
 .animate-slide-up{animation:slideUp .3s cubic-bezier(.22,1,.36,1)}
@@ -193,22 +209,447 @@ html.dark .card-premium:hover {
 .btn-premium:active {
   transform: scale(0.97);
 }
+
+.app-shell{
+  width:100%;
+  max-width:48rem;
+  margin-left:auto;
+  margin-right:auto;
+}
+
+.surface-panel{
+  background:var(--surface-container-lowest);
+  border:1px solid var(--outline-variant);
+  border-radius:1.25rem;
+  box-shadow:0 12px 30px rgba(15,82,56,.06);
+}
+
+html.dark .surface-panel{
+  box-shadow:0 12px 30px rgba(0,0,0,.22);
+}
+
+.metric-card{
+  background:var(--surface-container-lowest);
+  border:1px solid var(--outline-variant);
+  border-radius:1rem;
+  padding:1rem;
+  min-height:5.75rem;
+  display:flex;
+  flex-direction:column;
+  justify-content:space-between;
+}
+
+.entry-card{
+  width:100%;
+  border:1px solid var(--outline-variant);
+  background:var(--surface-container-lowest);
+  border-radius:1rem;
+  padding:1rem;
+  min-height:5.5rem;
+  display:flex;
+  align-items:center;
+  gap:.875rem;
+  text-align:left;
+}
+
+.entry-card:active,.metric-card:active{
+  transform:scale(.99);
+}
+
+.status-pill{
+  display:inline-flex;
+  align-items:center;
+  gap:.25rem;
+  border-radius:999px;
+  border:1px solid color-mix(in srgb, var(--primary) 18%, transparent);
+  background:color-mix(in srgb, var(--primary) 9%, transparent);
+  color:var(--primary);
+  min-height:1.75rem;
+  padding:.25rem .625rem;
+  font-size:.72rem;
+  font-weight:700;
+  white-space:nowrap;
+}
+
+.empty-state{
+  border:1px dashed var(--outline-variant);
+  background:color-mix(in srgb, var(--surface-container-lowest) 82%, var(--primary-fixed) 18%);
+  border-radius:1.25rem;
+  padding:1.25rem;
+}
+
+html.dark .empty-state{
+  background:color-mix(in srgb, var(--surface-container-lowest) 86%, var(--primary-container) 14%);
+}
+
+.touch-target{
+  min-height:44px;
+  min-width:44px;
+}
+
+.progress-line{
+  height:.45rem;
+  border-radius:999px;
+  background:var(--surface-container-high);
+  overflow:hidden;
+}
+
+.progress-line > span{
+  display:block;
+  height:100%;
+  border-radius:inherit;
+  background:var(--primary);
+  width:0%;
+  transition:width .45s ease;
+}
+
+.disabled-cta{
+  opacity:.55;
+  cursor:not-allowed;
+  box-shadow:none !important;
+  animation:none !important;
+}
+
+.material-symbols-outlined{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  line-height:1;
+  flex-shrink:0;
+  overflow:hidden;
+}
+
+.material-symbols-outlined.svg-ready{
+  font-family:inherit !important;
+  letter-spacing:0 !important;
+}
+
+.material-symbols-outlined.svg-ready svg{
+  width:1em;
+  height:1em;
+  stroke:currentColor;
+  fill:none;
+  stroke-width:2;
+  stroke-linecap:round;
+  stroke-linejoin:round;
+  display:block;
+}
+
+.material-symbols-outlined.svg-ready .icon-fill{
+  fill:currentColor;
+  stroke:none;
+}
+
+.icon-badge{
+  width:2.75rem;
+  height:2.75rem;
+  border-radius:.875rem;
+  background:color-mix(in srgb, var(--primary) 10%, transparent);
+  border:1px solid color-mix(in srgb, var(--primary) 18%, transparent);
+  color:var(--primary);
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  flex-shrink:0;
+}
+
+.soft-action{
+  min-height:44px;
+  border-radius:999px;
+  background:color-mix(in srgb, var(--primary) 9%, transparent);
+  color:var(--primary);
+  border:1px solid color-mix(in srgb, var(--primary) 18%, transparent);
+  font-weight:700;
+}
+
+.quiet-danger{
+  color:var(--error);
+  background: color-mix(in srgb, var(--error) 8%, transparent);
+  border:1px solid color-mix(in srgb, var(--error) 15%, transparent);
+  font-weight:600;
+}
+.quiet-danger:hover {
+  background: color-mix(in srgb, var(--error) 15%, transparent);
+  border-color: color-mix(in srgb, var(--error) 25%, transparent);
+}
+
+.chat-container {
+  width: 100%;
+  max-width: 42rem;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.coach-ai-bubble {
+  background: var(--surface-container-high);
+  border: 1px solid var(--outline-variant);
+  border-radius: 1.25rem;
+  border-top-left-radius: 0;
+  padding: 0.875rem 1.125rem;
+  max-width: 84%;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.02);
+  transition: background-color 0.3s ease, border-color 0.3s ease;
+}
+html.dark .coach-ai-bubble {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.coach-user-bubble {
+  background: var(--primary);
+  color: var(--on-primary);
+  border-radius: 1.25rem;
+  border-top-right-radius: 0;
+  padding: 0.875rem 1.125rem;
+  max-width: 80%;
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--primary) 15%, transparent);
+}
+
+.empty-illustration{
+  width:4.5rem;
+  height:4.5rem;
+  border-radius:1.5rem;
+  background:
+    radial-gradient(circle at 50% 52%, transparent 32%, color-mix(in srgb, var(--primary) 18%, transparent) 33% 46%, transparent 47%),
+    linear-gradient(145deg, color-mix(in srgb, var(--primary-fixed) 48%, white), var(--surface-container-lowest));
+  border:1px solid color-mix(in srgb, var(--primary) 18%, transparent);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  color:var(--primary);
+  flex-shrink:0;
+}
+
+.chart-legend{
+  display:flex;
+  flex-wrap:wrap;
+  gap:.5rem .875rem;
+  color:var(--on-surface-variant);
+  font-size:.75rem;
+}
+
+.legend-dot{
+  width:.55rem;
+  height:.55rem;
+  border-radius:999px;
+  display:inline-block;
+  margin-right:.35rem;
+}
+
+@media (min-width:768px){
+  .page{min-height:calc(100dvh - 88px)}
+  .surface-panel{border-radius:1.5rem}
+}
+/* ===================== Onboarding ===================== */
+.onboarding-overlay {
+  position: fixed; inset: 0; z-index: 1100;
+  display: flex; flex-direction: column;
+  overflow: hidden;
+  transition: opacity .4s ease, visibility .4s ease;
+}
+.onboarding-overlay.hidden { opacity: 0; visibility: hidden; pointer-events: none; }
+
+.onboarding-slides {
+  display: flex; width: 300%; height: 100%;
+  transition: transform .5s cubic-bezier(.4, 0, .2, 1);
+}
+.onboarding-slide {
+  width: calc(100% / 3); min-height: 100dvh;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  padding: 2rem 1.5rem 6rem;
+  position: relative; text-align: center;
+}
+.onboarding-slide:nth-child(1) {
+  background: linear-gradient(160deg, #0f5238 0%, #134e3a 40%, #1a7a55 100%);
+}
+.onboarding-slide:nth-child(2) {
+  background: linear-gradient(160deg, #312e81 0%, #4338ca 40%, #6366f1 100%);
+}
+.onboarding-slide:nth-child(3) {
+  background: linear-gradient(160deg, #92400e 0%, #b45309 40%, #d97706 100%);
+}
+html.dark .onboarding-slide:nth-child(1) {
+  background: linear-gradient(160deg, #052e16 0%, #0a3d24 40%, #0f5238 100%);
+}
+html.dark .onboarding-slide:nth-child(2) {
+  background: linear-gradient(160deg, #1e1b4b 0%, #2e1065 40%, #4338ca 100%);
+}
+html.dark .onboarding-slide:nth-child(3) {
+  background: linear-gradient(160deg, #451a03 0%, #78350f 40%, #92400e 100%);
+}
+
+.onboarding-icon-ring {
+  width: 140px; height: 140px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  margin-bottom: 2.5rem;
+  background: rgba(255,255,255,.12);
+  backdrop-filter: blur(10px);
+  border: 2px solid rgba(255,255,255,.2);
+  box-shadow: 0 0 60px rgba(255,255,255,.08), inset 0 0 30px rgba(255,255,255,.05);
+  animation: ob-float 4s ease-in-out infinite;
+}
+.onboarding-icon-ring .material-symbols-outlined {
+  font-size: 64px; color: #fff;
+  font-variation-settings: 'FILL' 1;
+}
+@keyframes ob-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-12px); }
+}
+.onboarding-title {
+  font-size: 1.75rem; font-weight: 800; color: #fff;
+  margin-bottom: .75rem; line-height: 1.3;
+  text-shadow: 0 2px 8px rgba(0,0,0,.2);
+}
+.onboarding-desc {
+  font-size: 1rem; color: rgba(255,255,255,.82);
+  max-width: 22rem; line-height: 1.7;
+}
+.onboarding-feature-pills {
+  display: flex; flex-wrap: wrap; gap: .5rem;
+  justify-content: center; margin-top: 1.5rem;
+}
+.onboarding-pill {
+  display: inline-flex; align-items: center; gap: .35rem;
+  padding: .4rem .85rem; border-radius: 9999px;
+  background: rgba(255,255,255,.15); color: rgba(255,255,255,.9);
+  font-size: .8rem; font-weight: 500;
+  backdrop-filter: blur(4px); border: 1px solid rgba(255,255,255,.1);
+}
+.onboarding-pill .material-symbols-outlined {
+  font-size: 16px; font-variation-settings: 'FILL' 1;
+}
+
+/* Bottom controls */
+.onboarding-controls {
+  position: fixed; bottom: 0; left: 0; right: 0;
+  z-index: 1101; padding: 1.25rem 1.5rem 2.5rem;
+  display: flex; flex-direction: column; align-items: center; gap: 1rem;
+  background: linear-gradient(to top, rgba(0,0,0,.35), transparent);
+}
+.onboarding-dots {
+  display: flex; gap: .6rem;
+}
+.onboarding-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: rgba(255,255,255,.35); transition: all .3s ease;
+}
+.onboarding-dot.active {
+  width: 24px; border-radius: 4px; background: #fff;
+}
+.onboarding-next-btn {
+  width: 100%; max-width: 20rem;
+  padding: .95rem 1.5rem; border-radius: .875rem;
+  font-size: 1.05rem; font-weight: 700;
+  background: #fff; color: #0f5238;
+  border: none; cursor: pointer;
+  box-shadow: 0 4px 20px rgba(0,0,0,.18);
+  transition: transform .15s ease, box-shadow .15s ease;
+}
+.onboarding-next-btn:active { transform: scale(.97); }
+.onboarding-skip-btn {
+  position: fixed; top: 1rem; right: 1rem; z-index: 1102;
+  padding: .5rem 1rem; border-radius: .5rem;
+  font-size: .85rem; font-weight: 500;
+  color: rgba(255,255,255,.7); background: rgba(255,255,255,.1);
+  border: 1px solid rgba(255,255,255,.15);
+  backdrop-filter: blur(4px); cursor: pointer;
+  transition: background .2s ease;
+}
+.onboarding-skip-btn:hover { background: rgba(255,255,255,.2); color: #fff; }
+
+/* Decorative particles */
+.ob-particle {
+  position: absolute; border-radius: 50%;
+  background: rgba(255,255,255,.06);
+  pointer-events: none;
+}
+.ob-particle-1 { width: 200px; height: 200px; top: -60px; right: -60px; }
+.ob-particle-2 { width: 120px; height: 120px; bottom: 80px; left: -40px; }
+.ob-particle-3 { width: 80px; height: 80px; top: 30%; left: 15%; background: rgba(255,255,255,.04); }
+
 </style>
 </head>
 <body class="bg-background text-on-background font-body-md min-h-screen pb-28">
+<!-- ========== Onboarding Overlay ========== -->
+<div id="onboardingOverlay" class="onboarding-overlay hidden">
+  <button class="onboarding-skip-btn" onclick="completeOnboarding()">跳过</button>
+  <div class="onboarding-slides" id="onboardingSlides">
+
+    <!-- Slide 1: AI Photo Recognition -->
+    <div class="onboarding-slide">
+      <div class="ob-particle ob-particle-1"></div>
+      <div class="ob-particle ob-particle-2"></div>
+      <div class="ob-particle ob-particle-3"></div>
+      <div class="onboarding-icon-ring">
+        <span class="material-symbols-outlined">photo_camera</span>
+      </div>
+      <h2 class="onboarding-title">拍照即记录</h2>
+      <p class="onboarding-desc">AI 自动识别食物，一秒获取热量、蛋白质、碳水和脂肪等完整营养数据</p>
+      <div class="onboarding-feature-pills">
+        <span class="onboarding-pill"><span class="material-symbols-outlined">auto_awesome</span>AI 智能识别</span>
+        <span class="onboarding-pill"><span class="material-symbols-outlined">bolt</span>极速分析</span>
+        <span class="onboarding-pill"><span class="material-symbols-outlined">restaurant</span>多食物识别</span>
+      </div>
+    </div>
+
+    <!-- Slide 2: Voice + AI Coach -->
+    <div class="onboarding-slide">
+      <div class="ob-particle ob-particle-1"></div>
+      <div class="ob-particle ob-particle-2"></div>
+      <div class="ob-particle ob-particle-3"></div>
+      <div class="onboarding-icon-ring">
+        <span class="material-symbols-outlined">psychology</span>
+      </div>
+      <h2 class="onboarding-title">你的私人营养教练</h2>
+      <p class="onboarding-desc">语音快捷记录饮食与运动，AI 营养教练实时分析并给出专业建议</p>
+      <div class="onboarding-feature-pills">
+        <span class="onboarding-pill"><span class="material-symbols-outlined">mic</span>语音输入</span>
+        <span class="onboarding-pill"><span class="material-symbols-outlined">chat</span>AI 对话教练</span>
+        <span class="onboarding-pill"><span class="material-symbols-outlined">fitness_center</span>运动追踪</span>
+      </div>
+    </div>
+
+    <!-- Slide 3: Reports & Goals -->
+    <div class="onboarding-slide">
+      <div class="ob-particle ob-particle-1"></div>
+      <div class="ob-particle ob-particle-2"></div>
+      <div class="ob-particle ob-particle-3"></div>
+      <div class="onboarding-icon-ring">
+        <span class="material-symbols-outlined">monitoring</span>
+      </div>
+      <h2 class="onboarding-title">数据驱动健康目标</h2>
+      <p class="onboarding-desc">每周智能报告追踪你的营养趋势，设定个性化目标，轻松管理饮食与体态</p>
+      <div class="onboarding-feature-pills">
+        <span class="onboarding-pill"><span class="material-symbols-outlined">bar_chart</span>周报分析</span>
+        <span class="onboarding-pill"><span class="material-symbols-outlined">target</span>个性化目标</span>
+        <span class="onboarding-pill"><span class="material-symbols-outlined">local_fire_department</span>BMR/TDEE</span>
+      </div>
+    </div>
+
+  </div>
+  <div class="onboarding-controls">
+    <div class="onboarding-dots" id="onboardingDots">
+      <div class="onboarding-dot active" data-index="0"></div>
+      <div class="onboarding-dot" data-index="1"></div>
+      <div class="onboarding-dot" data-index="2"></div>
+    </div>
+    <button class="onboarding-next-btn" id="onboardingNextBtn" onclick="nextOnboardingSlide()">下一步</button>
+  </div>
+</div>
+
 <!-- ========== Login Overlay ========== -->
 <div id="loginOverlay" class="fixed inset-0 bg-background/80 backdrop-blur-xl z-[999] flex items-center justify-center p-6 transition-all duration-300 hidden">
-  <div class="bg-surface-container-lowest border border-surface-variant w-full max-w-sm rounded-3xl p-8 shadow-2xl flex flex-col gap-6 animate-slide-up relative overflow-hidden">
-    <!-- Background glow -->
-    <div class="absolute -right-16 -top-16 w-36 h-36 rounded-full bg-primary/10 blur-2xl"></div>
-    <div class="absolute -left-16 -bottom-16 w-36 h-36 rounded-full bg-tertiary/10 blur-2xl"></div>
-
-    <div class="flex flex-col items-center text-center gap-2">
-      <div class="w-16 h-16 rounded-2xl bg-primary-container flex items-center justify-center text-on-primary shadow-lg mb-2">
+  <div class="surface-panel w-full max-w-sm p-7 shadow-2xl flex flex-col gap-6 animate-slide-up relative overflow-hidden">
+    <div class="flex flex-col items-center text-center gap-3">
+      <div class="w-16 h-16 rounded-2xl bg-primary text-on-primary flex items-center justify-center shadow-lg mb-1">
         <span class="material-symbols-outlined text-4xl" style="font-variation-settings:'FILL' 1">restaurant_menu</span>
       </div>
-      <h2 class="font-headline-lg-mobile text-headline-lg-mobile text-on-background" id="authTitle">欢迎回来</h2>
-      <p class="font-body-md text-body-md text-on-surface-variant" id="authSubtitle">请输入您的账号信息登录</p>
+      <div>
+        <p class="font-label-md text-label-md text-primary uppercase">NutriSnap AI</p>
+        <h2 class="font-headline-lg-mobile text-headline-lg-mobile text-on-background mt-1" id="authTitle">欢迎回来</h2>
+      </div>
+      <p class="font-body-md text-body-md text-on-surface-variant max-w-[18rem]" id="authSubtitle">拍照记录饮食，自动分析热量与营养</p>
     </div>
 
     <div class="flex flex-col gap-4">
@@ -224,12 +665,14 @@ html.dark .card-premium:hover {
     </div>
 
     <div class="flex flex-col gap-3">
-      <button id="authPrimaryBtn" onclick="handleAuthSubmit()" class="w-full bg-primary text-on-primary font-headline-md text-headline-md py-3.5 rounded-xl shadow-md hover:scale-[1.01] active:scale-95 transition-transform flex items-center justify-center gap-2 btn-premium">
+      <button id="authPrimaryBtn" onclick="handleAuthSubmit()" class="w-full bg-primary text-on-primary font-headline-md text-headline-md py-3.5 rounded-xl shadow-md hover:scale-[1.01] active:scale-95 transition-transform flex items-center justify-center gap-2 btn-premium touch-target">
         <span>登录</span>
       </button>
-      <div class="flex justify-between items-center text-xs text-outline px-1">
-        <button id="authToggleBtn" onclick="toggleAuthMode()" class="hover:text-primary transition-colors">没有账号？立即注册</button>
-        <button onclick="loginAsGuest()" class="hover:text-primary transition-colors font-semibold">本地离线使用 →</button>
+      <button onclick="loginAsGuest()" class="w-full bg-surface-container text-primary font-semibold rounded-xl py-3 border border-outline-variant hover:bg-surface-container-high transition-colors touch-target">
+        不登录，先离线体验
+      </button>
+      <div class="flex justify-center items-center text-xs text-outline px-1">
+        <button id="authToggleBtn" onclick="toggleAuthMode()" class="hover:text-primary transition-colors touch-target px-2">没有账号？立即注册</button>
       </div>
     </div>
   </div>
@@ -239,7 +682,7 @@ html.dark .card-premium:hover {
 <!-- ========== PAGE: Home ========== -->
 <div class="page active" id="page-home">
   <header class="flex justify-between items-center px-container-margin py-stack-md sticky top-0 glass-header z-40">
-    <div class="flex items-center gap-3">
+    <div class="flex items-center gap-4">
       <div class="w-10 h-10 rounded-full bg-primary-container flex items-center justify-center text-on-primary">
         <span class="material-symbols-outlined" style="font-variation-settings:'FILL' 1">person</span>
       </div>
@@ -255,81 +698,100 @@ html.dark .card-premium:hover {
       </div>
     </div>
   </header>
-  <main class="px-container-margin flex-1 flex flex-col gap-stack-lg pb-24">
-    <!-- Calorie Equation Dashboard -->
-    <section class="bg-surface-container-lowest rounded-2xl p-5 shadow-sm border border-outline-variant relative overflow-hidden flex flex-col gap-3">
-      <div class="flex justify-between items-center">
-        <span class="font-label-md text-label-md text-on-surface-variant">今日卡路里收支平衡</span>
-        <span class="text-[10px] text-primary font-semibold bg-primary/10 px-2 py-0.5 rounded-full" id="bmrSetupIndicator">基础代谢计算已激活</span>
+  <main class="app-shell px-container-margin flex-1 flex flex-col gap-stack-lg pb-24">
+    <!-- Hero Calorie Dashboard -->
+    <section class="surface-panel p-5 relative overflow-hidden flex flex-col gap-5">
+      <div class="flex justify-between items-start gap-3">
+        <div>
+          <p class="font-label-md text-label-md text-primary">TODAY BALANCE</p>
+          <h2 class="font-headline-lg-mobile text-headline-lg-mobile text-on-background">今日热量收支</h2>
+        </div>
+        <span class="status-pill" id="bmrSetupIndicator">使用默认目标</span>
       </div>
-      <div class="grid grid-cols-5 items-center justify-items-center text-center py-2">
-        <div class="flex flex-col">
-          <span class="text-base font-black text-on-background" id="dashIntake">0</span>
-          <span class="text-[10px] text-on-surface-variant">摄入</span>
+
+      <div class="grid grid-cols-1 md:grid-cols-[220px_1fr] gap-5 items-center">
+        <div class="relative w-48 h-48 mx-auto flex items-center justify-center">
+          <svg class="w-full h-full -rotate-90" viewBox="0 0 100 100" aria-hidden="true">
+            <circle class="text-primary opacity-10" cx="50" cy="50" fill="none" r="40" stroke="currentColor" stroke-width="9"/>
+            <circle id="calRing" class="text-primary" cx="50" cy="50" fill="none" r="40" stroke="currentColor" stroke-dasharray="251.2" stroke-dashoffset="251.2" stroke-linecap="round" stroke-width="9" style="transition:stroke-dashoffset 1s ease-out"/>
+          </svg>
+          <div class="absolute inset-0 flex flex-col items-center justify-center text-center px-4">
+            <span class="font-stats-xl text-stats-xl text-on-background" id="totalCal">0</span>
+            <span class="font-label-md text-label-md text-on-surface-variant mt-stack-sm">/ <span id="calTargetLabel">2,000</span> kcal</span>
+            <span class="text-xs text-on-surface-variant mt-1">已摄入 / 目标</span>
+          </div>
         </div>
-        <div class="text-outline font-bold text-sm">−</div>
-        <div class="flex flex-col">
-          <span class="text-base font-black text-primary" id="dashBurn">0</span>
-          <span class="text-[10px] text-on-surface-variant">运动</span>
+
+        <div class="flex flex-col gap-3">
+          <div class="grid grid-cols-5 items-center justify-items-center text-center bg-surface-container rounded-2xl px-3 py-4 border border-outline-variant">
+            <div class="flex flex-col">
+              <span class="text-xl font-black text-on-background" id="dashIntake">0</span>
+              <span class="text-[11px] text-on-surface-variant">摄入</span>
+            </div>
+            <div class="text-outline font-bold text-sm">−</div>
+            <div class="flex flex-col">
+              <span class="text-xl font-black text-primary" id="dashBurn">0</span>
+              <span class="text-[11px] text-on-surface-variant">运动</span>
+            </div>
+            <div class="text-outline font-bold text-sm">=</div>
+            <div class="flex flex-col">
+              <span class="text-xl font-black text-on-background" id="dashNet">0</span>
+              <span class="text-[11px] text-on-surface-variant">净摄入</span>
+            </div>
+          </div>
+          <div class="flex items-center justify-between bg-primary/5 rounded-xl px-4 py-3">
+            <span class="font-label-md text-label-md text-on-surface-variant">目标 <span class="font-bold text-on-background" id="dashTarget">2,000</span> kcal</span>
+            <span class="font-label-md text-label-md">剩余 <span class="font-bold text-primary" id="dashRemaining">2,000</span> kcal</span>
+          </div>
         </div>
-        <div class="text-outline font-bold text-sm">=</div>
-        <div class="flex flex-col">
-          <span class="text-base font-black text-on-background" id="dashNet">0</span>
-          <span class="text-[10px] text-on-surface-variant">净摄入</span>
-        </div>
-      </div>
-      <div class="flex items-center justify-between bg-primary/5 rounded-xl px-4 py-2.5">
-        <span class="font-label-md text-label-md text-on-surface-variant">目标 <span class="font-bold text-on-background" id="dashTarget">2,000</span> kcal</span>
-        <span class="text-outline-variant mx-2">→</span>
-        <span class="font-label-md text-label-md">剩余 <span class="font-bold text-primary" id="dashRemaining">2,000</span> kcal</span>
       </div>
     </section>
 
-    <section class="grid grid-cols-2 gap-gutter">
-      <div class="bg-surface-container-lowest rounded-xl shadow-sm border border-surface-variant p-stack-lg flex flex-col items-center justify-center">
-        <div class="relative w-32 h-32 flex items-center justify-center">
-          <svg class="w-full h-full -rotate-90" viewBox="0 0 100 100">
-            <circle class="text-primary opacity-10" cx="50" cy="50" fill="none" r="40" stroke="currentColor" stroke-width="10"/>
-            <circle id="calRing" class="text-primary" cx="50" cy="50" fill="none" r="40" stroke="currentColor" stroke-dasharray="251.2" stroke-dashoffset="251.2" stroke-linecap="round" stroke-width="10" style="transition:stroke-dashoffset 1s ease-out"/>
-          </svg>
-          <div class="absolute inset-0 flex flex-col items-center justify-center text-center">
-            <span class="font-stats-xl text-stats-xl text-on-background" id="totalCal">0</span>
-            <span class="font-label-md text-label-md text-on-surface-variant mt-stack-sm">/ <span id="calTargetLabel">2,000</span></span>
+    <section class="grid grid-cols-1 sm:grid-cols-3 gap-gutter">
+      <div class="metric-card">
+        <div class="flex items-center justify-between">
+          <span class="font-label-md text-label-md text-on-surface-variant">蛋白质</span>
+          <span class="material-symbols-outlined text-primary" style="font-variation-settings:'FILL' 1">bolt</span>
+        </div>
+        <div>
+          <div class="flex items-baseline gap-1">
+            <span class="font-headline-md text-headline-md text-on-background" id="totalPro">0g</span>
+            <span class="text-xs text-outline">/ <span id="proTargetLabel">120</span>g</span>
           </div>
+          <div class="progress-line mt-2"><span id="proteinProgress"></span></div>
         </div>
-        <h2 class="font-headline-md text-headline-md text-on-background mt-stack-md">净摄入</h2>
       </div>
-      <div class="bg-surface-container-lowest rounded-xl shadow-sm border border-surface-variant p-stack-lg flex flex-col items-center justify-center">
-        <div class="relative w-32 h-32 flex items-center justify-center">
-          <svg class="w-full h-full -rotate-90" viewBox="0 0 100 100">
-            <circle class="text-tertiary-container opacity-10" cx="50" cy="50" fill="none" r="40" stroke="currentColor" stroke-width="10"/>
-            <circle id="proRing" class="text-tertiary-container" cx="50" cy="50" fill="none" r="40" stroke="currentColor" stroke-dasharray="251.2" stroke-dashoffset="251.2" stroke-linecap="round" stroke-width="10" style="transition:stroke-dashoffset 1s ease-out"/>
-          </svg>
-          <div class="absolute inset-0 flex flex-col items-center justify-center text-center">
-            <span class="font-stats-xl text-stats-xl text-on-background" id="totalPro">0</span>
-            <span class="font-label-md text-label-md text-on-surface-variant mt-stack-sm">/ <span id="proTargetLabel">120</span>g</span>
+      <div class="metric-card">
+        <div class="flex items-center justify-between">
+          <span class="font-label-md text-label-md text-on-surface-variant">碳水</span>
+          <span class="material-symbols-outlined text-tertiary">grain</span>
+        </div>
+        <div>
+          <div class="flex items-baseline gap-1">
+            <span class="font-headline-md text-headline-md text-on-background" id="totalCarbs">0g</span>
+            <span class="text-xs text-outline">/ <span id="carbsTargetLabel">250</span>g</span>
           </div>
-        </div>
-        <div class="flex items-center gap-1 mt-stack-md">
-          <span class="material-symbols-outlined text-tertiary-container" style="font-variation-settings:'FILL' 1">bolt</span>
-          <h2 class="font-headline-md text-headline-md text-on-background">蛋白质</h2>
+          <div class="progress-line mt-2"><span id="carbsProgress" style="background:var(--carb)"></span></div>
         </div>
       </div>
-    </section>
-    <section class="grid grid-cols-2 gap-gutter">
-      <div class="bg-surface-container-lowest rounded-xl shadow-sm border border-surface-variant p-stack-md flex justify-between items-center">
-        <span class="font-label-md text-label-md text-on-surface-variant">碳水</span>
-        <span class="font-headline-md text-headline-md text-on-background"><span id="totalCarbs">0</span>g</span>
-      </div>
-      <div class="bg-surface-container-lowest rounded-xl shadow-sm border border-surface-variant p-stack-md flex justify-between items-center">
-        <span class="font-label-md text-label-md text-on-surface-variant">脂肪</span>
-        <span class="font-headline-md text-headline-md text-on-background"><span id="totalFat">0</span>g</span>
+      <div class="metric-card">
+        <div class="flex items-center justify-between">
+          <span class="font-label-md text-label-md text-on-surface-variant">脂肪</span>
+          <span class="material-symbols-outlined text-amber-600">water_drop</span>
+        </div>
+        <div>
+          <div class="flex items-baseline gap-1">
+            <span class="font-headline-md text-headline-md text-on-background" id="totalFat">0g</span>
+            <span class="text-xs text-outline">/ <span id="fatTargetLabel">66</span>g</span>
+          </div>
+          <div class="progress-line mt-2"><span id="fatProgress" style="background:var(--fat)"></span></div>
+        </div>
       </div>
     </section>
     <section class="flex flex-col gap-stack-md">
       <div class="flex justify-between items-center border-b border-surface-variant pb-stack-sm mb-1">
         <h2 class="font-headline-lg-mobile text-headline-lg-mobile text-on-background">今日记录</h2>
-        <button onclick="showExerciseLogModal()" class="flex items-center gap-1 text-[11px] text-primary bg-primary/10 px-3 py-1.5 rounded-full hover:bg-primary/20 active:scale-95 transition-all btn-premium font-semibold">
+        <button onclick="showExerciseLogModal()" class="soft-action flex items-center gap-1 text-[11px] px-3 py-2 hover:bg-primary/20 active:scale-95 transition-all btn-premium touch-target">
           <span class="material-symbols-outlined text-[14px]">fitness_center</span>
           <span>记运动</span>
         </button>
@@ -349,27 +811,61 @@ html.dark .card-premium:hover {
       <h1 class="font-headline-md text-headline-md text-primary">AI 食物记录</h1>
     </div>
   </header>
-  <main class="px-container-margin flex-1 flex flex-col items-center justify-center gap-stack-lg pb-8">
-    <!-- Voice Input Button -->
-    <button id="voiceBtn" onclick="startVoiceInput()" class="w-full max-w-xs flex items-center justify-center gap-2 bg-surface-container border border-outline-variant rounded-full px-4 py-3 hover:bg-surface-container-high transition-colors">
-      <span class="material-symbols-outlined text-primary">mic</span>
-      <span class="font-body-md text-body-md text-on-surface-variant">语音输入</span>
-    </button>
-    <div class="font-label-md text-label-md text-outline">— 或拍照 —</div>
-    <!-- Upload Area -->
-    <div id="uploadArea" class="w-full aspect-square max-w-xs rounded-2xl border-4 border-dashed border-outline-variant bg-surface-container flex flex-col items-center justify-center cursor-pointer hover:bg-surface-container-high transition-colors relative overflow-hidden" onclick="document.getElementById('fileInput').click()">
-      <input type="file" id="fileInput" accept="image/*" capture="environment" class="hidden" onchange="handleFile(event)"/>
-      <div id="uploadHint" class="flex flex-col items-center gap-3">
-        <span class="material-symbols-outlined text-[56px] text-outline">photo_camera</span>
-        <p class="font-body-lg text-body-lg text-on-surface-variant font-semibold">点击拍照或选择图片</p>
-        <p class="font-label-md text-label-md text-outline">支持 JPG / PNG</p>
+  <main class="app-shell px-container-margin flex-1 flex flex-col gap-stack-lg pb-8">
+    <section class="surface-panel p-5 flex flex-col gap-4">
+      <div>
+        <p class="font-label-md text-label-md text-primary">ADD MEAL</p>
+        <h2 class="font-headline-lg-mobile text-headline-lg-mobile text-on-background">你想怎么记录这一餐？</h2>
       </div>
-      <img id="imgPreview" class="hidden absolute inset-0 w-full h-full object-cover"/>
-    </div>
-    <button id="analyzeBtn" class="hidden w-full max-w-xs bg-primary hover:bg-primary-container text-on-primary font-headline-md text-headline-md py-4 rounded-xl transition-colors shadow-lg flex items-center justify-center gap-2 pulse-scan" onclick="doAnalyze()">
-      <span class="material-symbols-outlined" style="font-variation-settings:'FILL' 1">search_insights</span>
-      <span>开始 AI 分析</span>
-    </button>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <button class="entry-card card-premium touch-target" onclick="document.getElementById('fileInput').click()">
+          <span class="icon-badge">
+            <span class="material-symbols-outlined" style="font-variation-settings:'FILL' 1">photo_camera</span>
+          </span>
+          <span>
+            <span class="block font-semibold text-on-background">拍照识别</span>
+            <span class="block text-xs text-on-surface-variant mt-1">适合餐盘、外卖、食堂餐</span>
+          </span>
+        </button>
+        <button id="voiceBtn" onclick="startVoiceInput()" class="entry-card card-premium touch-target">
+          <span class="icon-badge">
+            <span class="material-symbols-outlined" style="font-variation-settings:'FILL' 1">mic</span>
+          </span>
+          <span>
+            <span class="block font-semibold text-on-background">语音记录</span>
+            <span class="block text-xs text-on-surface-variant mt-1">例如：鸡胸肉、米饭和鸡蛋</span>
+          </span>
+        </button>
+        <button onclick="showManualFoodModal('手动输入食物名称、重量和营养数据。')" class="entry-card card-premium touch-target">
+          <span class="icon-badge">
+            <span class="material-symbols-outlined">edit_note</span>
+          </span>
+          <span>
+            <span class="block font-semibold text-on-background">手动补录</span>
+            <span class="block text-xs text-on-surface-variant mt-1">AI 识别失败时使用</span>
+          </span>
+        </button>
+      </div>
+    </section>
+
+    <!-- Upload Area -->
+    <section class="surface-panel p-4 flex flex-col gap-4">
+      <div id="uploadArea" class="w-full min-h-[18rem] rounded-2xl border-2 border-dashed border-primary/30 bg-surface-container flex flex-col items-center justify-center cursor-pointer hover:bg-surface-container-high transition-colors relative overflow-hidden" onclick="document.getElementById('fileInput').click()">
+        <input type="file" id="fileInput" accept="image/*" capture="environment" class="hidden" onchange="handleFile(event)"/>
+        <div id="uploadHint" class="flex flex-col items-center gap-3 text-center px-6">
+          <span class="material-symbols-outlined text-[64px] text-primary">add_a_photo</span>
+          <div>
+            <p class="font-body-lg text-body-lg text-on-background font-semibold">点击拍照或上传图片</p>
+            <p class="font-label-md text-label-md text-outline mt-1">支持 JPG / PNG，建议拍完整餐盘</p>
+          </div>
+        </div>
+        <img id="imgPreview" class="hidden absolute inset-0 w-full h-full object-cover"/>
+      </div>
+      <button id="analyzeBtn" disabled class="w-full bg-primary hover:bg-primary-container text-on-primary font-headline-md text-headline-md py-4 rounded-xl transition-colors shadow-lg flex items-center justify-center gap-2 disabled-cta" onclick="doAnalyze()">
+        <span class="material-symbols-outlined" style="font-variation-settings:'FILL' 1">search_insights</span>
+        <span>开始 AI 分析</span>
+      </button>
+    </section>
     <div id="analyzeLoading" class="hidden flex flex-col items-center gap-3 py-8">
       <div class="spinner-ai"></div>
       <p class="font-body-lg text-body-lg text-primary font-semibold">AI 识别中...</p>
@@ -480,7 +976,7 @@ html.dark .card-premium:hover {
       <span class="material-symbols-outlined text-sm" style="font-variation-settings:'FILL' 1">verified</span> 完成
     </div>
   </header>
-  <main class="px-container-margin flex-1 flex flex-col gap-stack-lg pb-32">
+  <main class="app-shell px-container-margin flex-1 flex flex-col gap-stack-lg pb-32">
     <div id="resultImgContainer" class="w-full h-48 rounded-xl overflow-hidden shadow-md border border-outline-variant">
       <img id="resultImg" class="w-full h-full object-cover" src="" alt="Food"/>
     </div>
@@ -503,35 +999,37 @@ html.dark .card-premium:hover {
         <span class="absolute right-0 bottom-0 font-serif text-4xl text-primary/30 leading-none">”</span>
       </div>
     </div>
-    <div id="resultFoods" class="flex flex-col gap-stack-md"></div>
     <!-- Summary totals -->
-    <section class="bg-surface-container-lowest border border-outline-variant text-on-background rounded-2xl p-6 shadow-sm relative overflow-hidden">
-      <!-- Muted background glow -->
-      <div class="absolute -right-8 -top-8 w-24 h-24 rounded-full bg-primary/5 blur-xl"></div>
-      
-      <h2 class="font-label-md text-label-md text-on-surface-variant mb-2">总计</h2>
-      <div class="flex justify-between items-end mb-4">
-        <span class="font-stats-xl text-stats-xl text-primary font-bold"><span id="sumCal">0</span> <span class="text-lg font-normal text-on-surface-variant">kcal</span></span>
-        <span class="font-body-md text-body-md text-on-surface-variant bg-surface-container px-3 py-1 rounded-full"><span id="foodCount">0</span> 种食物</span>
-      </div>
-      <div class="grid grid-cols-3 gap-4 border-t border-outline-variant/30 pt-4">
+    <section class="surface-panel text-on-background p-6 relative overflow-hidden">
+      <div class="flex justify-between items-start gap-3 mb-4">
         <div>
+          <h2 class="font-label-md text-label-md text-on-surface-variant">本餐总览</h2>
+          <div class="flex items-end gap-2 mt-1">
+            <span class="font-stats-xl text-stats-xl text-primary font-bold"><span id="sumCal">0</span></span>
+            <span class="text-lg font-normal text-on-surface-variant mb-1">kcal</span>
+          </div>
+        </div>
+        <span class="status-pill"><span id="foodCount">0</span> 种食物</span>
+      </div>
+      <div class="grid grid-cols-3 gap-3 border-t border-outline-variant/40 pt-4">
+        <div class="bg-surface-container rounded-xl p-3">
           <span class="block text-xs text-on-surface-variant mb-1">蛋白质</span>
           <span class="font-headline-md text-on-background font-semibold" id="sumPro">0</span>
         </div>
-        <div>
+        <div class="bg-surface-container rounded-xl p-3">
           <span class="block text-xs text-on-surface-variant mb-1">碳水</span>
           <span class="font-headline-md text-on-background font-semibold" id="sumCarbs">0</span>
         </div>
-        <div>
+        <div class="bg-surface-container rounded-xl p-3">
           <span class="block text-xs text-on-surface-variant mb-1">脂肪</span>
           <span class="font-headline-md text-on-background font-semibold" id="sumFat">0</span>
         </div>
       </div>
     </section>
+    <div id="resultFoods" class="flex flex-col gap-stack-md"></div>
   </main>
   <div class="fixed bottom-0 left-0 w-full bg-surface-container-lowest border-t border-outline-variant p-container-margin shadow-md z-40">
-    <button class="w-full bg-primary hover:bg-primary/90 text-on-primary font-headline-md text-headline-md py-4 rounded-xl shadow-md transition-all duration-300 flex items-center justify-center gap-2 active:scale-[0.98] btn-premium" onclick="resetScan()">
+    <button id="confirmResultBtn" class="w-full bg-primary hover:bg-primary/90 text-on-primary font-headline-md text-headline-md py-4 rounded-xl shadow-md transition-all duration-300 flex items-center justify-center gap-2 active:scale-[0.98] btn-premium" onclick="confirmResult()">
       <span class="material-symbols-outlined">check_circle</span>
       <span>确认记录</span>
     </button>
@@ -542,9 +1040,12 @@ html.dark .card-premium:hover {
 <div class="page" id="page-report">
   <header class="flex justify-between items-center px-container-margin py-stack-md sticky top-0 glass-header z-40">
     <h1 class="font-headline-md text-headline-md text-primary">营养周报</h1>
-    <button onclick="switchTab('history')" class="text-primary font-label-md text-label-md btn-premium">全部记录 →</button>
+    <button onclick="switchTab('history')" class="bg-primary/5 hover:bg-primary/10 text-primary border border-primary/20 hover:border-primary/40 font-semibold px-4 py-1.5 rounded-full text-xs transition-all active:scale-95 btn-premium flex items-center gap-1">
+      <span>全部记录</span>
+      <span class="material-symbols-outlined text-xs">chevron_right</span>
+    </button>
   </header>
-  <main class="px-container-margin flex-1 flex flex-col gap-stack-lg pb-24">
+  <main class="app-shell px-container-margin flex-1 flex flex-col gap-stack-lg pb-24">
     <!-- Weekly Stats Cards -->
     <section class="grid grid-cols-2 gap-gutter">
       <div class="bg-surface-container-lowest rounded-xl shadow-sm border border-surface-variant p-stack-md">
@@ -554,12 +1055,12 @@ html.dark .card-premium:hover {
       </div>
       <div class="bg-surface-container-lowest rounded-xl shadow-sm border border-surface-variant p-stack-md">
         <span class="font-label-md text-label-md text-outline">平均蛋白质</span>
-        <div class="font-stats-xl text-stats-xl text-tertiary" id="avgPro">0</div>
+        <div class="font-stats-xl text-stats-xl text-primary" id="avgPro">0</div>
         <span class="font-label-md text-label-md text-outline">g/天</span>
       </div>
       <!-- Weekly Exercise Stats Bento -->
       <div class="bg-surface-container-lowest rounded-xl shadow-sm border border-surface-variant p-stack-md col-span-2 flex flex-col gap-2 relative overflow-hidden">
-        <div class="absolute left-0 top-0 bottom-0 w-1.5 bg-primary"></div>
+        <div class="absolute left-0 top-0 bottom-0 w-1.5 bg-gradient-to-b from-[#d97706] to-[#0f5238]"></div>
         <div class="flex items-center gap-2 pl-1.5">
           <span class="material-symbols-outlined text-primary text-[18px]">fitness_center</span>
           <span class="font-label-md text-label-md text-outline">本周运动总计</span>
@@ -579,11 +1080,27 @@ html.dark .card-premium:hover {
         </div>
       </div>
     </section>
+    <section id="weeklyEmptyState" class="empty-state hidden">
+      <div class="flex items-start gap-3">
+        <div class="empty-illustration">
+          <span class="material-symbols-outlined text-3xl">insights</span>
+        </div>
+        <div>
+          <h2 class="font-headline-md text-headline-md text-on-background">记录 3 天饮食后，你会看到：</h2>
+          <p class="text-sm text-on-surface-variant mt-2 leading-relaxed">热量趋势、蛋白质达标率、宏量营养比例，以及更有上下文的 AI 恢复建议。</p>
+        </div>
+      </div>
+    </section>
+    <section id="weeklyInsightGrid" class="grid grid-cols-1 md:grid-cols-3 gap-gutter hidden"></section>
     <!-- Calorie Trend Chart -->
     <section class="bg-surface-container-lowest rounded-xl shadow-sm border border-surface-variant p-stack-md">
       <h2 class="font-headline-md text-headline-md text-on-background mb-4">热量趋势</h2>
       <div class="relative w-full" style="height:200px">
         <canvas id="calorieChart"></canvas>
+      </div>
+      <div class="chart-legend mt-3">
+        <span><i class="legend-dot" style="background:var(--primary)"></i>每日摄入</span>
+        <span><i class="legend-dot" style="background:var(--primary-fixed-dim)"></i>目标参考线</span>
       </div>
     </section>
     <!-- Macro Stacked Bar -->
@@ -591,6 +1108,11 @@ html.dark .card-premium:hover {
       <h2 class="font-headline-md text-headline-md text-on-background mb-4">宏量营养素</h2>
       <div class="relative w-full" style="height:200px">
         <canvas id="macroChart"></canvas>
+      </div>
+      <div class="chart-legend mt-3">
+        <span><i class="legend-dot" style="background:var(--primary)"></i>蛋白质</span>
+        <span><i class="legend-dot" style="background:var(--carb)"></i>碳水</span>
+        <span><i class="legend-dot" style="background:var(--fat)"></i>脂肪</span>
       </div>
     </section>
     <!-- AI Training Suggestions Card -->
@@ -609,29 +1131,42 @@ html.dark .card-premium:hover {
 <!-- ========== PAGE: Coach ========== -->
 <div class="page" id="page-coach" style="height:calc(100dvh - 70px);">
   <header class="flex justify-between items-center px-container-margin py-stack-md glass-header z-40 flex-shrink-0">
-    <div class="flex items-center gap-3">
+    <div class="flex items-center gap-3 chat-container">
       <div class="w-10 h-10 rounded-full bg-tertiary-container flex items-center justify-center">
         <span class="material-symbols-outlined text-on-primary" style="font-variation-settings:'FILL' 1">psychology</span>
       </div>
       <h1 class="font-headline-md text-headline-md text-primary">AI 营养教练</h1>
     </div>
   </header>
-  <div id="chatMessages" class="flex-1 overflow-y-auto px-container-margin flex flex-col gap-stack-md py-2">
+  <section class="app-shell px-container-margin pt-3 flex-shrink-0">
+    <div class="surface-panel p-4 grid grid-cols-2 gap-3 chat-container">
+      <div>
+        <p class="font-label-md text-label-md text-on-surface-variant">今日剩余</p>
+        <p class="font-headline-md text-headline-md text-primary tabular-nums"><span id="coachRemainingCal">2,000</span> kcal</p>
+      </div>
+      <div>
+        <p class="font-label-md text-label-md text-on-surface-variant">蛋白质还差</p>
+        <p class="font-headline-md text-headline-md text-on-background tabular-nums"><span id="coachProteinGap">120</span> g</p>
+      </div>
+    </div>
+  </section>
+  <div id="chatMessages" class="app-shell flex-1 overflow-y-auto px-container-margin flex flex-col gap-stack-md py-2 chat-container">
     <div class="flex items-start gap-3">
-      <div class="w-8 h-8 rounded-full bg-tertiary-container flex items-center justify-center flex-shrink-0 mt-1">
+      <div class="w-8 h-8 rounded-full bg-tertiary-container flex items-center justify-center flex-shrink-0 mt-1 shadow-sm">
         <span class="material-symbols-outlined text-on-primary text-sm" style="font-variation-settings:'FILL' 1">psychology</span>
       </div>
-      <div class="bg-surface-container rounded-2xl rounded-tl-none px-4 py-3 max-w-[80%]">
+      <div class="coach-ai-bubble">
         <p class="font-body-md text-body-md text-on-background">你好！我是你的 AI 营养教练。你可以问我关于饮食的任何问题。试试："今天还能吃什么？"</p>
       </div>
     </div>
   </div>
-  <div class="flex gap-2 overflow-x-auto px-container-margin pb-2 pt-2 flex-shrink-0">
-    <button onclick="sendCoachMsg('今天还能吃什么？')" class="flex-shrink-0 bg-surface-container-high text-on-surface-variant font-label-md text-label-md px-4 py-2 rounded-full border border-outline-variant hover:bg-surface-variant transition-colors">今天还能吃什么？</button>
-    <button onclick="sendCoachMsg('还剩多少热量额度？')" class="flex-shrink-0 bg-surface-container-high text-on-surface-variant font-label-md text-label-md px-4 py-2 rounded-full border border-outline-variant hover:bg-surface-variant transition-colors">还剩多少热量额度？</button>
-    <button onclick="sendCoachMsg('推荐高蛋白食物')" class="flex-shrink-0 bg-surface-container-high text-on-surface-variant font-label-md text-label-md px-4 py-2 rounded-full border border-outline-variant hover:bg-surface-variant transition-colors">推荐高蛋白食物</button>
+  <div class="app-shell flex gap-2 overflow-x-auto px-container-margin pb-2 pt-2 flex-shrink-0 chat-container scrollbar-none">
+    <button onclick="sendCoachMsg('我今天还能吃什么？')" class="flex-shrink-0 bg-primary/5 hover:bg-primary/10 text-primary border border-primary/20 font-semibold px-4 py-2 rounded-full text-xs transition-all active:scale-95 btn-premium">我今天还能吃什么？</button>
+    <button onclick="sendCoachMsg('帮我安排一顿高蛋白晚餐')" class="flex-shrink-0 bg-primary/5 hover:bg-primary/10 text-primary border border-primary/20 font-semibold px-4 py-2 rounded-full text-xs transition-all active:scale-95 btn-premium">高蛋白晚餐</button>
+    <button onclick="sendCoachMsg('我吃超了怎么办？')" class="flex-shrink-0 bg-primary/5 hover:bg-primary/10 text-primary border border-primary/20 font-semibold px-4 py-2 rounded-full text-xs transition-all active:scale-95 btn-premium">吃超了怎么办？</button>
+    <button onclick="sendCoachMsg('训练后怎么补？')" class="flex-shrink-0 bg-primary/5 hover:bg-primary/10 text-primary border border-primary/20 font-semibold px-4 py-2 rounded-full text-xs transition-all active:scale-95 btn-premium">训练后怎么补？</button>
   </div>
-  <div class="flex gap-2 px-container-margin pb-3 flex-shrink-0">
+  <div class="app-shell flex gap-2 px-container-margin pb-3 flex-shrink-0 chat-container">
     <input id="coachInput" type="text" placeholder="咨询 AI 教练..." class="flex-1 bg-surface-container rounded-full px-4 py-3 font-body-md text-body-md text-on-background border border-outline-variant focus:border-primary focus:outline-none" onkeydown="handleCoachInputKeydown(event)"/>
     <button onclick="sendCoachMsg()" class="w-12 h-12 bg-primary text-on-primary rounded-full flex items-center justify-center shadow-md hover:scale-105 active:scale-95 transition-transform flex-shrink-0">
       <span class="material-symbols-outlined" style="font-variation-settings:'FILL' 1">arrow_upward</span>
@@ -644,7 +1179,7 @@ html.dark .card-premium:hover {
   <header class="flex justify-between items-center px-container-margin py-stack-md sticky top-0 glass-header z-40">
     <h1 class="font-headline-md text-headline-md text-primary">饮食记录</h1>
   </header>
-  <main class="px-container-margin flex-1 flex flex-col gap-stack-lg pb-24">
+  <main class="app-shell px-container-margin flex-1 flex flex-col gap-stack-lg pb-24">
     <section class="flex flex-col gap-stack-md">
       <h2 class="font-headline-lg-mobile text-headline-lg-mobile text-on-background border-b border-surface-variant pb-stack-sm">全部记录</h2>
       <div id="historyList" class="flex flex-col gap-stack-md">
@@ -659,15 +1194,29 @@ html.dark .card-premium:hover {
   <header class="flex justify-between items-center px-container-margin py-stack-md sticky top-0 glass-header z-40">
     <h1 class="font-headline-md text-headline-md text-primary">个人中心</h1>
   </header>
-  <main class="px-container-margin flex-1 flex flex-col gap-stack-lg pb-24">
+  <main class="app-shell px-container-margin flex-1 flex flex-col gap-stack-lg pb-24">
     <!-- Profile Card -->
-    <section class="bg-surface-container-lowest rounded-xl p-6 shadow-sm border border-surface-variant flex flex-col items-center gap-4">
-      <div class="w-20 h-20 rounded-full bg-primary-container flex items-center justify-center shadow-md">
-        <span class="material-symbols-outlined text-[40px] text-on-primary" style="font-variation-settings:'FILL' 1">person</span>
+    <section class="surface-panel p-6 flex flex-col gap-4">
+      <div class="flex items-center gap-4">
+        <div class="w-16 h-16 rounded-2xl bg-primary-container flex items-center justify-center shadow-md flex-shrink-0">
+          <span class="material-symbols-outlined text-[34px] text-on-primary" style="font-variation-settings:'FILL' 1">person</span>
+        </div>
+        <div class="min-w-0 flex-1">
+          <h2 class="font-headline-md text-headline-md text-on-background font-semibold truncate" id="profileUsername">NutriSnap 用户</h2>
+          <p class="font-body-md text-body-md text-on-surface-variant" id="profileStorageMode">数据存储模式: 本地离线</p>
+        </div>
       </div>
-      <h2 class="font-headline-md text-headline-md text-on-background font-semibold" id="profileUsername">NutriSnap 用户</h2>
-      <p class="font-body-md text-body-md text-on-surface-variant" id="profileStorageMode">数据存储模式: 本地离线</p>
-      <button onclick="logout()" class="px-4 py-2 border border-error text-error hover:bg-error-container hover:text-on-error rounded-xl font-label-md text-label-md transition-colors btn-premium">退出登录</button>
+      <div class="grid grid-cols-2 gap-3">
+        <div class="bg-surface-container rounded-xl p-3">
+          <p class="text-xs text-on-surface-variant">模式</p>
+          <p class="font-semibold text-primary" id="profileModeShort">本地离线</p>
+        </div>
+        <div class="bg-surface-container rounded-xl p-3">
+          <p class="text-xs text-on-surface-variant">目标</p>
+          <p class="font-semibold text-on-background" id="profileTargetSummary">2000 kcal / 120g</p>
+        </div>
+      </div>
+      <button onclick="logout()" class="quiet-danger px-4 py-3 rounded-xl font-label-md text-label-md transition-colors btn-premium touch-target">退出登录</button>
     </section>
 
     <!-- Bento Daily Targets -->
@@ -690,7 +1239,7 @@ html.dark .card-premium:hover {
         <div onclick="editTarget('pro')" class="bg-surface-container-lowest rounded-2xl p-5 shadow-sm border border-surface-variant flex flex-col justify-between cursor-pointer hover:bg-surface-container active:scale-95 transition-all min-h-[115px] relative overflow-hidden">
           <div class="absolute left-0 top-0 bottom-0 w-1.5 bg-tertiary"></div>
           <div class="flex items-center gap-2 text-on-surface-variant pl-1.5">
-            <span class="material-symbols-outlined text-tertiary" style="font-variation-settings:'FILL' 1">fitness_center</span>
+            <span class="material-symbols-outlined text-primary" style="font-variation-settings:'FILL' 1">fitness_center</span>
             <span class="font-label-md text-label-md text-outline">蛋白质目标</span>
           </div>
           <div class="flex items-baseline gap-1 pl-1.5">
@@ -700,17 +1249,18 @@ html.dark .card-premium:hover {
         </div>
 
         <!-- BMR & Physical Data Card -->
-        <div onclick="showBMRSetupModal(false)" class="bg-surface-container-lowest rounded-2xl p-5 shadow-sm border border-surface-variant flex flex-col justify-between cursor-pointer hover:bg-surface-container active:scale-95 transition-all min-h-[115px] relative overflow-hidden col-span-2">
+        <div onclick="showBMRSetupModal(false)" class="surface-panel rounded-2xl p-5 flex flex-col gap-4 cursor-pointer hover:bg-surface-container active:scale-95 transition-all min-h-[115px] relative overflow-hidden col-span-2">
           <div class="flex justify-between items-center w-full">
             <div class="flex items-center gap-2 text-on-surface-variant">
               <span class="material-symbols-outlined text-primary" style="font-variation-settings:'FILL' 1">calculate</span>
               <span class="font-label-md text-label-md text-outline">身体数据 & 代谢计算</span>
             </div>
-            <span class="material-symbols-outlined text-outline">edit</span>
+            <span class="status-pill" id="profileBmrStatus">尚未设置</span>
           </div>
           <div class="text-xs text-on-surface-variant mt-2" id="bmrSummaryText">
             未设置身体数据，点击此处初始化以自动计算每日代谢目标。
           </div>
+          <button id="bmrSetupCta" class="w-full bg-primary text-on-primary rounded-xl py-3 font-semibold touch-target">设置身体数据，自动计算热量目标</button>
         </div>
       </div>
     </section>
@@ -970,6 +1520,79 @@ let proTarget = 120;
 let calChart = null;
 let macroChart = null;
 let chatHistory = [];
+let pendingResult = { foods: [], exercises: [], source: '', session_id: '' };
+let isVoiceInputFlow = false;
+
+const ICON_PATHS = {
+  add: '<path d="M12 5v14"/><path d="M5 12h14"/>',
+  remove: '<path d="M5 12h14"/>',
+  close: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+  arrow_back: '<path d="M19 12H5"/><path d="m12 19-7-7 7-7"/>',
+  arrow_upward: '<path d="M12 19V5"/><path d="m5 12 7-7 7 7"/>',
+  chevron_right: '<path d="m9 18 6-6-6-6"/>',
+  check_circle: '<circle cx="12" cy="12" r="9"/><path d="m8 12 2.5 2.5L16 9"/>',
+  verified: '<path d="m9 12 2 2 4-5"/><path d="M12 3 14.4 5.1 17.6 4.8 18.2 8 21 9.6 19.8 12.6 21 15.6 18.2 17.2 17.6 20.4 14.4 20.1 12 22.2 9.6 20.1 6.4 20.4 5.8 17.2 3 15.6 4.2 12.6 3 9.6 5.8 8 6.4 4.8 9.6 5.1 12 3Z"/>',
+  home: '<path d="m3 11 9-8 9 8"/><path d="M5 10v10h14V10"/><path d="M9 20v-6h6v6"/>',
+  person: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
+  restaurant: '<path d="M7 3v8"/><path d="M5 3v8"/><path d="M9 3v8"/><path d="M5 11h4"/><path d="M7 11v10"/><path d="M16 3v18"/><path d="M16 3c3 2 4 5 4 8h-4"/>',
+  restaurant_menu: '<path d="M7 3v8"/><path d="M5 3v8"/><path d="M9 3v8"/><path d="M5 11h4"/><path d="M7 11v10"/><path d="M16 3v18"/><path d="M16 3c3 2 4 5 4 8h-4"/>',
+  local_fire_department: '<path d="M12 22c4 0 7-3 7-7 0-3-2-5-4-7 .2 2-.8 3.2-2 4-1.7-2-2-4.2-.8-7C8.5 7.4 5 10.5 5 15c0 4 3 7 7 7Z"/><path d="M12 18c1.6 0 3-1.2 3-3 0-1.2-.6-2.1-1.5-2.8-.1 1-.6 1.6-1.4 2.1-.9-.9-1.1-1.9-.6-3.1C10 12.2 9 13.5 9 15c0 1.8 1.4 3 3 3Z"/>',
+  bolt: '<path d="M13 2 4 14h7l-1 8 9-12h-7l1-8Z"/>',
+  grain: '<path d="M12 22V7"/><path d="M12 7c-4 1-7 4-8 8 4-.2 7-2.4 8-8Z"/><path d="M12 7c4 1 7 4 8 8-4-.2-7-2.4-8-8Z"/><path d="M12 14c-3 .7-5 2.5-6 5 3-.1 5.2-1.6 6-5Z"/><path d="M12 14c3 .7 5 2.5 6 5-3-.1-5.2-1.6-6-5Z"/>',
+  water_drop: '<path d="M12 2s7 7.2 7 12a7 7 0 0 1-14 0c0-4.8 7-12 7-12Z"/>',
+  photo_camera: '<path d="M4 8h4l2-3h4l2 3h4v11H4V8Z"/><circle cx="12" cy="13.5" r="3.5"/>',
+  add_a_photo: '<path d="M4 8h4l2-3h4l2 3h4v11H4V8Z"/><circle cx="12" cy="13.5" r="3.5"/><path d="M19 3v4"/><path d="M17 5h4"/>',
+  search_insights: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/><path d="M7 11.5 9.5 9l2 2 3-4"/>',
+  mic: '<path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3Z"/><path d="M19 11a7 7 0 0 1-14 0"/><path d="M12 18v4"/><path d="M8 22h8"/>',
+  edit_note: '<path d="M4 6h10"/><path d="M4 11h8"/><path d="M4 16h6"/><path d="M14 19l5-5 2 2-5 5h-2v-2Z"/>',
+  delete: '<path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M6 6l1 15h10l1-15"/><path d="M10 11v6"/><path d="M14 11v6"/>',
+  fitness_center: '<path d="M6 7v10"/><path d="M18 7v10"/><path d="M3 9v6"/><path d="M21 9v6"/><path d="M6 12h12"/>',
+  directions_run: '<circle cx="13" cy="4" r="2"/><path d="m10 9 3-2 3 3"/><path d="m13 7-2 6"/><path d="m11 13-4 2"/><path d="m11 13 4 4"/><path d="m16 10 3 1"/>',
+  bar_chart: '<path d="M4 20V10"/><path d="M10 20V4"/><path d="M16 20v-7"/><path d="M22 20H2"/>',
+  psychology: '<path d="M12 3a7 7 0 0 0-7 7v2a4 4 0 0 0 4 4h1v4h6v-4h1a4 4 0 0 0 4-4v-2a7 7 0 0 0-7-7Z"/><path d="M9 10h.01"/><path d="M15 10h.01"/><path d="M9 14c1.8 1 4.2 1 6 0"/>',
+  insights: '<path d="M4 19V5"/><path d="M4 19h16"/><path d="m7 15 4-4 3 3 5-7"/>',
+  calculate: '<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8 7h8"/><path d="M8 11h2"/><path d="M12 11h2"/><path d="M16 11h.01"/><path d="M8 15h2"/><path d="M12 15h2"/><path d="M16 15h.01"/>',
+  cloud: '<path d="M17.5 18H8a5 5 0 1 1 1.2-9.85A6.5 6.5 0 0 1 21 12a4 4 0 0 1-3.5 6Z"/>',
+  sync_alt: '<path d="M4 7h13"/><path d="m14 4 3 3-3 3"/><path d="M20 17H7"/><path d="m10 14-3 3 3 3"/>',
+  dark_mode: '<path d="M21 14.5A8.5 8.5 0 0 1 9.5 3 7 7 0 1 0 21 14.5Z"/>',
+  light_mode: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.9 4.9 1.4 1.4"/><path d="m17.7 17.7 1.4 1.4"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m4.9 19.1 1.4-1.4"/><path d="m17.7 6.3 1.4-1.4"/>',
+  info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/>',
+  male: '<circle cx="10" cy="14" r="5"/><path d="M14 10 20 4"/><path d="M15 4h5v5"/>',
+  female: '<circle cx="12" cy="9" r="5"/><path d="M12 14v7"/><path d="M9 18h6"/>',
+  playlist_remove: '<path d="M4 7h10"/><path d="M4 12h10"/><path d="M4 17h7"/><path d="m17 14 4 4"/><path d="m21 14-4 4"/>',
+  timeline: '<path d="M4 6h4"/><path d="M4 18h4"/><path d="M16 6h4"/><path d="M16 18h4"/><path d="M8 6c4 0 4 12 8 12"/><path d="M8 18c4 0 4-12 8-12"/>',
+  schedule: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>'
+};
+
+function iconSVG(name) {
+  const paths = ICON_PATHS[name] || ICON_PATHS.info;
+  return `<svg viewBox="0 0 24 24" aria-hidden="true">${paths}</svg>`;
+}
+
+function hydrateIcons(root = document) {
+  const nodes = [];
+  if (root.nodeType === 1 && root.matches && root.matches('.material-symbols-outlined')) nodes.push(root);
+  if (root.querySelectorAll) nodes.push(...root.querySelectorAll('.material-symbols-outlined'));
+  nodes.forEach(el => {
+    const existing = el.dataset.svgIcon || '';
+    const label = el.textContent.trim();
+    const name = label || existing;
+    if (!name) return;
+    if (existing === name && el.firstElementChild && el.firstElementChild.tagName.toLowerCase() === 'svg') return;
+    el.dataset.svgIcon = name;
+    el.classList.add('svg-ready');
+    el.setAttribute('aria-hidden', 'true');
+    el.innerHTML = iconSVG(name);
+  });
+}
+
+function setMaterialIcon(target, name) {
+  const el = typeof target === 'string' ? document.getElementById(target) : target;
+  if (!el) return;
+  el.dataset.svgIcon = name;
+  el.classList.add('svg-ready');
+  el.innerHTML = iconSVG(name);
+}
 
 const IS_APP = (window.Capacitor && window.Capacitor.isNative) || 
                window.location.origin.includes('capacitor') || 
@@ -1261,12 +1884,12 @@ function toggleAuthMode() {
   
   if (authMode === 'register') {
     title.textContent = '创建账号';
-    subtitle.textContent = '新用户注册，开启健康生活';
+    subtitle.textContent = '拍照记录饮食，自动分析热量与营养';
     primaryBtn.querySelector('span').textContent = '注册';
     toggleBtn.textContent = '已有账号？立即登录';
   } else {
     title.textContent = '欢迎回来';
-    subtitle.textContent = '请输入您的账号信息登录';
+    subtitle.textContent = '拍照记录饮食，自动分析热量与营养';
     primaryBtn.querySelector('span').textContent = '登录';
     toggleBtn.textContent = '没有账号？立即注册';
   }
@@ -1365,6 +1988,14 @@ function switchTab(tab) {
 }
 
 // ===================== FILE HANDLING =====================
+function setAnalyzeButtonReady(isReady) {
+  const btn = document.getElementById('analyzeBtn');
+  if (!btn) return;
+  btn.disabled = !isReady;
+  btn.classList.toggle('disabled-cta', !isReady);
+  btn.classList.toggle('pulse-scan', isReady);
+}
+
 function handleFile(e) {
   isVoiceInputFlow = false;
   const file = e.target.files[0];
@@ -1376,7 +2007,7 @@ function handleFile(e) {
     const img = document.getElementById('imgPreview');
     img.src = ev.target.result;
     img.classList.remove('hidden');
-    document.getElementById('analyzeBtn').classList.remove('hidden');
+    setAnalyzeButtonReady(true);
   };
   reader.readAsDataURL(file);
 }
@@ -1385,7 +2016,7 @@ function handleFile(e) {
 async function doAnalyze() {
   isVoiceInputFlow = false;
   if (!selectedFile) return;
-  document.getElementById('analyzeBtn').classList.add('hidden');
+  setAnalyzeButtonReady(false);
   document.getElementById('analyzeLoading').classList.remove('hidden');
   const fd = new FormData();
   fd.append('image', selectedFile);
@@ -1409,14 +2040,32 @@ async function doAnalyze() {
       showResult(json);
     } else {
       showManualFoodModal(json.error || 'AI 未识别到食物，可以手动补录');
-      document.getElementById('analyzeBtn').classList.remove('hidden');
+      setAnalyzeButtonReady(true);
     }
   } catch (err) {
     alert('Network error: ' + err.message);
-    document.getElementById('analyzeBtn').classList.remove('hidden');
+    setAnalyzeButtonReady(true);
   } finally {
     document.getElementById('analyzeLoading').classList.add('hidden');
   }
+}
+
+function escapeHTML(value) {
+  return String(value ?? '').replace(/[&<>"']/g, ch => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  }[ch]));
+}
+
+function updateConfirmResultButton() {
+  const btn = document.getElementById('confirmResultBtn');
+  if (!btn) return;
+  const hasContent = (pendingResult.foods && pendingResult.foods.length > 0) || (pendingResult.exercises && pendingResult.exercises.length > 0);
+  btn.disabled = !hasContent;
+  btn.classList.toggle('disabled-cta', !hasContent);
 }
 
 function showResult(json) {
@@ -1433,41 +2082,45 @@ function showResult(json) {
     document.getElementById('resultImg').src = document.getElementById('imgPreview').src ? document.getElementById('imgPreview').src : (API_BASE + '/' + json.image_url);
   }
   
-  if (json.foods && json.foods.length > 0) {
-    const sid = json.session_id || ('local_' + Date.now());
-    const mealsToInsert = json.foods.map(f => ({
-      id: f.id || (Date.now() + Math.random()),
+  const sid = json.session_id || ('local_' + Date.now());
+  const createdAt = new Date().toISOString();
+  pendingResult = {
+    source: json.source || (isVoiceInputFlow ? 'voice' : 'image'),
+    session_id: sid,
+    foods: (json.foods || []).map((f, idx) => ({
+      id: f.id || (Date.now() + idx + Math.random()),
       food_name: f.food_name,
-      calories: f.calories,
-      protein: f.protein,
-      carbs: f.carbs,
-      fat: f.fat,
-      weight: f.weight || 100,
-      portion: f.portion || 1.0,
+      calories: Number(f.calories) || 0,
+      protein: Number(f.protein) || 0,
+      carbs: Number(f.carbs) || 0,
+      fat: Number(f.fat) || 0,
+      weight: Number(f.weight) || 100,
+      portion: Number(f.portion) || 1.0,
       session_id: sid,
       image_path: isVoiceInputFlow ? '' : (json.image_url || ''),
-      created_at: new Date().toISOString()
-    }));
-    MealStorage.addMeals(mealsToInsert);
-    json.foods = mealsToInsert;
-  }
-  
-  if (json.exercises && json.exercises.length > 0) {
-    const exToInsert = json.exercises.map(ex => ({
-      id: ex.id || (Date.now() + Math.random()),
+      created_at: createdAt
+    })),
+    exercises: (json.exercises || []).map((ex, idx) => ({
+      id: ex.id || (Date.now() + idx + Math.random()),
       exercise_name: ex.exercise_name,
-      calories: ex.calories,
-      duration: ex.duration,
+      calories: Number(ex.calories) || 0,
+      duration: Number(ex.duration) || 0,
       exercise_type: ex.exercise_type,
       target_muscles: ex.target_muscles,
-      created_at: new Date().toISOString()
-    }));
-    exToInsert.forEach(ex => ExerciseStorage.addExercise(ex));
-    json.exercises = exToInsert;
-  }
+      created_at: createdAt
+    }))
+  };
 
-  const foods = json.foods || [];
-  const exercises = json.exercises || [];
+  renderPendingResult();
+
+  setAnalyzeButtonReady(false);
+  document.getElementById('analyzeLoading').classList.add('hidden');
+  switchTab('result');
+}
+
+function renderPendingResult() {
+  const foods = pendingResult.foods || [];
+  const exercises = pendingResult.exercises || [];
   let html = '';
   
   // Render foods
@@ -1475,13 +2128,16 @@ function showResult(json) {
     const origWeight = f.weight || 100;
     const initialPortion = f.portion || 1.0;
     const initialWeight = Math.round(origWeight * initialPortion);
+    const per100 = origWeight > 0 ? Math.round(f.calories / (origWeight / 100)) : Math.round(f.calories);
+    const safeName = escapeHTML(f.food_name || '未命名食物');
     
     html += `
-      <div class="bg-surface-container-lowest rounded-xl shadow-sm border border-surface-variant p-stack-md flex flex-col gap-4">
+      <div class="surface-panel p-stack-md flex flex-col gap-4" id="pending-food-${f.id}">
         <div class="flex justify-between items-start">
           <div>
-            <h3 class="font-headline-md text-headline-md text-on-background font-semibold">${f.food_name}</h3>
-            <p class="font-label-md text-label-md text-outline">每 100g 约 ${Math.round(f.calories / (origWeight/100))} kcal</p>
+            <p class="font-label-md text-label-md text-primary">食物 ${i + 1}</p>
+            <h3 class="font-headline-md text-headline-md text-on-background font-semibold">${safeName}</h3>
+            <p class="font-label-md text-label-md text-outline">每 100g 约 ${per100} kcal</p>
           </div>
           <div class="text-right">
             <span class="font-stats-xl text-stats-xl text-primary font-extrabold"><span id="adjCal-${f.id}">${Math.round(f.calories * initialPortion)}</span></span>
@@ -1490,7 +2146,7 @@ function showResult(json) {
         </div>
         
         <!-- Macro Grid -->
-        <div class="grid grid-cols-3 gap-2 bg-surface-container-low/50 p-2.5 rounded-xl border border-outline-variant/20">
+        <div class="grid grid-cols-3 gap-2 bg-surface-container p-2.5 rounded-xl border border-outline-variant/20">
           <div class="text-center">
             <span class="block text-[11px] font-bold text-outline uppercase tracking-wider">蛋白质</span>
             <span class="font-headline-md text-headline-md text-on-background font-bold" id="adjPro-${f.id}">${Math.round(f.protein * initialPortion)}</span><span class="text-xs text-outline">g</span>
@@ -1541,19 +2197,22 @@ function showResult(json) {
               onchange="savePortion('${f.id}', this.value)">
             <span class="font-label-md text-label-md text-primary font-bold min-w-[42px] text-right" id="portionLabel-${f.id}">${initialPortion.toFixed(2)}x</span>
           </div>
+          <button onclick="deletePendingFood('${f.id}')" class="self-end text-xs text-outline hover:text-error px-3 py-2 rounded-full hover:bg-error-container transition-colors touch-target">删除此食物</button>
         </div>
       </div>`;
   });
 
   // Render exercises
   exercises.forEach((ex, i) => {
+    const safeName = escapeHTML(ex.exercise_name || '运动记录');
+    const safeMuscles = escapeHTML(ex.target_muscles || '');
     html += `
-      <div class="bg-surface-container-lowest rounded-xl shadow-sm border border-surface-variant p-stack-md flex flex-col gap-3 relative overflow-hidden">
-        <div class="absolute left-0 top-0 bottom-0 w-1.5 bg-primary"></div>
+      <div class="surface-panel p-stack-md flex flex-col gap-3 relative overflow-hidden">
+        <div class="absolute left-0 top-0 bottom-0 w-1.5 bg-gradient-to-b from-[#d97706] to-[#0f5238]"></div>
         <div class="flex justify-between items-start pl-1.5">
           <div>
-            <h3 class="font-headline-md text-headline-md text-on-background font-bold">${ex.exercise_name} (运动)</h3>
-            <p class="font-label-md text-label-md text-outline">时长 ${ex.duration} 分钟 ${ex.target_muscles ? `· 目标肌群: ${ex.target_muscles}` : ''}</p>
+            <h3 class="font-headline-md text-headline-md text-on-background font-bold">${safeName} (运动)</h3>
+            <p class="font-label-md text-label-md text-outline">时长 ${ex.duration} 分钟 ${safeMuscles ? `· 目标肌群: ${safeMuscles}` : ''}</p>
           </div>
           <div class="text-right">
             <span class="font-stats-xl text-stats-xl text-primary font-extrabold">${ex.calories}</span>
@@ -1562,6 +2221,16 @@ function showResult(json) {
         </div>
       </div>`;
   });
+
+  if (!foods.length && !exercises.length) {
+    html = `
+      <div class="empty-state text-center">
+        <span class="material-symbols-outlined text-4xl text-outline">playlist_remove</span>
+        <h3 class="font-headline-md text-headline-md text-on-background mt-2">当前没有可确认的记录</h3>
+        <p class="text-sm text-on-surface-variant mt-1">你可以返回重新拍照，或使用手动补录添加食物。</p>
+        <button onclick="showManualFoodModal('当前结果为空，可手动补录一项食物。')" class="mt-4 bg-primary text-on-primary rounded-xl px-4 py-3 font-semibold touch-target">手动补录</button>
+      </div>`;
+  }
 
   document.getElementById('resultFoods').innerHTML = html;
   updateSummary(foods);
@@ -1574,14 +2243,35 @@ function showResult(json) {
     document.getElementById('resultFoods').appendChild(notice);
   }
 
-  document.getElementById('analyzeBtn').classList.add('hidden');
-  document.getElementById('analyzeLoading').classList.add('hidden');
-  switchTab('result');
+  updateConfirmResultButton();
+}
+
+function deletePendingFood(id) {
+  pendingResult.foods = (pendingResult.foods || []).filter(f => String(f.id) !== String(id));
+  renderPendingResult();
+}
+
+function confirmResult() {
+  const foods = pendingResult.foods || [];
+  const exercises = pendingResult.exercises || [];
+  if (!foods.length && !exercises.length) return;
+
+  if (foods.length) {
+    MealStorage.addMeals(foods.map(f => ({...f})));
+  }
+  exercises.forEach(ex => ExerciseStorage.addExercise({...ex}));
+  pendingResult = { foods: [], exercises: [], source: '', session_id: '' };
+  resetScan();
+  fetchTodayData();
+  fetchWeeklyReport();
+  fetchAISuggestions();
 }
 
 function onSliderInput(id, portion, origCal, origPro, origCarbs, origFat, origWeight) {
   const p = parseFloat(portion);
   const w = Math.round(origWeight * p);
+  const pendingFood = (pendingResult.foods || []).find(f => String(f.id) === String(id));
+  if (pendingFood) pendingFood.portion = p;
   
   document.getElementById('gramsInput-' + id).value = w;
   document.getElementById('portionLabel-' + id).textContent = p.toFixed(2) + 'x';
@@ -1594,6 +2284,8 @@ function onGramsInput(id, grams, origCal, origPro, origCarbs, origFat, origWeigh
   let w = parseFloat(grams) || 0;
   if (w < 1) w = 1;
   const p = w / origWeight;
+  const pendingFood = (pendingResult.foods || []).find(f => String(f.id) === String(id));
+  if (pendingFood) pendingFood.portion = p;
   
   document.getElementById('slider-' + id).value = Math.max(0.25, Math.min(5.0, p));
   document.getElementById('portionLabel-' + id).textContent = p.toFixed(2) + 'x';
@@ -1645,6 +2337,11 @@ function savePortionFromGrams(id, grams, origWeight) {
 }
 
 async function savePortion(id, portion) {
+  const pendingFood = (pendingResult.foods || []).find(f => String(f.id) === String(id));
+  if (pendingFood) {
+    pendingFood.portion = parseFloat(portion);
+    return;
+  }
   MealStorage.updateMealPortion(id, portion);
 }
 
@@ -1666,11 +2363,12 @@ function updateSummary(foods) {
 
 function resetScan() {
   selectedFile = null;
+  pendingResult = { foods: [], exercises: [], source: '', session_id: '' };
   document.getElementById('fileInput').value = '';
   document.getElementById('imgPreview').classList.add('hidden');
   document.getElementById('imgPreview').src = '';
   document.getElementById('uploadHint').classList.remove('hidden');
-  document.getElementById('analyzeBtn').classList.add('hidden');
+  setAnalyzeButtonReady(false);
   switchTab('home');
 }
 
@@ -1722,6 +2420,7 @@ function saveManualFood() {
   }
 
   closeManualFoodModal();
+  isVoiceInputFlow = false;
   showResult({
     success: true,
     source: 'manual',
@@ -1895,7 +2594,7 @@ async function transcribeAudio(blob, mimeType) {
 async function sendVoiceText(text) {
   document.getElementById('voiceListening').classList.add('hidden');
   document.getElementById('voiceProcessing').classList.remove('hidden');
-  document.getElementById('voiceFinalText').textContent = 'â' + text + 'â';
+  document.getElementById('voiceFinalText').textContent = '“' + text + '”';
   try {
     const payload = { text: text };
     if (isLocalMode()) {
@@ -2313,7 +3012,19 @@ async function fetchTodayData() {
     });
 
     if (todayMeals.length === 0 && todayExercises.length === 0) {
-      list.innerHTML = '<p class="text-outline text-center py-8">暂无记录，点击底部扫描按钮或手动记录开始吧！</p>';
+      list.innerHTML = `
+        <div class="empty-state">
+          <div class="flex items-start gap-3">
+            <div class="empty-illustration">
+              <span class="material-symbols-outlined text-3xl">restaurant_menu</span>
+            </div>
+            <div class="flex-1">
+              <h3 class="font-headline-md text-headline-md text-on-background">今天还没有记录饮食</h3>
+              <p class="text-sm text-on-surface-variant mt-2 leading-relaxed">拍一张食物照片，AI 会自动估算热量、蛋白质、碳水和脂肪。</p>
+              <button onclick="switchTab('scan')" class="mt-4 bg-primary text-on-primary rounded-xl px-4 py-3 font-semibold touch-target">开始记录第一餐</button>
+            </div>
+          </div>
+        </div>`;
       
       const user = getCurrentUser();
       if (!isLocalMode() && user && user !== 'guest' && user !== 'anonymous' && user !== 'local_user') {
@@ -2409,7 +3120,7 @@ async function fetchTodayData() {
         
         html += `
           <div class="bg-surface-container-lowest rounded-xl shadow-sm border border-surface-variant p-stack-md relative overflow-hidden" id="exercise-item-${item.id}">
-            <div class="absolute left-0 top-0 bottom-0 w-1.5 bg-primary"></div>
+            <div class="absolute left-0 top-0 bottom-0 w-1.5 bg-gradient-to-b from-[#d97706] to-[#0f5238]"></div>
             <div class="flex gap-3 pl-1.5">
               <div class="w-12 h-12 rounded-lg bg-primary/10 overflow-hidden flex-shrink-0 flex items-center justify-center border border-outline-variant text-primary">
                 <span class="material-symbols-outlined">${item.exercise_type === 'strength' ? 'fitness_center' : 'directions_run'}</span>
@@ -2440,17 +3151,35 @@ async function fetchTodayData() {
 
 function updateRings(cal, pro, carbs, fat, burn = 0) {
   const netCal = cal - burn;
-  const calPct = Math.max(0, Math.min(netCal / calTarget, 1));
+  const calPct = Math.max(0, Math.min(cal / calTarget, 1));
   const proPct = Math.min(pro / proTarget, 1);
-  document.getElementById('calRing').style.strokeDashoffset = 251.2 * (1 - calPct);
-  document.getElementById('proRing').style.strokeDashoffset = 251.2 * (1 - proPct);
   
-  document.getElementById('totalCal').textContent = netCal.toLocaleString();
+  // Calculate carbs and fat targets dynamically
+  const carbsTarget = Math.round((calTarget * 0.5) / 4);
+  const fatTarget = Math.round((calTarget * 0.3) / 9);
+  
+  const carbsPct = Math.min(carbs / carbsTarget, 1);
+  const fatPct = Math.min(fat / fatTarget, 1);
+  
+  const calRing = document.getElementById('calRing');
+  const proRing = document.getElementById('proRing');
+  const proteinProgress = document.getElementById('proteinProgress');
+  const carbsProgress = document.getElementById('carbsProgress');
+  const fatProgress = document.getElementById('fatProgress');
+  
+  if (calRing) calRing.style.strokeDashoffset = 251.2 * (1 - calPct);
+  if (proRing) proRing.style.strokeDashoffset = 251.2 * (1 - proPct);
+  if (proteinProgress) proteinProgress.style.width = Math.round(proPct * 100) + '%';
+  if (carbsProgress) carbsProgress.style.width = Math.round(carbsPct * 100) + '%';
+  if (fatProgress) fatProgress.style.width = Math.round(fatPct * 100) + '%';
+  
+  document.getElementById('totalCal').textContent = cal.toLocaleString();
   document.getElementById('totalPro').textContent = pro + 'g';
-  document.getElementById('totalCarbs').textContent = carbs;
-  document.getElementById('totalFat').textContent = fat;
+  document.getElementById('totalCarbs').textContent = carbs + 'g';
+  document.getElementById('totalFat').textContent = fat + 'g';
 
   const remaining = calTarget - netCal;
+  const proteinGap = Math.max(proTarget - pro, 0);
   document.getElementById('headerCalBadge').textContent = (remaining >= 0 ? '' : '-') + Math.abs(remaining).toLocaleString() + ' kcal';
   document.getElementById('headerCalBadge').className = remaining >= 0 
     ? 'font-label-md text-label-md text-primary'
@@ -2480,6 +3209,11 @@ function updateRings(cal, pro, carbs, fat, burn = 0) {
       dashRemaining.className = 'font-bold text-error';
     }
   }
+
+  const coachRemainingCal = document.getElementById('coachRemainingCal');
+  const coachProteinGap = document.getElementById('coachProteinGap');
+  if (coachRemainingCal) coachRemainingCal.textContent = remaining.toLocaleString();
+  if (coachProteinGap) coachProteinGap.textContent = proteinGap.toLocaleString();
 }
 
 // ===================== FETCH HISTORY =====================
@@ -2489,18 +3223,40 @@ async function fetchHistory() {
     
     const list = document.getElementById('historyList');
     if (meals.length === 0) {
-      list.innerHTML = '<p class="text-outline text-center py-8">暂无记录</p>';
+      list.innerHTML = `
+        <div class="empty-state text-center">
+          <span class="material-symbols-outlined text-4xl text-primary">timeline</span>
+          <h3 class="font-headline-md text-headline-md text-on-background mt-2">还没有饮食时间线</h3>
+          <p class="text-sm text-on-surface-variant mt-1">记录第一餐后，这里会按日期整理你的饮食历史。</p>
+          <button onclick="switchTab('scan')" class="mt-4 bg-primary text-on-primary rounded-xl px-4 py-3 font-semibold touch-target">去记录一餐</button>
+        </div>`;
       return;
     }
     const groups = {};
     meals.forEach(m => {
       const sid = m.session_id || 'solo_' + m.id;
-      if (!groups[sid]) groups[sid] = {items:[], image_path: ''};
+      if (!groups[sid]) groups[sid] = {items:[], image_path: '', created_at: m.created_at};
       groups[sid].items.push(m);
       if (m.image_path) groups[sid].image_path = m.image_path;
+      if (m.created_at && (!groups[sid].created_at || m.created_at < groups[sid].created_at)) {
+        groups[sid].created_at = m.created_at;
+      }
     });
     let html = '';
-    Object.values(groups).forEach(g => {
+    let lastDateLabel = '';
+    const today = new Date();
+    const yesterday = new Date(today);
+    yesterday.setDate(today.getDate() - 1);
+    const dateHeading = (iso) => {
+      const d = new Date(iso);
+      if (isNaN(d.getTime())) return '更早';
+      if (d.toDateString() === today.toDateString()) return '今天';
+      if (d.toDateString() === yesterday.toDateString()) return '昨天';
+      return `${d.getMonth() + 1}月${d.getDate()}日`;
+    };
+    Object.values(groups)
+      .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+      .forEach(g => {
       const imgSrc = g.image_path ? (g.image_path.startsWith('data:') || g.image_path.startsWith('file:') || g.image_path.startsWith('content:') ? g.image_path : (API_BASE + '/' + g.image_path)) : '';
       const foodNames = g.items.map(m => {
         const w = Math.round((m.weight || 100) * (m.portion || 1.0));
@@ -2511,9 +3267,14 @@ async function fetchHistory() {
       const histSummary = g.items.map(m => m.food_name + ' ' + Math.round((m.calories||0)*(m.portion||1.0)) + 'kcal').join('、');
       
       let displayTime = formatTime(g.items[0].created_at);
+      const label = dateHeading(g.created_at || g.items[0].created_at);
+      if (label !== lastDateLabel) {
+        html += `<div class="font-label-md text-label-md text-outline mt-2">${label}</div>`;
+        lastDateLabel = label;
+      }
 
       html += `
-        <div class="bg-surface-container-lowest rounded-xl shadow-sm border border-surface-variant p-stack-md">
+        <div class="surface-panel p-stack-md">
           <div class="flex gap-3 items-start">
             <div class="w-12 h-12 rounded-lg bg-surface-container-high overflow-hidden flex-shrink-0 flex items-center justify-center border border-outline-variant">
               ${imgSrc ? `<img src="${imgSrc}" class="w-full h-full object-cover"/>` : `<span class="material-symbols-outlined text-outline">restaurant</span>`}
@@ -2612,6 +3373,40 @@ async function fetchWeeklyReport() {
     document.getElementById('weeklyBurnCal').textContent = totalBurn;
     document.getElementById('weeklyExerciseDuration').textContent = totalDur;
 
+    const activeDays = report.filter(d =>
+      (d.total_calories || 0) > 0 ||
+      (d.total_protein || 0) > 0 ||
+      (d.total_burn_calories || 0) > 0 ||
+      (d.total_exercise_duration || 0) > 0
+    ).length;
+    const emptyState = document.getElementById('weeklyEmptyState');
+    const insightGrid = document.getElementById('weeklyInsightGrid');
+    if (emptyState) emptyState.classList.toggle('hidden', activeDays >= 3);
+    if (insightGrid) {
+      if (activeDays >= 3) {
+        const proteinDays = report.filter(d => (d.total_protein || 0) >= proTarget).length;
+        const avgGap = Math.round(avgCal - calTarget);
+        const trainingDays = report.filter(d => (d.total_burn_calories || 0) > 0).length;
+        insightGrid.innerHTML = `
+          <div class="metric-card">
+            <span class="font-label-md text-label-md text-on-surface-variant">蛋白质达标</span>
+            <span class="font-headline-md text-headline-md text-primary">${proteinDays} / 7 天</span>
+          </div>
+          <div class="metric-card">
+            <span class="font-label-md text-label-md text-on-surface-variant">平均热量差</span>
+            <span class="font-headline-md text-headline-md ${avgGap <= 0 ? 'text-primary' : 'text-error'}">${avgGap > 0 ? '+' : ''}${avgGap} kcal</span>
+          </div>
+          <div class="metric-card">
+            <span class="font-label-md text-label-md text-on-surface-variant">训练记录</span>
+            <span class="font-headline-md text-headline-md text-on-background">${trainingDays} 天</span>
+          </div>`;
+        insightGrid.classList.remove('hidden');
+      } else {
+        insightGrid.innerHTML = '';
+        insightGrid.classList.add('hidden');
+      }
+    }
+
     const isDark = document.documentElement.classList.contains('dark');
     const gridColor = isDark ? '#404943' : '#bfc9c1';
     const textColor = isDark ? '#bfc9c1' : '#404943';
@@ -2623,8 +3418,8 @@ async function fetchWeeklyReport() {
       data: {
         labels: days,
         datasets: [
-          { label: '热量 (kcal)', data: cals, borderColor: '#0f5238', backgroundColor: 'rgba(15,82,56,0.1)', fill: true, tension: 0.3, pointRadius: 4, pointBackgroundColor: '#0f5238' },
-          { label: '目标', data: Array(7).fill(calTarget), borderColor: '#ba1a1a', borderDash: [6,3], borderWidth: 2, pointRadius: 0, fill: false }
+          { label: '热量 (kcal)', data: cals, borderColor: '#2d6a4f', backgroundColor: 'rgba(45,106,79,0.1)', fill: true, tension: 0.3, pointRadius: 4, pointBackgroundColor: '#2d6a4f' },
+          { label: '目标', data: Array(7).fill(calTarget), borderColor: '#95d4b3', borderDash: [6,3], borderWidth: 1.5, pointRadius: 0, fill: false }
         ]
       },
       options: {
@@ -2652,19 +3447,16 @@ async function fetchWeeklyReport() {
       data: {
         labels: days,
         datasets: [
-          { label: '蛋白质', data: pros, backgroundColor: '#beead1' },
+          { label: '蛋白质', data: pros, backgroundColor: '#2d6a4f' },
           { label: '碳水', data: carbs, backgroundColor: '#00687e' },
-          { label: '脂肪', data: fats, backgroundColor: '#ba1a1a' }
+          { label: '脂肪', data: fats, backgroundColor: '#95d4b3' }
         ]
       },
       options: {
         responsive: true,
         maintainAspectRatio: false,
         plugins: { 
-          legend: { 
-            position: 'bottom', 
-            labels: { color: textColor, usePointStyle: true, padding: 16 } 
-          } 
+          legend: { display: false }
         },
         scales: {
           x: { stacked: true, grid: { display: false }, ticks: { color: textColor } },
@@ -2685,44 +3477,26 @@ async function fetchAISuggestions() {
   container.innerHTML = `
     <div class="flex flex-col items-center justify-center py-6 text-outline">
       <div class="animate-spin rounded-full h-6 w-6 border-2 border-primary border-t-transparent mb-2"></div>
-      <p class="text-xs">AI 智能教练正在分析您的饮食与运动数据...</p>
+      <p class="text-xs">AI 智能教练正在分析您的饮食与运动...</p>
     </div>`;
-
   try {
     const meals = MealStorage.getMeals();
     const exercises = ExerciseStorage.getExercises();
-    const profile = ProfileStorage.getProfile();
-
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-
-    const recentMeals = meals.filter(m => m.created_at && new Date(m.created_at) >= sevenDaysAgo);
-    const recentExercises = exercises.filter(ex => ex.created_at && new Date(ex.created_at) >= sevenDaysAgo);
-
-    // Require at least 3 days of data for meaningful analysis
-    const mealDays = new Set(recentMeals.map(m => m.created_at.split('T')[0]));
-    const exDays = new Set(recentExercises.map(ex => ex.created_at.split('T')[0]));
-    const totalDays = new Set([...mealDays, ...exDays]).size;
-    if (totalDays < 3) {
-      container.innerHTML = `<div class="text-center py-6">
-        <span class="material-symbols-outlined text-4xl text-outline mb-2">schedule</span>
-        <p class="font-body-lg text-body-lg text-on-surface-variant font-semibold">数据积累中</p>
-        <p class="font-label-md text-label-md text-outline mt-1">建议至少规律记录 3 天后再查看 AI 综合分析</p>
-        <p class="text-[11px] text-outline mt-2">当前已记录 ${totalDays} 天</p>
-      </div>`;
-      return;
-    }
+    const todayStr = new Date().toISOString().split('T')[0];
+    const todayMeals = meals.filter(m => m.created_at && m.created_at.startsWith(todayStr));
+    const todayExercises = exercises.filter(ex => ex.created_at && ex.created_at.startsWith(todayStr));
 
     const payload = {
-      meals: recentMeals,
-      exercises: recentExercises,
-      profile: profile
+      meals: todayMeals,
+      exercises: todayExercises,
+      calTarget: calTarget,
+      proTarget: proTarget
     };
 
-    const headers = getAuthHeaders();
+    let headers = getAuthHeaders();
     headers['Content-Type'] = 'application/json';
 
-    const res = await fetch(API_BASE + '/api/report/suggestions', {
+    const res = await fetch(API_BASE + '/api/coach/suggestions', {
       method: 'POST',
       headers: headers,
       body: JSON.stringify(payload)
@@ -2775,16 +3549,16 @@ function sendCoachMsg(quickMsg) {
   const chat = document.getElementById('chatMessages');
   chat.innerHTML += `
     <div class="flex items-start gap-3 justify-end">
-      <div class="bg-primary text-on-primary rounded-2xl rounded-tr-none px-4 py-3 max-w-[80%] shadow-sm">
+      <div class="coach-user-bubble">
         <p class="font-body-md text-body-md">${msg}</p>
       </div>
     </div>
     <div class="flex items-start gap-3" id="coachLoading">
-      <div class="w-8 h-8 rounded-full bg-tertiary-container flex items-center justify-center flex-shrink-0 mt-1">
+      <div class="w-8 h-8 rounded-full bg-tertiary-container flex items-center justify-center flex-shrink-0 mt-1 shadow-sm">
         <span class="material-symbols-outlined text-on-primary text-sm" style="font-variation-settings:'FILL' 1">psychology</span>
       </div>
-      <div class="bg-surface-container rounded-2xl rounded-tl-none px-4 py-3">
-        <div class="flex gap-1"><span class="w-2 h-2 rounded-full bg-outline animate-bounce"></span><span class="w-2 h-2 rounded-full bg-outline animate-bounce" style="animation-delay:.15s"></span><span class="w-2 h-2 rounded-full bg-outline animate-bounce" style="animation-delay:.3s"></span></div>
+      <div class="coach-ai-bubble bg-surface-container animate-pulse flex items-center py-4">
+        <div class="flex gap-1.5"><span class="w-2 h-2 rounded-full bg-outline animate-bounce"></span><span class="w-2 h-2 rounded-full bg-outline animate-bounce" style="animation-delay:.15s"></span><span class="w-2 h-2 rounded-full bg-outline animate-bounce" style="animation-delay:.3s"></span></div>
       </div>
     </div>`;
   chat.scrollTop = chat.scrollHeight;
@@ -2837,8 +3611,8 @@ async function generateCoachResponse(userMsg) {
       <div class="w-8 h-8 rounded-full bg-tertiary-container flex items-center justify-center flex-shrink-0 mt-1 shadow-sm">
         <span class="material-symbols-outlined text-on-primary text-sm" style="font-variation-settings:'FILL' 1">psychology</span>
       </div>
-      <div class="bg-surface-container rounded-2xl rounded-tl-none px-4 py-3 max-w-[80%] shadow-sm">
-        <p class="font-body-md text-body-md text-on-background">${parseMarkdownToHTML(reply)}</p>
+      <div class="coach-ai-bubble">
+        <div class="font-body-md text-body-md text-on-background">${parseMarkdownToHTML(reply)}</div>
       </div>
     </div>`;
   chat.scrollTop = chat.scrollHeight;
@@ -2882,6 +3656,18 @@ function applyTargets() {
   document.getElementById('proTargetDisplay').textContent = proTarget;
   document.getElementById('calTargetLabel').textContent = calTarget.toLocaleString();
   document.getElementById('proTargetLabel').textContent = proTarget;
+  
+  // Calculate carbs and fat targets dynamically
+  const carbsTarget = Math.round((calTarget * 0.5) / 4);
+  const fatTarget = Math.round((calTarget * 0.3) / 9);
+  
+  const carbsTargetLabel = document.getElementById('carbsTargetLabel');
+  const fatTargetLabel = document.getElementById('fatTargetLabel');
+  if (carbsTargetLabel) carbsTargetLabel.textContent = carbsTarget;
+  if (fatTargetLabel) fatTargetLabel.textContent = fatTarget;
+  
+  const profileTargetSummary = document.getElementById('profileTargetSummary');
+  if (profileTargetSummary) profileTargetSummary.textContent = `${calTarget.toLocaleString()} kcal / ${proTarget}g`;
 }
 
 function toggleStorageMode() {
@@ -2897,7 +3683,7 @@ async function updateProfileUI() {
   const user = getCurrentUser() || 'guest';
   const profileUsername = document.getElementById('profileUsername');
   if (profileUsername) {
-    profileUsername.textContent = user === 'local_user' ? '离线游客 (local_user)' : user;
+    profileUsername.textContent = user === 'local_user' ? '离线体验用户' : user;
   }
   const profileStorageMode = document.getElementById('profileStorageMode');
   if (profileStorageMode) {
@@ -2907,6 +3693,10 @@ async function updateProfileUI() {
   if (storageModeDisplay) {
     storageModeDisplay.textContent = isLocalMode() ? '本地离线' : '已同步';
   }
+  const profileModeShort = document.getElementById('profileModeShort');
+  if (profileModeShort) profileModeShort.textContent = isLocalMode() ? '本地离线' : '云端汇总';
+  const profileTargetSummary = document.getElementById('profileTargetSummary');
+  if (profileTargetSummary) profileTargetSummary.textContent = `${calTarget.toLocaleString()} kcal / ${proTarget}g`;
 
   // Load and update BMR/TDEE UI details
   let hasProfile = false;
@@ -2969,6 +3759,15 @@ async function updateProfileUI() {
     if (bmrSummary) {
       bmrSummary.textContent = `基础代谢 ${profile.bmr} kcal · TDEE ${profile.tdee} kcal · 推荐蛋白 ${profile.protein_target}g`;
     }
+    const bmrIndicator = document.getElementById('bmrSetupIndicator');
+    if (bmrIndicator) {
+      bmrIndicator.textContent = '代谢计算已激活';
+      bmrIndicator.className = 'status-pill';
+    }
+    const profileBmrStatus = document.getElementById('profileBmrStatus');
+    if (profileBmrStatus) profileBmrStatus.textContent = '已设置';
+    const bmrSetupCta = document.getElementById('bmrSetupCta');
+    if (bmrSetupCta) bmrSetupCta.textContent = '更新身体数据';
 
     calTarget = profile.tdee;
     proTarget = profile.protein_target;
@@ -2976,16 +3775,20 @@ async function updateProfileUI() {
   } else {
     const bmrSummary = document.getElementById('bmrSummaryText');
     if (bmrSummary) {
-      bmrSummary.textContent = `未设置 → 当前目标 ${calTarget} kcal（默认值）`;
+      bmrSummary.textContent = `尚未设置身体数据，当前使用 ${calTarget.toLocaleString()} kcal / ${proTarget}g 作为默认目标。`;
     }
-    // Reset targets to defaults when no BMR profile exists
-    calTarget = 2000;
-    proTarget = 120;
+    const bmrIndicator = document.getElementById('bmrSetupIndicator');
+    if (bmrIndicator) {
+      bmrIndicator.textContent = '使用默认目标';
+      bmrIndicator.className = 'status-pill';
+    }
+    const profileBmrStatus = document.getElementById('profileBmrStatus');
+    if (profileBmrStatus) profileBmrStatus.textContent = '尚未设置';
+    const bmrSetupCta = document.getElementById('bmrSetupCta');
+    if (bmrSetupCta) bmrSetupCta.textContent = '设置身体数据，自动计算热量目标';
     applyTargets();
-    if (getCurrentUser()) {
-      showBMRSetupModal(true);
-    }
   }
+  if (profileTargetSummary) profileTargetSummary.textContent = `${calTarget.toLocaleString()} kcal / ${proTarget}g`;
 }
 
 function showAbout() {
@@ -3004,14 +3807,14 @@ function toggleFabMenu() {
   } else {
     menu.style.display = 'flex';
     backdrop.style.display = 'block';
-    icon.textContent = 'close';
+    setMaterialIcon(icon, 'close');
   }
 }
 
 function closeFabMenu() {
   document.getElementById('fabMenu').style.display = 'none';
   document.getElementById('fabBackdrop').style.display = 'none';
-  document.getElementById('fabIcon').textContent = 'add';
+  setMaterialIcon('fabIcon', 'add');
 }
 
 function toggleDarkMode() {
@@ -3025,7 +3828,7 @@ function updateDarkModeUI() {
   const isDark = document.documentElement.classList.contains('dark');
   const headerIcon = document.getElementById('headerDarkModeIcon');
   if (headerIcon) {
-    headerIcon.textContent = isDark ? 'light_mode' : 'dark_mode';
+    setMaterialIcon(headerIcon, isDark ? 'light_mode' : 'dark_mode');
   }
   const statusLabel = document.getElementById('darkModeStatusLabel');
   if (statusLabel) {
@@ -3049,8 +3852,103 @@ function formatTime(isoStr) {
   return `${d.getMonth()+1}月${d.getDate()}日 ${time}`;
 }
 
+
+// ===================== ONBOARDING =====================
+let onboardingSlideIndex = 0;
+const ONBOARDING_TOTAL = 3;
+
+function showOnboarding() {
+  const overlay = document.getElementById('onboardingOverlay');
+  overlay.classList.remove('hidden');
+  onboardingSlideIndex = 0;
+  updateOnboardingSlide();
+}
+
+function updateOnboardingSlide() {
+  const slides = document.getElementById('onboardingSlides');
+  slides.style.transform = `translateX(-${onboardingSlideIndex * (100 / ONBOARDING_TOTAL)}%)`;
+
+  document.querySelectorAll('.onboarding-dot').forEach((dot, i) => {
+    dot.classList.toggle('active', i === onboardingSlideIndex);
+  });
+
+  const btn = document.getElementById('onboardingNextBtn');
+  if (onboardingSlideIndex === ONBOARDING_TOTAL - 1) {
+    btn.textContent = '开始使用 🚀';
+    btn.style.background = '#fff';
+    btn.style.color = '#92400e';
+  } else {
+    btn.textContent = '下一步';
+    btn.style.background = '#fff';
+    btn.style.color = '#0f5238';
+  }
+}
+
+function nextOnboardingSlide() {
+  if (onboardingSlideIndex < ONBOARDING_TOTAL - 1) {
+    onboardingSlideIndex++;
+    updateOnboardingSlide();
+  } else {
+    completeOnboarding();
+  }
+}
+
+function completeOnboarding() {
+  localStorage.setItem('onboarding_completed', 'true');
+  const overlay = document.getElementById('onboardingOverlay');
+  overlay.classList.add('hidden');
+  // After onboarding, proceed to auth check
+  if (!getCurrentUser()) {
+    showAuthOverlay();
+  } else {
+    loadTargets();
+    applyTargets();
+    updateProfileUI();
+    switchTab('home');
+  }
+}
+
+// Touch swipe support for onboarding
+(function() {
+  let touchStartX = 0;
+  let touchEndX = 0;
+  
+  document.addEventListener('DOMContentLoaded', () => {
+    const overlay = document.getElementById('onboardingOverlay');
+    if (!overlay) return;
+    
+    overlay.addEventListener('touchstart', (e) => {
+      touchStartX = e.changedTouches[0].screenX;
+    }, { passive: true });
+    
+    overlay.addEventListener('touchend', (e) => {
+      touchEndX = e.changedTouches[0].screenX;
+      const diff = touchStartX - touchEndX;
+      if (Math.abs(diff) > 50) {
+        if (diff > 0 && onboardingSlideIndex < ONBOARDING_TOTAL - 1) {
+          // Swipe left → next
+          onboardingSlideIndex++;
+          updateOnboardingSlide();
+        } else if (diff < 0 && onboardingSlideIndex > 0) {
+          // Swipe right → prev
+          onboardingSlideIndex--;
+          updateOnboardingSlide();
+        }
+      }
+    }, { passive: true });
+  });
+})();
+
 // ===================== INIT =====================
 document.addEventListener('DOMContentLoaded', () => {
+  hydrateIcons();
+  const iconObserver = new MutationObserver(mutations => {
+    mutations.forEach(m => {
+      m.addedNodes.forEach(node => hydrateIcons(node));
+    });
+  });
+  iconObserver.observe(document.body, { childList: true, subtree: true });
+
   if (localStorage.getItem('darkMode') === 'enabled' || 
       (!localStorage.getItem('darkMode') && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
     document.documentElement.classList.add('dark');
@@ -3059,7 +3957,10 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   updateDarkModeUI();
 
-  if (!getCurrentUser()) {
+  // Check if onboarding has been completed
+  if (!localStorage.getItem('onboarding_completed')) {
+    showOnboarding();
+  } else if (!getCurrentUser()) {
     showAuthOverlay();
   } else {
     loadTargets();
