@@ -66,6 +66,49 @@ def init_db():
             cursor.execute(f'ALTER TABLE meals ADD COLUMN {col} {col_def}')
         except sqlite3.OperationalError:
             pass  # column already exists
+
+    # Migrate users: add BMR physical data columns
+    for col, col_def in [
+        ('gender', 'TEXT'),
+        ('age', 'INTEGER'),
+        ('height', 'REAL'),
+        ('weight', 'REAL'),
+        ('activity_level', 'TEXT')
+    ]:
+        try:
+            cursor.execute(f'ALTER TABLE users ADD COLUMN {col} {col_def}')
+        except sqlite3.OperationalError:
+            pass  # column already exists
+
+    # Create exercises table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS exercises (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            exercise_name TEXT,
+            calories INTEGER,
+            duration INTEGER,
+            exercise_type TEXT,
+            target_muscles TEXT,
+            username TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
+    # Create daily_summaries table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS daily_summaries (
+            username TEXT,
+            date TEXT, -- YYYY-MM-DD
+            total_calories INTEGER DEFAULT 0,
+            total_protein INTEGER DEFAULT 0,
+            total_carbs INTEGER DEFAULT 0,
+            total_fat INTEGER DEFAULT 0,
+            total_burn_calories INTEGER DEFAULT 0,
+            total_exercise_duration INTEGER DEFAULT 0,
+            PRIMARY KEY (username, date)
+        )
+    ''')
+
     # Backfill old records without session_id or username
     cursor.execute("UPDATE meals SET session_id = 'legacy_' || id WHERE session_id IS NULL")
     cursor.execute("UPDATE meals SET username = 'anonymous' WHERE username IS NULL")
@@ -86,7 +129,8 @@ def get_db_connection():
 @app.route('/api/health')
 def health():
     return jsonify({
-        "version": "v4-multi",
+        "version": "v5-local-first",
+        "architecture": "local-meals + server-daily-summaries",
         "models": [
             'gemini-3.5-flash',
             'gemini-2.5-flash',
@@ -284,43 +328,92 @@ Strictly output JSON only, do not add any explanation or markdown formatting."""
         if foods is None:
             return jsonify({"error": "AI未检测到食物，请重新拍摄"}), 400
 
-        # Save to database if not in app mode
+        # Return food data; frontend stores locally via MealStorage (localStorage).
+        # Daily aggregated summaries are synced to server via /api/daily-summaries.
         session_id = str(uuid.uuid4())
         saved = []
-        if not is_app:
-            conn = get_db_connection()
-            cursor = conn.cursor()
-            for food in foods:
-                cursor.execute('''
-                    INSERT INTO meals (image_path, food_name, calories, protein, carbs, fat, session_id, portion, weight, username)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, 1.0, ?, ?)
-                ''', (filepath, food['food_name'], food['calories'], food['protein'], food['carbs'], food['fat'], session_id, food.get('weight', 100), username))
-                food['id'] = cursor.lastrowid
-                food['portion'] = 1.0
-                saved.append(food)
-            conn.commit()
-            conn.close()
-        else:
-            for i, food in enumerate(foods):
-                food['id'] = int(datetime.datetime.now().timestamp() * 1000) + i
-                food['portion'] = 1.0
-                saved.append(food)
+        for i, food in enumerate(foods):
+            food['id'] = int(datetime.datetime.now().timestamp() * 1000) + i
+            food['portion'] = 1.0
+            saved.append(food)
 
         return jsonify({
             "success": True,
             "session_id": session_id,
             "foods": saved,
-            "image_url": f"/{filepath}"
+            "image_url": ""
         })
 
     except Exception as e:
         print(f"Error calling AI API: {e}")
         return jsonify({"error": f"AI识别失败，详细错误: {str(e)}"}), 500
+    finally:
+        # Clean up temp file immediately — meals are stored locally, not on server
+        if os.path.exists(filepath):
+            try:
+                os.remove(filepath)
+            except Exception as delete_err:
+                print(f"Error removing temp image file {filepath}: {delete_err}")
 
+
+def parse_voice_input_result(raw_text):
+    """解析 AI 分类 JSON，返回提取到的食物和运动列表"""
+    text = re.sub(r'^```(?:json)?\s*', '', raw_text.strip())
+    text = re.sub(r'\s*```$', '', text.strip())
+    try:
+        data = json.loads(text)
+        if not isinstance(data, dict):
+            return None
+        
+        # 规范化食物列表
+        foods = data.get('foods', [])
+        normalized_foods = []
+        for f in foods:
+            if isinstance(f, dict):
+                normalized_foods.append({
+                    'food_name': f.get('food_name', '未知食物'),
+                    'calories': int(f.get('calories', 0)),
+                    'protein': int(f.get('protein', 0)),
+                    'carbs': int(f.get('carbs', 0)),
+                    'fat': int(f.get('fat', 0)),
+                    'weight': int(f.get('weight', 100))
+                })
+                
+        # 规范化运动列表
+        exercises = data.get('exercises', [])
+        normalized_exercises = []
+        for ex in exercises:
+            if isinstance(ex, dict):
+                muscles = ex.get('target_muscles', [])
+                if isinstance(muscles, list):
+                    muscles_str = ','.join([str(m).strip() for m in muscles])
+                else:
+                    muscles_str = str(muscles).strip()
+                normalized_exercises.append({
+                    'exercise_name': ex.get('exercise_name', '未知运动'),
+                    'calories': int(ex.get('calories', 0)),
+                    'duration': int(ex.get('duration', 0)),
+                    'exercise_type': ex.get('exercise_type', 'aerobic'),
+                    'target_muscles': muscles_str
+                })
+                
+        return {
+            'type': data.get('type', 'food'),
+            'foods': normalized_foods,
+            'exercises': normalized_exercises
+        }
+    except Exception as e:
+        print(f"Error parsing voice JSON: {e}")
+        # Fallback to empty structure
+        return {
+            'type': 'food',
+            'foods': [],
+            'exercises': []
+        }
 
 @app.route('/api/voice-input', methods=['POST'])
 def voice_input():
-    """语音输入：用 Gemini 解析自然语言食物描述"""
+    """语音输入：用 Gemini 自动分辨运动与食物并解析提取"""
     data = request.json or {}
     text = data.get('text', '')
     is_app = data.get('is_app') == True
@@ -329,21 +422,33 @@ def voice_input():
     if not text:
         return jsonify({"error": "语音文本为空"}), 400
 
-    prompt = f"""用户口述了以下食物描述，请分析并提取每种食物信息。
-用户说："{text}"
+    prompt = f"""分析用户通过语音或文本输入的内容，自动识别并提取其中的食物摄入信息与运动消耗信息。
+用户输入："{text}"
 
-请以 JSON 数组格式返回每种食物：
-[
-  {{
-    "food_name": "食物名称",
-    "calories": 估计热量(大卡),
-    "protein": 估计蛋白质(克),
-    "carbs": 估计碳水(克),
-    "fat": 估计脂肪(克),
-    "weight": 估计重量(克)
-  }}
-]
-Strictly output JSON only, do not add any explanation."""
+请返回符合以下格式的 JSON 对象：
+{{
+  "type": "food" | "exercise" | "mixed", // 如果仅包含饮食返回 "food"，仅包含运动返回 "exercise"，两者皆有返回 "mixed"
+  "foods": [ // 如果没有饮食信息，返回空数组 []
+    {{
+      "food_name": "食物名称",
+      "calories": 估计热量(大卡),
+      "protein": 估计蛋白质(克),
+      "carbs": 估计碳水(克),
+      "fat": 估计脂肪(克),
+      "weight": 估计重量(克)
+    }}
+  ],
+  "exercises": [ // 如果没有运动信息，返回空数组 []
+    {{
+      "exercise_name": "运动名称",
+      "calories": 估计运动消耗热量(大卡。如果输入没有提及消耗，请根据标准 MET 和时长估算),
+      "duration": 运动时长(分钟),
+      "exercise_type": "strength" | "aerobic", // 力量训练/抗阻训练返回 "strength"，有氧运动返回 "aerobic"
+      "target_muscles": ["胸肌", "三头肌"] // 如果是力量训练，列出此次训练涉及的目标肌群（例如：胸部、背部、肩部、腿部、肱二头肌、肱三头肌、核心等），如果是纯有氧运动，返回空数组 []
+    }}
+  ]
+}}
+Strictly output JSON only, do not add any explanation or markdown formatting."""
 
     try:
         models_to_try = [
@@ -374,35 +479,30 @@ Strictly output JSON only, do not add any explanation."""
         if result_text is None:
             raise last_error
 
-        foods = parse_ai_multi_result(result_text)
-        if foods is None:
-            return jsonify({"error": "未能解析食物信息，请重新描述"}), 400
+        parsed = parse_voice_input_result(result_text)
+        if parsed is None or (not parsed['foods'] and not parsed['exercises']):
+            return jsonify({"error": "未能提取出任何有效的食物或运动信息，请重新描述"}), 400
 
         session_id = str(uuid.uuid4())
-        saved = []
-        if not is_app:
-            conn = get_db_connection()
-            cursor = conn.cursor()
-            for food in foods:
-                cursor.execute('''
-                    INSERT INTO meals (image_path, food_name, calories, protein, carbs, fat, session_id, portion, weight, username)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, 1.0, ?, ?)
-                ''', ('', food['food_name'], food['calories'], food['protein'], food['carbs'], food['fat'], session_id, food.get('weight', 100), username))
-                food['id'] = cursor.lastrowid
-                food['portion'] = 1.0
-                saved.append(food)
-            conn.commit()
-            conn.close()
-        else:
-            for i, food in enumerate(foods):
-                food['id'] = int(datetime.datetime.now().timestamp() * 1000) + i
-                food['portion'] = 1.0
-                saved.append(food)
+        saved_foods = []
+        saved_exercises = []
+
+        # Generate temporary IDs for the client to store locally.
+        for i, food in enumerate(parsed['foods']):
+            food['id'] = int(datetime.datetime.now().timestamp() * 1000) + i
+            food['portion'] = 1.0
+            saved_foods.append(food)
+            
+        for i, ex in enumerate(parsed['exercises']):
+            ex['id'] = int(datetime.datetime.now().timestamp() * 1000) + 100 + i
+            saved_exercises.append(ex)
 
         return jsonify({
             "success": True,
+            "type": parsed['type'],
             "session_id": session_id,
-            "foods": saved,
+            "foods": saved_foods,
+            "exercises": saved_exercises,
             "image_url": ""
         })
 
@@ -554,15 +654,16 @@ def weekly_report():
     conn = get_db_connection()
     rows = conn.execute('''
         SELECT
-            date(created_at) as day,
-            SUM(calories * COALESCE(portion, 1.0)) as total_calories,
-            SUM(protein * COALESCE(portion, 1.0)) as total_protein,
-            SUM(carbs * COALESCE(portion, 1.0)) as total_carbs,
-            SUM(fat * COALESCE(portion, 1.0)) as total_fat
-        FROM meals
-        WHERE created_at >= date('now', '-7 days') AND username = ?
-        GROUP BY date(created_at)
-        ORDER BY date(created_at) ASC
+            date as day,
+            total_calories,
+            total_protein,
+            total_carbs,
+            total_fat,
+            total_burn_calories,
+            total_exercise_duration
+        FROM daily_summaries
+        WHERE date >= date('now', '-7 days') AND username = ?
+        ORDER BY date ASC
     ''', (username,)).fetchall()
     conn.close()
 
@@ -573,7 +674,16 @@ def weekly_report():
     for i in range(6, -1, -1):
         d = (today - datetime.timedelta(days=i)).isoformat()
         if d in data_map:
-            report.append(data_map[d])
+            item = data_map[d]
+            report.append({
+                'day': d,
+                'total_calories': item.get('total_calories') or 0,
+                'total_protein': item.get('total_protein') or 0,
+                'total_carbs': item.get('total_carbs') or 0,
+                'total_fat': item.get('total_fat') or 0,
+                'total_burn_calories': item.get('total_burn_calories') or 0,
+                'total_exercise_duration': item.get('total_exercise_duration') or 0
+            })
         else:
             report.append({
                 'day': d,
@@ -581,6 +691,8 @@ def weekly_report():
                 'total_protein': 0,
                 'total_carbs': 0,
                 'total_fat': 0,
+                'total_burn_calories': 0,
+                'total_exercise_duration': 0
             })
     return jsonify({"data": report})
 
@@ -594,6 +706,7 @@ def coach_chat():
     cal_target = data.get('calTarget', 2000)
     pro_target = data.get('proTarget', 120)
     meals_from_client = data.get('meals') # Optional local meals from app
+    exercises_from_client = data.get('exercises') # Optional local exercises from app
 
     if not user_message and not history:
         return jsonify({"error": "消息内容为空"}), 400
@@ -619,34 +732,59 @@ def coach_chat():
             total_pro += pro
             total_carbs += carbs
             total_fat += fat
+        meals_detail = "\n".join(meals_summary) if meals_summary else "无饮食记录"
+        meals_context = f"用户今日饮食明细：\n{meals_detail}\n累计摄入：热量 {total_cal} kcal，蛋白质 {total_pro}g，碳水 {total_carbs}g，脂肪 {total_fat}g。"
     else:
-        # Fetch today's meals from SQLite
         conn = get_db_connection()
-        rows = conn.execute('''
-            SELECT food_name, 
-                   CAST(calories * COALESCE(portion, 1.0) AS INTEGER) as calories,
-                   CAST(protein * COALESCE(portion, 1.0) AS INTEGER) as protein,
-                   CAST(carbs * COALESCE(portion, 1.0) AS INTEGER) as carbs,
-                   CAST(fat * COALESCE(portion, 1.0) AS INTEGER) as fat,
-                   COALESCE(portion, 1.0) as portion
-            FROM meals
-            WHERE date(created_at, 'localtime') = date('now', 'localtime') AND username = ?
-        ''', (username,)).fetchall()
+        cursor = conn.cursor()
+        today_str = datetime.date.today().isoformat()
+        row = cursor.execute('''
+            SELECT total_calories, total_protein, total_carbs, total_fat
+            FROM daily_summaries
+            WHERE date = ? AND username = ?
+        ''', (today_str, username)).fetchone()
         conn.close()
 
-        for row in rows:
-            meals_summary.append(
-                f"- {row['food_name']}: {row['calories']} kcal (蛋白质 {row['protein']}g, 碳水 {row['carbs']}g, 脂肪 {row['fat']}g, 分量 {row['portion']}x)"
-            )
-            total_cal += row['calories'] or 0
-            total_pro += row['protein'] or 0
-            total_carbs += row['carbs'] or 0
-            total_fat += row['fat'] or 0
+        if row:
+            total_cal = row['total_calories'] or 0
+            total_pro = row['total_protein'] or 0
+            total_carbs = row['total_carbs'] or 0
+            total_fat = row['total_fat'] or 0
+            meals_context = f"用户今日累计摄入：热量 {total_cal} kcal，蛋白质 {total_pro}g，碳水 {total_carbs}g，脂肪 {total_fat}g。"
+        else:
+            meals_context = "用户今日尚未记录任何饮食。"
 
-    if meals_summary:
-        meals_context = "用户今日已吃食物如下：\n" + "\n".join(meals_summary) + f"\n今日累计摄入：热量 {total_cal} kcal，蛋白质 {total_pro}g，碳水 {total_carbs}g，脂肪 {total_fat}g。"
+    total_burn = 0
+    total_duration = 0
+    if exercises_from_client is not None:
+        ex_summary = []
+        for ex in exercises_from_client:
+            ex_name = ex.get('exercise_name', '未知运动')
+            cal = int(ex.get('calories', 0))
+            dur = int(ex.get('duration', 0))
+            ex_type = ex.get('exercise_type', 'aerobic')
+            ex_summary.append(f"- {ex_name}: 消耗 {cal} kcal, 时长 {dur} 分钟 ({'有氧' if ex_type == 'aerobic' else '无氧'})")
+            total_burn += cal
+            total_duration += dur
+        ex_detail = "\n".join(ex_summary) if ex_summary else "无运动记录"
+        meals_context += f"\n\n用户今日运动明细：\n{ex_detail}\n累计消耗：{total_burn} kcal，运动时长 {total_duration} 分钟。"
     else:
-        meals_context = "用户今日尚未记录任何饮食。"
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        today_str = datetime.date.today().isoformat()
+        row = cursor.execute('''
+            SELECT total_burn_calories, total_exercise_duration
+            FROM daily_summaries
+            WHERE date = ? AND username = ?
+        ''', (today_str, username)).fetchone()
+        conn.close()
+
+        if row:
+            total_burn = row['total_burn_calories'] or 0
+            total_duration = row['total_exercise_duration'] or 0
+            meals_context += f"\n\n累计消耗：{total_burn} kcal，运动时长 {total_duration} 分钟。"
+        else:
+            meals_context += "\n\n用户今日尚未记录任何运动。"
 
     system_instruction = f"""你是一位专业且亲切的 AI 营养教练 (NutriSnap AI Coach)。
 你的任务是协助用户记录饮食、分析营养、解答疑问，并给出贴心的健康建议。
@@ -723,6 +861,307 @@ def coach_chat():
         "success": True,
         "reply": response_text
     })
+
+
+# ==========================================
+# 6. BMR / 身体数据 & 运动 API
+# ==========================================
+
+@app.route('/api/profile', methods=['GET', 'POST'])
+def profile_bmr():
+    username = request.headers.get('X-User-Id') or 'anonymous'
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    # Ensure user exists in users table
+    cursor.execute("SELECT 1 FROM users WHERE username = ?", (username,))
+    if not cursor.fetchone():
+        cursor.execute("INSERT INTO users (username, password_hash) VALUES (?, '')", (username,))
+        conn.commit()
+    
+    if request.method == 'POST':
+        data = request.get_json() or {}
+        gender = data.get('gender')
+        age = data.get('age')
+        height = data.get('height')
+        weight = data.get('weight')
+        activity_level = data.get('activity_level')
+        
+        cursor.execute('''
+            UPDATE users 
+            SET gender = ?, age = ?, height = ?, weight = ?, activity_level = ?
+            WHERE username = ?
+        ''', (gender, age, height, weight, activity_level, username))
+        conn.commit()
+        
+    row = cursor.execute('''
+        SELECT gender, age, height, weight, activity_level
+        FROM users WHERE username = ?
+    ''', (username,)).fetchone()
+    conn.close()
+    
+    if row is None or row['weight'] is None:
+        return jsonify({
+            "has_profile": False,
+            "profile": None
+        })
+        
+    w = float(row['weight'])
+    h = float(row['height'])
+    a = int(row['age'])
+    gender = row['gender']
+    lvl = row['activity_level'] or 'sedentary'
+    
+    if gender == 'female':
+        bmr = 10 * w + 6.25 * h - 5 * a - 161
+    else:
+        bmr = 10 * w + 6.25 * h - 5 * a + 5
+        
+    multipliers = {
+        'sedentary': 1.2,
+        'lightly_active': 1.375,
+        'moderately_active': 1.55,
+        'very_active': 1.725,
+        'highly_active': 1.9
+    }
+    multiplier = multipliers.get(lvl, 1.2)
+    tdee = int(bmr * multiplier)
+    protein_target = int(w * 1.6)
+    
+    return jsonify({
+        "has_profile": True,
+        "profile": {
+            "gender": gender,
+            "age": a,
+            "height": h,
+            "weight": w,
+            "activity_level": lvl,
+            "bmr": int(bmr),
+            "tdee": tdee,
+            "protein_target": protein_target
+        }
+    })
+
+@app.route('/api/exercises', methods=['GET', 'POST'])
+def manage_exercises():
+    username = request.headers.get('X-User-Id') or 'anonymous'
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    if request.method == 'POST':
+        data = request.get_json() or {}
+        name = data.get('exercise_name', '未知运动').strip()
+        calories = int(data.get('calories', 0))
+        duration = int(data.get('duration', 0))
+        ex_type = data.get('exercise_type', 'aerobic')
+        muscles = data.get('target_muscles', '')
+        
+        cursor.execute('''
+            INSERT INTO exercises (exercise_name, calories, duration, exercise_type, target_muscles, username)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (name, calories, duration, ex_type, muscles, username))
+        conn.commit()
+        
+    rows = cursor.execute('''
+        SELECT id, exercise_name, calories, duration, exercise_type, target_muscles, created_at
+        FROM exercises
+        WHERE username = ?
+        ORDER BY created_at DESC LIMIT 50
+    ''', (username,)).fetchall()
+    conn.close()
+    
+    return jsonify({"success": True, "data": [dict(r) for r in rows]})
+
+@app.route('/api/exercises/<int:ex_id>', methods=['DELETE'])
+def delete_exercise(ex_id):
+    username = request.headers.get('X-User-Id') or 'anonymous'
+    conn = get_db_connection()
+    conn.execute('DELETE FROM exercises WHERE id = ? AND username = ?', (ex_id, username))
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True})
+
+@app.route('/api/report/suggestions', methods=['GET', 'POST'])
+def report_suggestions():
+    username = request.headers.get('X-User-Id') or 'anonymous'
+    
+    meals_list = None
+    exercises_list = None
+    user_row = None
+    
+    if request.method == 'POST':
+        data = request.get_json() or {}
+        meals_list = data.get('meals')
+        exercises_list = data.get('exercises')
+        profile_data = data.get('profile')
+        if profile_data:
+            user_row = {
+                'gender': profile_data.get('gender'),
+                'age': profile_data.get('age'),
+                'height': profile_data.get('height'),
+                'weight': profile_data.get('weight'),
+                'activity_level': profile_data.get('activity_level')
+            }
+            
+    if meals_list is None or exercises_list is None:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        if user_row is None:
+            user_row = cursor.execute('''
+                SELECT gender, age, height, weight, activity_level
+                FROM users WHERE username = ?
+            ''', (username,)).fetchone()
+            if user_row:
+                user_row = dict(user_row)
+            
+        # Retrieve past 7 days daily summaries
+        summaries_db = cursor.execute('''
+            SELECT total_calories, total_protein, total_burn_calories, total_exercise_duration
+            FROM daily_summaries
+            WHERE username = ? AND date >= date('now', '-7 days')
+        ''', (username,)).fetchall()
+        
+        conn.close()
+        
+        total_cal = 0
+        total_pro = 0
+        total_burn = 0
+        total_duration = 0
+        days_count = len(summaries_db) or 1
+        
+        for row in summaries_db:
+            total_cal += row['total_calories'] or 0
+            total_pro += row['total_protein'] or 0
+            total_burn += row['total_burn_calories'] or 0
+            total_duration += row['total_exercise_duration'] or 0
+            
+        avg_cal = int(total_cal / days_count)
+        avg_pro = int(total_pro / days_count)
+        exercise_context = f"过去 7 天内累计进行了运动，共消耗运动热量 {total_burn} kcal，累计运动时间 {total_duration} 分钟。"
+    else:
+        # Standard client POST calculation (using client details payload)
+        total_cal = 0
+        total_pro = 0
+        for m in meals_list:
+            p = m.get('portion') or 1.0
+            total_cal += (m.get('calories') or 0) * p
+            total_pro += (m.get('protein') or 0) * p
+            
+        avg_cal = int(total_cal / 7) if meals_list else 0
+        avg_pro = int(total_pro / 7) if meals_list else 0
+        
+        exercise_summary = []
+        total_burn = 0
+        for ex in exercises_list:
+            total_burn += ex.get('calories') or 0
+            desc = f"- {ex.get('exercise_name')} ({ex.get('duration')}分钟, 消耗 {ex.get('calories')} kcal"
+            if ex.get('exercise_type') == 'strength' and ex.get('target_muscles'):
+                desc += f", 训练肌群: {ex.get('target_muscles')}"
+            desc += ")"
+            exercise_summary.append(desc)
+            
+        exercise_context = "\n".join(exercise_summary) if exercise_summary else "无运动记录"
+        
+    user_info = "暂无身体数据"
+    if user_row and user_row.get('weight'):
+        user_info = f"性别: {user_row['gender']}, 年龄: {user_row['age']}岁, 身高: {user_row['height']}cm, 体重: {user_row['weight']}kg, 活动量级别: {user_row['activity_level']}"
+    
+    prompt = f"""你是一位资深的 AI 运动健身与营养教练。请根据用户过去 7 天的身体数据、饮食摄入和运动消耗，给出具体的运动训练、调整与恢复建议。
+
+【用户基本身体信息】
+{user_info}
+
+【过去 7 天平均每日摄入】
+- 热量：{avg_cal} kcal
+- 蛋白质：{avg_pro} g
+
+【过去 7 天已记录运动】
+共消耗运动热量：{total_burn} kcal
+运动明细：
+{exercise_context}
+
+【要求】
+1. 评估用户的运动消耗是否充足，针对他们记录的运动（如有氧与力量的比例、力量训练部位）给出专业建议。
+2. 结合饮食摄入与运动消耗，分析其是否合理，并给出接下来一周的具体训练及恢复建议。
+3. 只能回答跟运动、训练、康复、营养相关的内容。
+4. 语言亲切专业，使用列表和 Markdown 排版，字数控制在 250 字以内，多用 Emoji。"""
+
+    try:
+        models_to_try = [
+            'gemini-3.5-flash',
+            'gemini-2.5-flash',
+            'gemini-2.5-flash-lite',
+            'gemini-2.0-flash',
+            'gemini-3.1-flash-lite',
+        ]
+        
+        response_text = None
+        last_error = None
+        
+        for model_name in models_to_try:
+            try:
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt
+                )
+                response_text = response.text
+                break
+            except Exception as api_err:
+                last_error = api_err
+                continue
+                
+        if response_text is None:
+            raise last_error
+            
+        return jsonify({"success": True, "suggestions": response_text})
+    except Exception as e:
+        print(f"Suggestions generation error: {e}")
+        return jsonify({"success": False, "suggestions": f"AI 营养教练服务繁忙，请稍后再试。详细错误: {str(e)}"})
+
+
+@app.route('/api/daily-summaries', methods=['GET', 'POST'])
+def handle_daily_summaries():
+    username = request.headers.get('X-User-Id') or 'anonymous'
+    
+    if request.method == 'GET':
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        rows = cursor.execute('''
+            SELECT date, total_calories, total_protein, total_carbs, total_fat, total_burn_calories, total_exercise_duration
+            FROM daily_summaries
+            WHERE username = ?
+            ORDER BY date ASC
+        ''', (username,)).fetchall()
+        conn.close()
+        
+        result = [dict(row) for row in rows]
+        return jsonify(result)
+        
+    elif request.method == 'POST':
+        data = request.json or {}
+        date_str = data.get('date')
+        if not date_str:
+            return jsonify({"error": "缺少日期参数"}), 400
+            
+        total_cal = int(data.get('total_calories', 0))
+        total_pro = int(data.get('total_protein', 0))
+        total_carbs = int(data.get('total_carbs', 0))
+        total_fat = int(data.get('total_fat', 0))
+        total_burn = int(data.get('total_burn_calories', 0))
+        total_duration = int(data.get('total_exercise_duration', 0))
+        
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT OR REPLACE INTO daily_summaries (
+                username, date, total_calories, total_protein, total_carbs, total_fat, total_burn_calories, total_exercise_duration
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (username, date_str, total_cal, total_pro, total_carbs, total_fat, total_burn, total_duration))
+        conn.commit()
+        conn.close()
+        
+        return jsonify({"success": True})
 
 
 if __name__ == '__main__':
