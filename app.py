@@ -4,6 +4,7 @@ import json
 import sqlite3
 import datetime
 import re
+import hashlib
 from dotenv import load_dotenv
 from flask import Flask, request, jsonify, render_template, send_from_directory
 from flask_cors import CORS
@@ -36,6 +37,13 @@ def init_db():
     conn = sqlite3.connect('database.db')
     cursor = conn.cursor()
     cursor.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            username TEXT PRIMARY KEY,
+            password_hash TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    cursor.execute('''
         CREATE TABLE IF NOT EXISTS meals (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             image_path TEXT,
@@ -47,14 +55,20 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
-    # Migrate: add session_id, portion, and weight columns (idempotent)
-    for col, col_def in [('session_id', 'TEXT'), ('portion', 'REAL DEFAULT 1.0'), ('weight', 'INTEGER DEFAULT 100')]:
+    # Migrate: add session_id, portion, weight, and username columns (idempotent)
+    for col, col_def in [
+        ('session_id', 'TEXT'),
+        ('portion', 'REAL DEFAULT 1.0'),
+        ('weight', 'INTEGER DEFAULT 100'),
+        ('username', 'TEXT')
+    ]:
         try:
             cursor.execute(f'ALTER TABLE meals ADD COLUMN {col} {col_def}')
         except sqlite3.OperationalError:
             pass  # column already exists
-    # Backfill old records without session_id
+    # Backfill old records without session_id or username
     cursor.execute("UPDATE meals SET session_id = 'legacy_' || id WHERE session_id IS NULL")
+    cursor.execute("UPDATE meals SET username = 'anonymous' WHERE username IS NULL")
     conn.commit()
     conn.close()
 
@@ -74,6 +88,7 @@ def health():
     return jsonify({
         "version": "v4-multi",
         "models": [
+            'gemini-3.5-flash',
             'gemini-2.5-flash',
             'gemini-2.5-flash-lite',
             'gemini-2.0-flash',
@@ -141,7 +156,62 @@ def uploaded_file(filename):
     return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
 
 # ==========================================
-# 4. 核心 API
+# 4. 用户认证 API
+# ==========================================
+
+def hash_password(password):
+    return hashlib.sha256(password.encode('utf-8')).hexdigest()
+
+@app.route('/api/register', methods=['POST'])
+def register():
+    data = request.get_json() or {}
+    username = data.get('username', '').strip()
+    password = data.get('password', '').strip()
+    if not username or not password:
+        return jsonify({"error": "用户名和密码不能为空"}), 400
+    if len(username) < 3 or len(password) < 4:
+        return jsonify({"error": "用户名至少3位，密码至少4位"}), 400
+    
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT 1 FROM users WHERE username = ?", (username,))
+        if cursor.fetchone():
+            return jsonify({"error": "用户名已存在"}), 400
+        
+        pw_hash = hash_password(password)
+        cursor.execute("INSERT INTO users (username, password_hash) VALUES (?, ?)", (username, pw_hash))
+        conn.commit()
+        return jsonify({"success": True, "message": "注册成功"})
+    except Exception as e:
+        return jsonify({"error": f"注册失败: {str(e)}"}), 500
+    finally:
+        conn.close()
+
+@app.route('/api/login', methods=['POST'])
+def login():
+    data = request.get_json() or {}
+    username = data.get('username', '').strip()
+    password = data.get('password', '').strip()
+    if not username or not password:
+        return jsonify({"error": "用户名和密码不能为空"}), 400
+    
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        pw_hash = hash_password(password)
+        cursor.execute("SELECT 1 FROM users WHERE username = ? AND password_hash = ?", (username, pw_hash))
+        if cursor.fetchone():
+            return jsonify({"success": True, "username": username})
+        else:
+            return jsonify({"error": "用户名或密码错误"}), 400
+    except Exception as e:
+        return jsonify({"error": f"登录失败: {str(e)}"}), 500
+    finally:
+        conn.close()
+
+# ==========================================
+# 5. 核心 API
 # ==========================================
 
 @app.route('/api/analyze', methods=['POST'])
@@ -152,6 +222,9 @@ def analyze_food():
     file = request.files['image']
     if file.filename == '':
         return jsonify({"error": "图片名为空"}), 400
+
+    is_app = request.form.get('is_app') == 'true' or request.args.get('is_app') == 'true'
+    username = request.headers.get('X-User-Id') or 'anonymous'
 
     filename = secure_filename(file.filename)
     filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
@@ -171,9 +244,9 @@ def analyze_food():
     "weight": 估计重量数字(克)
   }
 ]
-如果图片里没有食物，返回：
+If there are no food items in the image, return:
 {"error": "未检测到食物"}
-严格只输出 JSON，不要加任何解释或 markdown 标记。"""
+Strictly output JSON only, do not add any explanation or markdown formatting."""
 
         models_to_try = [
             'gemini-3.5-flash',
@@ -211,21 +284,27 @@ def analyze_food():
         if foods is None:
             return jsonify({"error": "AI未检测到食物，请重新拍摄"}), 400
 
-        # Save to database
+        # Save to database if not in app mode
         session_id = str(uuid.uuid4())
-        conn = get_db_connection()
-        cursor = conn.cursor()
         saved = []
-        for food in foods:
-            cursor.execute('''
-                INSERT INTO meals (image_path, food_name, calories, protein, carbs, fat, session_id, portion, weight)
-                VALUES (?, ?, ?, ?, ?, ?, ?, 1.0, ?)
-            ''', (filepath, food['food_name'], food['calories'], food['protein'], food['carbs'], food['fat'], session_id, food.get('weight', 100)))
-            food['id'] = cursor.lastrowid
-            food['portion'] = 1.0
-            saved.append(food)
-        conn.commit()
-        conn.close()
+        if not is_app:
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            for food in foods:
+                cursor.execute('''
+                    INSERT INTO meals (image_path, food_name, calories, protein, carbs, fat, session_id, portion, weight, username)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, 1.0, ?, ?)
+                ''', (filepath, food['food_name'], food['calories'], food['protein'], food['carbs'], food['fat'], session_id, food.get('weight', 100), username))
+                food['id'] = cursor.lastrowid
+                food['portion'] = 1.0
+                saved.append(food)
+            conn.commit()
+            conn.close()
+        else:
+            for i, food in enumerate(foods):
+                food['id'] = int(datetime.datetime.now().timestamp() * 1000) + i
+                food['portion'] = 1.0
+                saved.append(food)
 
         return jsonify({
             "success": True,
@@ -242,7 +321,11 @@ def analyze_food():
 @app.route('/api/voice-input', methods=['POST'])
 def voice_input():
     """语音输入：用 Gemini 解析自然语言食物描述"""
-    text = request.json.get('text', '') if request.is_json else ''
+    data = request.json or {}
+    text = data.get('text', '')
+    is_app = data.get('is_app') == True
+    username = request.headers.get('X-User-Id') or 'anonymous'
+
     if not text:
         return jsonify({"error": "语音文本为空"}), 400
 
@@ -260,7 +343,7 @@ def voice_input():
     "weight": 估计重量(克)
   }}
 ]
-严格只输出 JSON，不要加任何解释。"""
+Strictly output JSON only, do not add any explanation."""
 
     try:
         models_to_try = [
@@ -296,19 +379,25 @@ def voice_input():
             return jsonify({"error": "未能解析食物信息，请重新描述"}), 400
 
         session_id = str(uuid.uuid4())
-        conn = get_db_connection()
-        cursor = conn.cursor()
         saved = []
-        for food in foods:
-            cursor.execute('''
-                INSERT INTO meals (image_path, food_name, calories, protein, carbs, fat, session_id, portion, weight)
-                VALUES (?, ?, ?, ?, ?, ?, ?, 1.0, ?)
-            ''', ('', food['food_name'], food['calories'], food['protein'], food['carbs'], food['fat'], session_id, food.get('weight', 100)))
-            food['id'] = cursor.lastrowid
-            food['portion'] = 1.0
-            saved.append(food)
-        conn.commit()
-        conn.close()
+        if not is_app:
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            for food in foods:
+                cursor.execute('''
+                    INSERT INTO meals (image_path, food_name, calories, protein, carbs, fat, session_id, portion, weight, username)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, 1.0, ?, ?)
+                ''', ('', food['food_name'], food['calories'], food['protein'], food['carbs'], food['fat'], session_id, food.get('weight', 100), username))
+                food['id'] = cursor.lastrowid
+                food['portion'] = 1.0
+                saved.append(food)
+            conn.commit()
+            conn.close()
+        else:
+            for i, food in enumerate(foods):
+                food['id'] = int(datetime.datetime.now().timestamp() * 1000) + i
+                food['portion'] = 1.0
+                saved.append(food)
 
         return jsonify({
             "success": True,
@@ -401,6 +490,7 @@ def speech_to_text():
 
 @app.route('/api/meals', methods=['GET'])
 def get_meals():
+    username = request.headers.get('X-User-Id') or 'anonymous'
     conn = get_db_connection()
     meals = conn.execute('''
         SELECT id, image_path, food_name,
@@ -409,17 +499,21 @@ def get_meals():
                CAST(carbs * COALESCE(portion, 1.0) AS INTEGER) as carbs,
                CAST(fat * COALESCE(portion, 1.0) AS INTEGER) as fat,
                created_at, session_id, COALESCE(portion, 1.0) as portion
-        FROM meals ORDER BY created_at DESC LIMIT 50
-    ''').fetchall()
+        FROM meals
+        WHERE username = ?
+        ORDER BY created_at DESC LIMIT 50
+    ''', (username,)).fetchall()
     conn.close()
     return jsonify({"data": [dict(m) for m in meals]})
 
 
+
 @app.route('/api/meals/<int:meal_id>', methods=['PATCH', 'DELETE'])
 def meal_action(meal_id):
+    username = request.headers.get('X-User-Id') or 'anonymous'
     if request.method == 'DELETE':
         conn = get_db_connection()
-        conn.execute('DELETE FROM meals WHERE id = ?', (meal_id,))
+        conn.execute('DELETE FROM meals WHERE id = ? AND username = ?', (meal_id, username))
         conn.commit()
         conn.close()
         return jsonify({"success": True})
@@ -430,22 +524,25 @@ def meal_action(meal_id):
         if portion is None:
             return jsonify({"error": "缺少 portion 参数"}), 400
         conn = get_db_connection()
-        conn.execute('UPDATE meals SET portion = ? WHERE id = ?', (float(portion), meal_id))
+        conn.execute('UPDATE meals SET portion = ? WHERE id = ? AND username = ?', (float(portion), meal_id, username))
         conn.commit()
         row = conn.execute('''
             SELECT id, food_name,
                    CAST(calories * COALESCE(portion, 1.0) AS INTEGER) as calories,
                    protein, carbs, fat, portion, session_id
-            FROM meals WHERE id = ?
-        ''', (meal_id,)).fetchone()
+            FROM meals WHERE id = ? AND username = ?
+        ''', (meal_id, username)).fetchone()
         conn.close()
+        if row is None:
+            return jsonify({"error": "未找到对应的记录"}), 404
         return jsonify({"success": True, "data": dict(row)})
 
 
 @app.route('/api/meals/session/<session_id>', methods=['DELETE'])
 def delete_session(session_id):
+    username = request.headers.get('X-User-Id') or 'anonymous'
     conn = get_db_connection()
-    conn.execute('DELETE FROM meals WHERE session_id = ?', (session_id,))
+    conn.execute('DELETE FROM meals WHERE session_id = ? AND username = ?', (session_id, username))
     conn.commit()
     conn.close()
     return jsonify({"success": True})
@@ -453,6 +550,7 @@ def delete_session(session_id):
 
 @app.route('/api/report/weekly', methods=['GET'])
 def weekly_report():
+    username = request.headers.get('X-User-Id') or 'anonymous'
     conn = get_db_connection()
     rows = conn.execute('''
         SELECT
@@ -462,10 +560,10 @@ def weekly_report():
             SUM(carbs * COALESCE(portion, 1.0)) as total_carbs,
             SUM(fat * COALESCE(portion, 1.0)) as total_fat
         FROM meals
-        WHERE created_at >= date('now', '-7 days')
+        WHERE created_at >= date('now', '-7 days') AND username = ?
         GROUP BY date(created_at)
         ORDER BY date(created_at) ASC
-    ''').fetchall()
+    ''', (username,)).fetchall()
     conn.close()
 
     # Fill missing dates
@@ -489,28 +587,16 @@ def weekly_report():
 
 @app.route('/api/coach/chat', methods=['POST'])
 def coach_chat():
+    username = request.headers.get('X-User-Id') or 'anonymous'
     data = request.get_json() or {}
     user_message = data.get('message', '')
     history = data.get('history', [])
     cal_target = data.get('calTarget', 2000)
     pro_target = data.get('proTarget', 120)
+    meals_from_client = data.get('meals') # Optional local meals from app
 
     if not user_message and not history:
         return jsonify({"error": "消息内容为空"}), 400
-
-    # Fetch today's meals from SQLite
-    conn = get_db_connection()
-    rows = conn.execute('''
-        SELECT food_name, 
-               CAST(calories * COALESCE(portion, 1.0) AS INTEGER) as calories,
-               CAST(protein * COALESCE(portion, 1.0) AS INTEGER) as protein,
-               CAST(carbs * COALESCE(portion, 1.0) AS INTEGER) as carbs,
-               CAST(fat * COALESCE(portion, 1.0) AS INTEGER) as fat,
-               COALESCE(portion, 1.0) as portion
-        FROM meals
-        WHERE date(created_at, 'localtime') = date('now', 'localtime')
-    ''').fetchall()
-    conn.close()
 
     meals_summary = []
     total_cal = 0
@@ -518,14 +604,44 @@ def coach_chat():
     total_carbs = 0
     total_fat = 0
 
-    for row in rows:
-        meals_summary.append(
-            f"- {row['food_name']}: {row['calories']} kcal (蛋白质 {row['protein']}g, 碳水 {row['carbs']}g, 脂肪 {row['fat']}g, 分量 {row['portion']}x)"
-        )
-        total_cal += row['calories'] or 0
-        total_pro += row['protein'] or 0
-        total_carbs += row['carbs'] or 0
-        total_fat += row['fat'] or 0
+    if meals_from_client is not None:
+        for row in meals_from_client:
+            portion = float(row.get('portion', 1.0))
+            food_name = row.get('food_name', '未知食物')
+            cal = int(row.get('calories', 0) * portion)
+            pro = int(row.get('protein', 0) * portion)
+            carbs = int(row.get('carbs', 0) * portion)
+            fat = int(row.get('fat', 0) * portion)
+            meals_summary.append(
+                f"- {food_name}: {cal} kcal (蛋白质 {pro}g, 碳水 {carbs}g, 脂肪 {fat}g, 分量 {portion}x)"
+            )
+            total_cal += cal
+            total_pro += pro
+            total_carbs += carbs
+            total_fat += fat
+    else:
+        # Fetch today's meals from SQLite
+        conn = get_db_connection()
+        rows = conn.execute('''
+            SELECT food_name, 
+                   CAST(calories * COALESCE(portion, 1.0) AS INTEGER) as calories,
+                   CAST(protein * COALESCE(portion, 1.0) AS INTEGER) as protein,
+                   CAST(carbs * COALESCE(portion, 1.0) AS INTEGER) as carbs,
+                   CAST(fat * COALESCE(portion, 1.0) AS INTEGER) as fat,
+                   COALESCE(portion, 1.0) as portion
+            FROM meals
+            WHERE date(created_at, 'localtime') = date('now', 'localtime') AND username = ?
+        ''', (username,)).fetchall()
+        conn.close()
+
+        for row in rows:
+            meals_summary.append(
+                f"- {row['food_name']}: {row['calories']} kcal (蛋白质 {row['protein']}g, 碳水 {row['carbs']}g, 脂肪 {row['fat']}g, 分量 {row['portion']}x)"
+            )
+            total_cal += row['calories'] or 0
+            total_pro += row['protein'] or 0
+            total_carbs += row['carbs'] or 0
+            total_fat += row['fat'] or 0
 
     if meals_summary:
         meals_context = "用户今日已吃食物如下：\n" + "\n".join(meals_summary) + f"\n今日累计摄入：热量 {total_cal} kcal，蛋白质 {total_pro}g，碳水 {total_carbs}g，脂肪 {total_fat}g。"

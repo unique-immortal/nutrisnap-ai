@@ -128,6 +128,27 @@ input[type=range]:focus{outline:none}
 .animate-slide-up{animation:slideUp .3s cubic-bezier(.22,1,.36,1)}
 @keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
 
+@keyframes wave {
+  0%, 100% { height: 10px; }
+  50% { height: 36px; }
+}
+.animate-wave-1 { animation: wave 1s ease-in-out infinite; }
+.animate-wave-2 { animation: wave 1s ease-in-out infinite 0.15s; }
+.animate-wave-3 { animation: wave 1s ease-in-out infinite 0.3s; }
+.animate-wave-4 { animation: wave 1s ease-in-out infinite 0.45s; }
+.animate-wave-5 { animation: wave 1s ease-in-out infinite 0.6s; }
+
+@keyframes ping-slow {
+  0% { transform: scale(1); opacity: 0.8; }
+  100% { transform: scale(1.6); opacity: 0; }
+}
+@keyframes ping-medium {
+  0% { transform: scale(1); opacity: 0.6; }
+  100% { transform: scale(1.3); opacity: 0; }
+}
+.animate-ping-slow { animation: ping-slow 2s cubic-bezier(0.16, 1, 0.3, 1) infinite; }
+.animate-ping-medium { animation: ping-medium 2s cubic-bezier(0.16, 1, 0.3, 1) infinite 0.5s; }
+
 /* Glassmorphism Styles */
 .glass-header {
   background: rgba(248, 250, 246, 0.8) !important;
@@ -175,6 +196,45 @@ html.dark .card-premium:hover {
 </style>
 </head>
 <body class="bg-background text-on-background font-body-md min-h-screen pb-28">
+<!-- ========== Login Overlay ========== -->
+<div id="loginOverlay" class="fixed inset-0 bg-background/80 backdrop-blur-xl z-[999] flex items-center justify-center p-6 transition-all duration-300 hidden">
+  <div class="bg-surface-container-lowest border border-surface-variant w-full max-w-sm rounded-3xl p-8 shadow-2xl flex flex-col gap-6 animate-slide-up relative overflow-hidden">
+    <!-- Background glow -->
+    <div class="absolute -right-16 -top-16 w-36 h-36 rounded-full bg-primary/10 blur-2xl"></div>
+    <div class="absolute -left-16 -bottom-16 w-36 h-36 rounded-full bg-tertiary/10 blur-2xl"></div>
+
+    <div class="flex flex-col items-center text-center gap-2">
+      <div class="w-16 h-16 rounded-2xl bg-primary-container flex items-center justify-center text-on-primary shadow-lg mb-2">
+        <span class="material-symbols-outlined text-4xl" style="font-variation-settings:'FILL' 1">restaurant_menu</span>
+      </div>
+      <h2 class="font-headline-lg-mobile text-headline-lg-mobile text-on-background" id="authTitle">欢迎回来</h2>
+      <p class="font-body-md text-body-md text-on-surface-variant" id="authSubtitle">请输入您的账号信息登录</p>
+    </div>
+
+    <div class="flex flex-col gap-4">
+      <div class="flex flex-col gap-1">
+        <label for="authUsername" class="font-label-md text-label-md text-outline">用户名</label>
+        <input type="text" id="authUsername" placeholder="请输入用户名" class="bg-surface-container rounded-xl px-4 py-3 font-body-md text-body-md text-on-background border border-outline-variant focus:border-primary focus:outline-none w-full transition-all">
+      </div>
+      <div class="flex flex-col gap-1">
+        <label for="authPassword" class="font-label-md text-label-md text-outline">密码</label>
+        <input type="password" id="authPassword" placeholder="请输入密码" class="bg-surface-container rounded-xl px-4 py-3 font-body-md text-body-md text-on-background border border-outline-variant focus:border-primary focus:outline-none w-full transition-all">
+      </div>
+      <div id="authError" class="text-error font-label-md text-label-md hidden text-center"></div>
+    </div>
+
+    <div class="flex flex-col gap-3">
+      <button id="authPrimaryBtn" onclick="handleAuthSubmit()" class="w-full bg-primary text-on-primary font-headline-md text-headline-md py-3.5 rounded-xl shadow-md hover:scale-[1.01] active:scale-95 transition-transform flex items-center justify-center gap-2 btn-premium">
+        <span>登录</span>
+      </button>
+      <div class="flex justify-between items-center text-xs text-outline px-1">
+        <button id="authToggleBtn" onclick="toggleAuthMode()" class="hover:text-primary transition-colors">没有账号？立即注册</button>
+        <button onclick="loginAsGuest()" class="hover:text-primary transition-colors font-semibold">本地离线使用 →</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 
 <!-- ========== PAGE: Home ========== -->
 <div class="page active" id="page-home">
@@ -287,22 +347,53 @@ html.dark .card-premium:hover {
 </div>
 
 <!-- Voice Input Modal -->
-<div id="voiceModal" class="fixed inset-0 bg-black/50 z-[100] items-center justify-center hidden" style="display:none">
-  <div class="bg-surface-container-lowest rounded-2xl p-6 mx-6 max-w-sm w-full shadow-xl text-center">
-    <div id="voiceListening" class="flex flex-col items-center gap-4">
-      <div class="w-20 h-20 rounded-full bg-primary flex items-center justify-center pulse-scan">
-        <span class="material-symbols-outlined text-[36px] text-on-primary" style="font-variation-settings:'FILL' 1">mic</span>
+<div id="voiceModal" class="fixed inset-0 bg-background/80 backdrop-blur-xl z-[999] flex items-center justify-center p-6 transition-all duration-300 hidden" style="display:none">
+  <div class="bg-surface-container-lowest border border-surface-variant w-full max-w-sm rounded-3xl p-8 shadow-2xl flex flex-col gap-6 animate-slide-up relative overflow-hidden text-center">
+    <!-- Background glows -->
+    <div class="absolute -right-16 -top-16 w-36 h-36 rounded-full bg-primary/10 blur-2xl"></div>
+    <div class="absolute -left-16 -bottom-16 w-36 h-36 rounded-full bg-tertiary/10 blur-2xl"></div>
+
+    <div id="voiceListening" class="flex flex-col items-center gap-6">
+      <div class="relative w-24 h-24 flex items-center justify-center">
+        <!-- Ripple rings -->
+        <div class="absolute inset-0 rounded-full bg-primary/10 animate-ping-slow"></div>
+        <div class="absolute inset-2 rounded-full bg-primary/20 animate-ping-medium"></div>
+        <div class="w-16 h-16 rounded-full bg-primary flex items-center justify-center shadow-lg relative z-10">
+          <span class="material-symbols-outlined text-[32px] text-on-primary" style="font-variation-settings:'FILL' 1">mic</span>
+        </div>
       </div>
-      <p class="font-headline-md text-headline-md text-on-background">正在聆听...</p>
-      <p class="font-body-md text-body-md text-on-surface-variant" id="voiceText">请说出你吃了什么</p>
-      <button onclick="stopVoiceInput()" class="bg-primary text-on-primary font-body-lg text-body-lg py-3 px-8 rounded-xl">停止录音</button>
+      
+      <div class="flex flex-col gap-2">
+        <h3 class="font-headline-md text-headline-md text-on-background font-semibold" id="voiceStatusTitle">正在聆听</h3>
+        <p class="font-body-md text-body-md text-primary font-medium" id="voiceText">请说出你吃中什么...</p>
+      </div>
+
+      <!-- Siri-like sound wave bars -->
+      <div class="flex items-end justify-center gap-1.5 h-10 my-2">
+        <div class="w-1.5 bg-primary rounded-full animate-wave-1 h-3"></div>
+        <div class="w-1.5 bg-primary rounded-full animate-wave-2 h-4"></div>
+        <div class="w-1.5 bg-primary rounded-full animate-wave-3 h-5"></div>
+        <div class="w-1.5 bg-primary rounded-full animate-wave-4 h-4"></div>
+        <div class="w-1.5 bg-primary rounded-full animate-wave-5 h-3"></div>
+      </div>
+
+      <button onclick="stopVoiceInput()" class="w-full bg-primary text-on-primary font-headline-md text-headline-md py-3.5 rounded-xl shadow-md hover:scale-[1.01] active:scale-95 transition-transform flex items-center justify-center gap-2 btn-premium">
+        <span>说完了，开始分析</span>
+      </button>
     </div>
-    <div id="voiceProcessing" class="hidden flex flex-col items-center gap-4">
-      <div class="spinner-ai"></div>
-      <p class="font-headline-md text-headline-md text-primary">AI 分析中...</p>
-      <p class="font-body-md text-body-md text-on-surface-variant" id="voiceFinalText"></p>
+
+    <div id="voiceProcessing" class="hidden flex flex-col items-center gap-6">
+      <div class="w-20 h-20 flex items-center justify-center">
+        <div class="w-14 h-14 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+      </div>
+      
+      <div class="flex flex-col gap-2">
+        <h3 class="font-headline-md text-headline-md text-primary font-semibold">AI 分析中</h3>
+        <p class="font-body-md text-body-md text-outline" id="voiceFinalText">正在识别并提取食物信息...</p>
+      </div>
     </div>
-    <button onclick="closeVoiceModal()" class="mt-4 text-on-surface-variant font-label-md text-label-md">取消</button>
+    
+    <button onclick="closeVoiceModal()" class="text-on-surface-variant font-label-md text-label-md hover:text-primary transition-colors py-1">取消</button>
   </div>
 </div>
 
@@ -322,9 +413,24 @@ html.dark .card-premium:hover {
       <img id="resultImg" class="w-full h-full object-cover" src="" alt="Food"/>
     </div>
     
-    <div id="resultVoiceContainer" class="hidden w-full rounded-xl p-6 flex flex-col justify-center items-center text-center shadow-md relative overflow-hidden"
-         style="min-height: 10rem; background: linear-gradient(135deg, var(--secondary-container), var(--surface-container)); border: 1px solid var(--outline-variant); color: var(--on-surface);">
-      <div class="absolute opacity-10 material-symbols-outlined select-none" style="font-size: 140px; right: -20px; bottom: -35px; color: var(--primary);">mic</div>
+    <div id="resultVoiceContainer" class="hidden w-full rounded-2xl p-6 flex flex-col justify-center items-center text-center shadow-lg relative overflow-hidden border border-outline-variant bg-gradient-to-br from-primary-container/20 to-tertiary-container/20 dark:from-primary-container/10 dark:to-tertiary-container/10">
+      <!-- Decorative decorative circles -->
+      <div class="absolute -right-8 -top-8 w-24 h-24 rounded-full bg-primary/10 blur-xl"></div>
+      <div class="absolute -left-8 -bottom-8 w-24 h-24 rounded-full bg-tertiary/10 blur-xl"></div>
+      
+      <div class="w-14 h-14 rounded-full bg-primary-container/30 dark:bg-primary-container/20 flex items-center justify-center mb-4 shadow-inner">
+        <span class="material-symbols-outlined text-[32px] text-primary animate-pulse" style="font-variation-settings:'FILL' 1">mic</span>
+      </div>
+      
+      <h3 class="font-headline-md text-headline-md text-primary mb-2">语音记录分析</h3>
+      <div class="w-3/4 h-[2px] bg-outline-variant my-2 rounded-full"></div>
+      
+      <div class="relative max-w-[90%] my-3 px-6 py-2">
+        <span class="absolute left-0 top-0 font-serif text-4xl text-primary/30 leading-none">“</span>
+        <p class="font-body-lg text-body-lg text-on-surface-variant italic font-medium leading-relaxed" id="resultVoiceText"></p>
+        <span class="absolute right-0 bottom-0 font-serif text-4xl text-primary/30 leading-none">”</span>
+      </div>
+    </div>
       <div class="w-12 h-12 rounded-full flex items-center justify-center mb-3" style="background-color: var(--surface-container-high); border: 2px solid var(--primary);">
         <span class="material-symbols-outlined text-[28px]" style="font-variation-settings:'FILL' 1; color: var(--primary);">mic</span>
       </div>
@@ -443,35 +549,64 @@ html.dark .card-premium:hover {
     <h1 class="font-headline-md text-headline-md text-primary">个人中心</h1>
   </header>
   <main class="px-container-margin flex-1 flex flex-col gap-stack-lg pb-24">
+    <!-- Profile Card -->
     <section class="bg-surface-container-lowest rounded-xl p-6 shadow-sm border border-surface-variant flex flex-col items-center gap-4">
-      <div class="w-20 h-20 rounded-full bg-primary-container flex items-center justify-center">
+      <div class="w-20 h-20 rounded-full bg-primary-container flex items-center justify-center shadow-md">
         <span class="material-symbols-outlined text-[40px] text-on-primary" style="font-variation-settings:'FILL' 1">person</span>
       </div>
-      <h2 class="font-headline-md text-headline-md text-on-background">NutriSnap 用户</h2>
-      <p class="font-body-md text-body-md text-on-surface-variant">开始你的健康饮食之旅</p>
+      <h2 class="font-headline-md text-headline-md text-on-background font-semibold" id="profileUsername">NutriSnap 用户</h2>
+      <p class="font-body-md text-body-md text-on-surface-variant" id="profileStorageMode">数据存储模式: 本地离线</p>
+      <button onclick="logout()" class="px-4 py-2 border border-error text-error hover:bg-error-container hover:text-on-error rounded-xl font-label-md text-label-md transition-colors btn-premium">退出登录</button>
     </section>
+
+    <!-- Bento Daily Targets -->
+    <section class="flex flex-col gap-stack-sm">
+      <h2 class="font-headline-lg-mobile text-headline-lg-mobile text-on-background border-b border-surface-variant pb-stack-sm mb-2">我的目标</h2>
+      <div class="grid grid-cols-2 gap-4">
+        <!-- Calorie Target Bento -->
+        <div onclick="editTarget('cal')" class="bg-surface-container-lowest rounded-2xl p-5 shadow-sm border border-surface-variant flex flex-col justify-between cursor-pointer hover:bg-surface-container active:scale-95 transition-all min-h-[115px]">
+          <div class="flex items-center gap-2 text-on-surface-variant">
+            <span class="material-symbols-outlined text-primary" style="font-variation-settings:'FILL' 1">local_fire_department</span>
+            <span class="font-label-md text-label-md text-outline">热量目标</span>
+          </div>
+          <div class="flex items-baseline gap-1">
+            <span class="font-stats-xl text-stats-xl text-primary font-black" id="calTargetDisplay">2,000</span>
+            <span class="font-body-md text-body-md text-outline">kcal</span>
+          </div>
+        </div>
+        
+        <!-- Protein Target Bento -->
+        <div onclick="editTarget('pro')" class="bg-surface-container-lowest rounded-2xl p-5 shadow-sm border border-surface-variant flex flex-col justify-between cursor-pointer hover:bg-surface-container active:scale-95 transition-all min-h-[115px] relative overflow-hidden">
+          <div class="absolute left-0 top-0 bottom-0 w-1.5 bg-tertiary"></div>
+          <div class="flex items-center gap-2 text-on-surface-variant pl-1.5">
+            <span class="material-symbols-outlined text-tertiary" style="font-variation-settings:'FILL' 1">fitness_center</span>
+            <span class="font-label-md text-label-md text-outline">蛋白质目标</span>
+          </div>
+          <div class="flex items-baseline gap-1 pl-1.5">
+            <span class="font-stats-xl text-stats-xl text-on-background font-black" id="proTargetDisplay">120</span>
+            <span class="font-body-md text-body-md text-outline font-semibold">g</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- System Settings -->
     <section class="flex flex-col gap-stack-md">
-      <h2 class="font-headline-lg-mobile text-headline-lg-mobile text-on-background border-b border-surface-variant pb-stack-sm">设置</h2>
-      <div onclick="editTarget('cal')" class="bg-surface-container-lowest rounded-xl shadow-sm border border-surface-variant p-stack-md flex justify-between items-center cursor-pointer hover:bg-surface-container active:bg-surface-variant transition-colors">
+      <h2 class="font-headline-lg-mobile text-headline-lg-mobile text-on-background border-b border-surface-variant pb-stack-sm mb-1">系统设置</h2>
+      
+      <!-- Storage Mode Toggle -->
+      <div onclick="toggleStorageMode()" class="bg-surface-container-lowest rounded-xl shadow-sm border border-surface-variant p-stack-md flex justify-between items-center cursor-pointer hover:bg-surface-container active:bg-surface-variant transition-colors">
         <div class="flex items-center gap-3">
-          <span class="material-symbols-outlined text-primary">target</span>
-          <span class="font-body-lg text-body-lg text-on-background">每日热量目标</span>
+          <span class="material-symbols-outlined text-primary">cloud</span>
+          <span class="font-body-lg text-body-lg text-on-background">数据存储模式</span>
         </div>
         <div class="flex items-center gap-2">
-          <span class="font-headline-md text-headline-md text-on-surface-variant" id="calTargetDisplay">2,000 kcal</span>
-          <span class="material-symbols-outlined text-outline text-sm">edit</span>
+          <span class="font-headline-md text-headline-md text-on-surface-variant" id="storageModeDisplay">本地离线</span>
+          <span class="material-symbols-outlined text-outline">sync_alt</span>
         </div>
       </div>
-      <div onclick="editTarget('pro')" class="bg-surface-container-lowest rounded-xl shadow-sm border border-surface-variant p-stack-md flex justify-between items-center cursor-pointer hover:bg-surface-container active:bg-surface-variant transition-colors">
-        <div class="flex items-center gap-3">
-          <span class="material-symbols-outlined text-primary">fitness_center</span>
-          <span class="font-body-lg text-body-lg text-on-background">蛋白质目标</span>
-        </div>
-        <div class="flex items-center gap-2">
-          <span class="font-headline-md text-headline-md text-on-surface-variant" id="proTargetDisplay">120g</span>
-          <span class="material-symbols-outlined text-outline text-sm">edit</span>
-        </div>
-      </div>
+
+      <!-- Dark Mode Toggle -->
       <div onclick="toggleDarkMode()" class="bg-surface-container-lowest rounded-xl shadow-sm border border-surface-variant p-stack-md flex justify-between items-center cursor-pointer hover:bg-surface-container active:bg-surface-variant transition-colors">
         <div class="flex items-center gap-3">
           <span class="material-symbols-outlined text-primary">dark_mode</span>
@@ -482,6 +617,8 @@ html.dark .card-premium:hover {
           <span class="material-symbols-outlined text-outline">chevron_right</span>
         </div>
       </div>
+
+      <!-- About -->
       <div onclick="showAbout()" class="bg-surface-container-lowest rounded-xl shadow-sm border border-surface-variant p-stack-md flex justify-between items-center cursor-pointer hover:bg-surface-container active:bg-surface-variant transition-colors">
         <div class="flex items-center gap-3">
           <span class="material-symbols-outlined text-primary">info</span>
@@ -489,8 +626,7 @@ html.dark .card-premium:hover {
         </div>
         <span class="material-symbols-outlined text-outline">chevron_right</span>
       </div>
-    </section>
-  </main>
+    </section></main>
 </div>
 
 <!-- About Modal -->
@@ -569,11 +705,206 @@ html.dark .card-premium:hover {
 // ===================== CONFIG =====================
 const API_BASE = "";
 let selectedFile = null;
-let calTarget = parseInt(localStorage.getItem('calTarget')) || 2000;
-let proTarget = parseInt(localStorage.getItem('proTarget')) || 120;
+let calTarget = 2000;
+let proTarget = 120;
 let calChart = null;
 let macroChart = null;
 let chatHistory = [];
+
+const IS_APP = (window.Capacitor && window.Capacitor.isNative) || 
+               window.location.origin.includes('capacitor') || 
+               window.location.href.startsWith('file:') || 
+               window.location.hostname === 'localhost' && !window.location.port;
+
+let storageMode = localStorage.getItem('storageMode') || (IS_APP ? 'local' : 'server');
+
+function isLocalMode() {
+  return storageMode === 'local';
+}
+
+function getCurrentUser() {
+  return localStorage.getItem('currentUser');
+}
+
+function getAuthHeaders() {
+  const user = getCurrentUser() || 'anonymous';
+  return {
+    'X-User-Id': user,
+    'Content-Type': 'application/json'
+  };
+}
+
+function loadTargets() {
+  const user = getCurrentUser() || 'anonymous';
+  calTarget = parseInt(localStorage.getItem('calTarget_' + user)) || parseInt(localStorage.getItem('calTarget')) || 2000;
+  proTarget = parseInt(localStorage.getItem('proTarget_' + user)) || parseInt(localStorage.getItem('proTarget')) || 120;
+}
+
+// ===================== MEAL STORAGE (LOCAL MODE) =====================
+const MealStorage = {
+  getMeals() {
+    const user = getCurrentUser() || 'anonymous';
+    const data = localStorage.getItem('meals_' + user);
+    return data ? JSON.parse(data) : [];
+  },
+  saveMeals(meals) {
+    const user = getCurrentUser() || 'anonymous';
+    localStorage.setItem('meals_' + user, JSON.stringify(meals));
+  },
+  addMeals(newMeals) {
+    const meals = this.getMeals();
+    newMeals.forEach(meal => {
+      if (!meal.id) meal.id = Date.now() + Math.random();
+      if (!meal.created_at) meal.created_at = new Date().toISOString();
+      meals.unshift(meal);
+    });
+    this.saveMeals(meals);
+  },
+  updateMealPortion(id, portion) {
+    const meals = this.getMeals();
+    const idx = meals.findIndex(m => m.id == id);
+    if (idx !== -1) {
+      meals[idx].portion = parseFloat(portion);
+      this.saveMeals(meals);
+      return meals[idx];
+    }
+    return null;
+  },
+  deleteSession(sessionId) {
+    let meals = this.getMeals();
+    meals = meals.filter(m => m.session_id !== sessionId);
+    this.saveMeals(meals);
+  },
+  getWeeklyReport() {
+    const meals = this.getMeals();
+    const reportMap = {};
+    const today = new Date();
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(today.getDate() - i);
+      const iso = d.toISOString().split('T')[0];
+      reportMap[iso] = {
+        day: iso,
+        total_calories: 0,
+        total_protein: 0,
+        total_carbs: 0,
+        total_fat: 0
+      };
+    }
+    meals.forEach(m => {
+      if (m.created_at) {
+        const dateStr = m.created_at.split('T')[0];
+        if (reportMap[dateStr]) {
+          const portion = m.portion || 1.0;
+          reportMap[dateStr].total_calories += (m.calories || 0) * portion;
+          reportMap[dateStr].total_protein += (m.protein || 0) * portion;
+          reportMap[dateStr].total_carbs += (m.carbs || 0) * portion;
+          reportMap[dateStr].total_fat += (m.fat || 0) * portion;
+        }
+      }
+    });
+    return Object.values(reportMap);
+  }
+};
+
+// ===================== AUTH FLOW =====================
+let authMode = 'login';
+
+function showAuthOverlay() {
+  const overlay = document.getElementById('loginOverlay');
+  overlay.classList.remove('hidden');
+  overlay.style.display = 'flex';
+  document.getElementById('authUsername').value = '';
+  document.getElementById('authPassword').value = '';
+  document.getElementById('authError').classList.add('hidden');
+}
+
+function hideAuthOverlay() {
+  const overlay = document.getElementById('loginOverlay');
+  overlay.classList.add('hidden');
+  overlay.style.display = 'none';
+}
+
+function toggleAuthMode() {
+  authMode = (authMode === 'login') ? 'register' : 'login';
+  const title = document.getElementById('authTitle');
+  const subtitle = document.getElementById('authSubtitle');
+  const primaryBtn = document.getElementById('authPrimaryBtn');
+  const toggleBtn = document.getElementById('authToggleBtn');
+  
+  if (authMode === 'register') {
+    title.textContent = '创建账号';
+    subtitle.textContent = '新用户注册，开启健康生活';
+    primaryBtn.querySelector('span').textContent = '注册';
+    toggleBtn.textContent = '已有账号？立即登录';
+  } else {
+    title.textContent = '欢迎回来';
+    subtitle.textContent = '请输入您的账号信息登录';
+    primaryBtn.querySelector('span').textContent = '登录';
+    toggleBtn.textContent = '没有账号？立即注册';
+  }
+  document.getElementById('authError').classList.add('hidden');
+}
+
+async function handleAuthSubmit() {
+  const username = document.getElementById('authUsername').value.trim();
+  const password = document.getElementById('authPassword').value.trim();
+  const errorEl = document.getElementById('authError');
+  
+  if (!username || !password) {
+    errorEl.textContent = '用户名和密码不能为空';
+    errorEl.classList.remove('hidden');
+    return;
+  }
+  
+  errorEl.classList.add('hidden');
+  const endpoint = authMode === 'login' ? '/api/login' : '/api/register';
+  
+  try {
+    const res = await fetch(API_BASE + endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password })
+    });
+    const json = await res.json();
+    if (res.ok && json.success) {
+      if (authMode === 'register') {
+        authMode = 'login';
+        toggleAuthMode();
+        document.getElementById('authUsername').value = username;
+        document.getElementById('authPassword').value = password;
+        handleAuthSubmit();
+      } else {
+        localStorage.setItem('currentUser', json.username);
+        hideAuthOverlay();
+        loadTargets();
+        applyTargets();
+        updateProfileUI();
+        switchTab('home');
+      }
+    } else {
+      errorEl.textContent = json.error || '操作失败';
+      errorEl.classList.remove('hidden');
+    }
+  } catch (err) {
+    errorEl.textContent = '网络错误，请稍后再试';
+    errorEl.classList.remove('hidden');
+  }
+}
+
+function loginAsGuest() {
+  localStorage.setItem('currentUser', 'local_user');
+  hideAuthOverlay();
+  loadTargets();
+  applyTargets();
+  updateProfileUI();
+  switchTab('home');
+}
+
+function logout() {
+  localStorage.removeItem('currentUser');
+  showAuthOverlay();
+}
 
 // ===================== TAB SWITCHING =====================
 function switchTab(tab) {
@@ -622,8 +953,21 @@ async function doAnalyze() {
   document.getElementById('analyzeLoading').classList.remove('hidden');
   const fd = new FormData();
   fd.append('image', selectedFile);
+  if (isLocalMode()) {
+    fd.append('is_app', 'true');
+  }
+  
+  const headers = {};
+  if (!isLocalMode()) {
+    headers['X-User-Id'] = getCurrentUser() || 'anonymous';
+  }
+  
   try {
-    const res = await fetch(API_BASE + '/api/analyze', { method: 'POST', body: fd });
+    const res = await fetch(API_BASE + '/api/analyze', { 
+      method: 'POST', 
+      headers: headers,
+      body: fd 
+    });
     const json = await res.json();
     if (res.ok && json.success) {
       showResult(json);
@@ -649,30 +993,98 @@ function showResult(json) {
     document.getElementById('resultVoiceContainer').classList.add('hidden');
     document.getElementById('resultImg').src = document.getElementById('imgPreview').src ? document.getElementById('imgPreview').src : (API_BASE + '/' + json.image_url);
   }
+  
+  if (isLocalMode() && json.foods && json.foods.length > 0) {
+    const sid = json.session_id || ('local_' + Date.now());
+    const mealsToInsert = json.foods.map(f => ({
+      id: f.id || (Date.now() + Math.random()),
+      food_name: f.food_name,
+      calories: f.calories,
+      protein: f.protein,
+      carbs: f.carbs,
+      fat: f.fat,
+      weight: f.weight || 100,
+      portion: f.portion || 1.0,
+      session_id: sid,
+      image_path: isVoiceInputFlow ? '' : (json.image_url || ''),
+      created_at: new Date().toISOString()
+    }));
+    MealStorage.addMeals(mealsToInsert);
+    json.foods = mealsToInsert;
+  }
+
   const foods = json.foods || [];
   let html = '';
   foods.forEach((f, i) => {
     const origWeight = f.weight || 100;
+    const initialPortion = f.portion || 1.0;
+    const initialWeight = Math.round(origWeight * initialPortion);
+    
     html += `
-      <div class="bg-surface-container-lowest rounded-xl shadow-sm border border-surface-variant p-stack-md">
-        <div class="flex justify-between items-start mb-3">
+      <div class="bg-surface-container-lowest rounded-xl shadow-sm border border-surface-variant p-stack-md flex flex-col gap-4">
+        <div class="flex justify-between items-start">
           <div>
-            <h3 class="font-headline-md text-headline-md text-on-background">${f.food_name}</h3>
-            <p class="font-label-md text-label-md text-outline">每份 ${origWeight}g | <span id="calVal-${f.id}">${f.calories}</span> kcal</p>
+            <h3 class="font-headline-md text-headline-md text-on-background font-semibold">${f.food_name}</h3>
+            <p class="font-label-md text-label-md text-outline">每 100g 约 ${Math.round(f.calories / (origWeight/100))} kcal</p>
           </div>
-          <span class="font-stats-xl text-stats-xl text-primary"><span id="adjCal-${f.id}">${f.calories}</span><span class="text-xl font-body-md text-outline ml-1">kcal</span></span>
+          <div class="text-right">
+            <span class="font-stats-xl text-stats-xl text-primary font-extrabold"><span id="adjCal-${f.id}">${Math.round(f.calories * initialPortion)}</span></span>
+            <span class="text-xs font-bold text-outline block -mt-1">kcal</span>
+          </div>
         </div>
-        <div class="grid grid-cols-3 gap-2 mb-2">
-          <div><span class="font-label-md text-label-md text-outline">蛋白 </span><span class="font-headline-md text-headline-md" id="adjPro-${f.id}">${f.protein}</span>g</div>
-          <div><span class="font-label-md text-label-md text-outline">碳水 </span><span class="font-headline-md text-headline-md" id="adjCarbs-${f.id}">${f.carbs}</span>g</div>
-          <div><span class="font-label-md text-label-md text-outline">脂肪 </span><span class="font-headline-md text-headline-md" id="adjFat-${f.id}">${f.fat}</span>g</div>
+        
+        <!-- Macro Grid -->
+        <div class="grid grid-cols-3 gap-2 bg-surface-container-low/50 p-2.5 rounded-xl border border-outline-variant/20">
+          <div class="text-center">
+            <span class="block text-[11px] font-bold text-outline uppercase tracking-wider">蛋白质</span>
+            <span class="font-headline-md text-headline-md text-on-background font-bold" id="adjPro-${f.id}">${Math.round(f.protein * initialPortion)}</span><span class="text-xs text-outline">g</span>
+          </div>
+          <div class="text-center border-x border-outline-variant/30">
+            <span class="block text-[11px] font-bold text-outline uppercase tracking-wider">碳水</span>
+            <span class="font-headline-md text-headline-md text-on-background font-bold" id="adjCarbs-${f.id}">${Math.round(f.carbs * initialPortion)}</span><span class="text-xs text-outline">g</span>
+          </div>
+          <div class="text-center">
+            <span class="block text-[11px] font-bold text-outline uppercase tracking-wider">脂肪</span>
+            <span class="font-headline-md text-headline-md text-on-background font-bold" id="adjFat-${f.id}">${Math.round(f.fat * initialPortion)}</span><span class="text-xs text-outline">g</span>
+          </div>
         </div>
-        <div class="flex items-center gap-3">
-          <span class="font-label-md text-label-md text-on-surface-variant">x</span>
-          <input type="range" min="0.25" max="5.0" step="0.25" value="1.0" class="flex-1 h-1 accent-primary"
-            oninput="adjustPortion(${f.id}, this.value, ${f.calories}, ${f.protein}, ${f.carbs}, ${f.fat}, ${origWeight})"
-            onchange="savePortion(${f.id}, this.value)">
-          <span class="font-label-md text-label-md text-primary whitespace-nowrap" id="portionLabel-${f.id}">1.00x (${origWeight}g)</span>
+
+        <!-- Elegant Portion Selector -->
+        <div class="flex flex-col gap-3 mt-1 pt-3 border-t border-outline-variant/20">
+          <div class="flex justify-between items-center">
+            <span class="font-label-md text-label-md text-outline font-semibold">修改食用量</span>
+            
+            <div class="flex items-center gap-1.5 bg-surface-container rounded-full p-1 border border-outline-variant/30 shadow-inner">
+              <!-- Decrease button -->
+              <button onclick="changePortionStep('${f.id}', -0.25, ${f.calories}, ${f.protein}, ${f.carbs}, ${f.fat}, ${origWeight})" 
+                      class="w-7 h-7 rounded-full bg-surface-container-high hover:bg-surface-variant active:scale-90 flex items-center justify-center text-on-surface transition-all select-none">
+                <span class="material-symbols-outlined text-sm font-bold">remove</span>
+              </button>
+              
+              <!-- Direct Grams Input Field -->
+              <div class="flex items-center justify-center">
+                <input type="number" id="gramsInput-${f.id}" value="${initialWeight}" min="1" max="2000"
+                       oninput="onGramsInput('${f.id}', this.value, ${f.calories}, ${f.protein}, ${f.carbs}, ${f.fat}, ${origWeight})"
+                       onchange="savePortionFromGrams('${f.id}', this.value, ${origWeight})"
+                       class="w-16 bg-transparent text-center font-black text-primary border-none p-0 focus:ring-0 focus:outline-none text-body-md select-all">
+                <span class="font-label-md text-label-md text-outline pr-2 select-none">g</span>
+              </div>
+              
+              <!-- Increase button -->
+              <button onclick="changePortionStep('${f.id}', 0.25, ${f.calories}, ${f.protein}, ${f.carbs}, ${f.fat}, ${origWeight})" 
+                      class="w-7 h-7 rounded-full bg-surface-container-high hover:bg-surface-variant active:scale-90 flex items-center justify-center text-on-surface transition-all select-none">
+                <span class="material-symbols-outlined text-sm font-bold">add</span>
+              </button>
+            </div>
+          </div>
+          
+          <!-- Slider -->
+          <div class="flex items-center gap-3">
+            <input type="range" id="slider-${f.id}" min="0.25" max="5.0" step="0.25" value="${initialPortion}" class="flex-1 h-1 accent-primary cursor-pointer"
+              oninput="onSliderInput('${f.id}', this.value, ${f.calories}, ${f.protein}, ${f.carbs}, ${f.fat}, ${origWeight})"
+              onchange="savePortion('${f.id}', this.value)">
+            <span class="font-label-md text-label-md text-primary font-bold min-w-[42px] text-right" id="portionLabel-${f.id}">${initialPortion.toFixed(2)}x</span>
+          </div>
         </div>
       </div>`;
   });
@@ -683,16 +1095,49 @@ function showResult(json) {
   switchTab('result');
 }
 
-function adjustPortion(id, portion, origCal, origPro, origCarbs, origFat, origWeight) {
+function onSliderInput(id, portion, origCal, origPro, origCarbs, origFat, origWeight) {
   const p = parseFloat(portion);
   const w = Math.round(origWeight * p);
-  document.getElementById('portionLabel-' + id).textContent = p.toFixed(2) + 'x (' + w + 'g)';
+  
+  document.getElementById('gramsInput-' + id).value = w;
+  document.getElementById('portionLabel-' + id).textContent = p.toFixed(2) + 'x';
+  
+  updateAdjustedCardValues(id, p, origCal, origPro, origCarbs, origFat);
+  recalculateTotalSummary();
+}
+
+function onGramsInput(id, grams, origCal, origPro, origCarbs, origFat, origWeight) {
+  let w = parseFloat(grams) || 0;
+  if (w < 1) w = 1;
+  const p = w / origWeight;
+  
+  document.getElementById('slider-' + id).value = Math.max(0.25, Math.min(5.0, p));
+  document.getElementById('portionLabel-' + id).textContent = p.toFixed(2) + 'x';
+  
+  updateAdjustedCardValues(id, p, origCal, origPro, origCarbs, origFat);
+  recalculateTotalSummary();
+}
+
+function changePortionStep(id, step, origCal, origPro, origCarbs, origFat, origWeight) {
+  const slider = document.getElementById('slider-' + id);
+  let p = parseFloat(slider.value) + step;
+  if (p < 0.25) p = 0.25;
+  if (p > 5.0) p = 5.0;
+  
+  slider.value = p;
+  onSliderInput(id, p, origCal, origPro, origCarbs, origFat, origWeight);
+  savePortion(id, p);
+}
+
+function updateAdjustedCardValues(id, p, origCal, origPro, origCarbs, origFat) {
   document.getElementById('adjCal-' + id).textContent = Math.round(origCal * p);
   document.getElementById('adjPro-' + id).textContent = Math.round(origPro * p);
   document.getElementById('adjCarbs-' + id).textContent = Math.round(origCarbs * p);
   document.getElementById('adjFat-' + id).textContent = Math.round(origFat * p);
-  // Recompute summary from DOM
-  let totalCal=0, totalPro=0, totalCarbs=0, totalFat=0, count=0;
+}
+
+function recalculateTotalSummary() {
+  let totalCal = 0, totalPro = 0, totalCarbs = 0, totalFat = 0, count = 0;
   document.querySelectorAll('[id^="adjCal-"]').forEach(el => {
     totalCal += parseInt(el.textContent) || 0;
     count++;
@@ -700,6 +1145,7 @@ function adjustPortion(id, portion, origCal, origPro, origCarbs, origFat, origWe
   document.querySelectorAll('[id^="adjPro-"]').forEach(el => { totalPro += parseInt(el.textContent) || 0; });
   document.querySelectorAll('[id^="adjCarbs-"]').forEach(el => { totalCarbs += parseInt(el.textContent) || 0; });
   document.querySelectorAll('[id^="adjFat-"]').forEach(el => { totalFat += parseInt(el.textContent) || 0; });
+  
   document.getElementById('sumCal').textContent = totalCal;
   document.getElementById('sumPro').textContent = totalPro + 'g';
   document.getElementById('sumCarbs').textContent = totalCarbs + 'g';
@@ -707,11 +1153,22 @@ function adjustPortion(id, portion, origCal, origPro, origCarbs, origFat, origWe
   document.getElementById('foodCount').textContent = count;
 }
 
+function savePortionFromGrams(id, grams, origWeight) {
+  let w = parseFloat(grams) || origWeight;
+  if (w < 1) w = 1;
+  const p = w / origWeight;
+  savePortion(id, p);
+}
+
 async function savePortion(id, portion) {
+  if (isLocalMode()) {
+    MealStorage.updateMealPortion(id, portion);
+    return;
+  }
   try {
     await fetch(API_BASE + '/api/meals/' + id, {
       method: 'PATCH',
-      headers: {'Content-Type': 'application/json'},
+      headers: getAuthHeaders(),
       body: JSON.stringify({portion: parseFloat(portion)})
     });
   } catch(e) { console.error('Save portion error:', e); }
@@ -720,10 +1177,11 @@ async function savePortion(id, portion) {
 function updateSummary(foods) {
   let totalCal=0, totalPro=0, totalCarbs=0, totalFat=0;
   foods.forEach(f => {
-    totalCal += f.calories||0;
-    totalPro += f.protein||0;
-    totalCarbs += f.carbs||0;
-    totalFat += f.fat||0;
+    const portion = f.portion || 1.0;
+    totalCal += Math.round((f.calories || 0) * portion);
+    totalPro += Math.round((f.protein || 0) * portion);
+    totalCarbs += Math.round((f.carbs || 0) * portion);
+    totalFat += Math.round((f.fat || 0) * portion);
   });
   document.getElementById('sumCal').textContent = totalCal;
   document.getElementById('sumPro').textContent = totalPro + 'g';
@@ -747,12 +1205,17 @@ let mediaRecorder = null;
 let audioChunks = [];
 let voiceStream = null;
 let voiceIntervalId = null;
-let isVoiceInputFlow = false;
+let isVoiceRecording = false;
 let voiceTextForDisplay = "";
+let currentRecordingSession = 0;
 
 function startVoiceInput() {
+  if (isVoiceRecording) return;
+  isVoiceRecording = true;
   isVoiceInputFlow = true;
-  // Clear any existing interval
+
+  const sessionId = ++currentRecordingSession;
+
   if (voiceIntervalId) {
     clearInterval(voiceIntervalId);
     voiceIntervalId = null;
@@ -763,19 +1226,25 @@ function startVoiceInput() {
   m.classList.remove('hidden');
   document.getElementById('voiceListening').classList.remove('hidden');
   document.getElementById('voiceProcessing').classList.add('hidden');
-  document.getElementById('voiceText').textContent = '请说出你吃了什么...';
+  document.getElementById('voiceStatusTitle').textContent = '正在聆听';
+  document.getElementById('voiceText').textContent = '请说出你吃乆什么...';
 
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) {
     document.getElementById('voiceText').textContent = '您的设备不支持语音录制功能。';
+    isVoiceRecording = false;
     return;
   }
 
   navigator.mediaDevices.getUserMedia({ audio: true })
     .then((stream) => {
+      if (sessionId !== currentRecordingSession || !isVoiceRecording) {
+        stream.getTracks().forEach(track => track.stop());
+        return;
+      }
+
       voiceStream = stream;
       audioChunks = [];
 
-      // Determine supported MIME types
       let mimeType = 'audio/webm';
       if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
         mimeType = 'audio/webm;codecs=opus';
@@ -791,32 +1260,34 @@ function startVoiceInput() {
       };
 
       mediaRecorder.onstop = async () => {
-        // Clear interval
         if (voiceIntervalId) {
           clearInterval(voiceIntervalId);
           voiceIntervalId = null;
         }
 
-        // Stop all tracks on the stream to turn off the microphone icon
         if (voiceStream) {
           voiceStream.getTracks().forEach(track => track.stop());
           voiceStream = null;
         }
 
         const audioBlob = new Blob(audioChunks, { type: mimeType });
-        if (audioBlob.size > 1000) { // Verify audio is not silent/empty
+        if (audioBlob.size > 1000) {
           await transcribeAudio(audioBlob, mimeType);
         } else {
           document.getElementById('voiceText').textContent = '录音过短，请重试';
+          isVoiceRecording = false;
         }
       };
 
-      // Start recording
       mediaRecorder.start();
       
-      // Update text in UI to indicate we are recording
       let seconds = 0;
       voiceIntervalId = setInterval(() => {
+        if (sessionId !== currentRecordingSession) {
+          clearInterval(voiceIntervalId);
+          voiceIntervalId = null;
+          return;
+        }
         if (!mediaRecorder || mediaRecorder.state === 'inactive') {
           clearInterval(voiceIntervalId);
           voiceIntervalId = null;
@@ -824,7 +1295,6 @@ function startVoiceInput() {
         }
         seconds++;
         document.getElementById('voiceText').textContent = `正在聆听 (${seconds}s)...`;
-        // Stop after 20 seconds maximum to prevent huge uploads
         if (seconds >= 20) {
           stopVoiceInput();
         }
@@ -832,7 +1302,8 @@ function startVoiceInput() {
     })
     .catch((err) => {
       console.error('Microphone access denied:', err);
-      document.getElementById('voiceText').textContent = '无法获取麦克风权限，请在系统设置中允许。';
+      document.getElementById('voiceText').textContent = '无法获取麦克风权限，请在系统设置中充许。';
+      isVoiceRecording = false;
     });
 }
 
@@ -849,7 +1320,7 @@ function stopVoiceInput() {
 async function transcribeAudio(blob, mimeType) {
   document.getElementById('voiceListening').classList.add('hidden');
   document.getElementById('voiceProcessing').classList.remove('hidden');
-  document.getElementById('voiceText').textContent = '正在识别语音...';
+  document.getElementById('voiceFinalText').textContent = '正在识别并提取食物信息...';
 
   const formData = new FormData();
   const filename = mimeType.includes('mp4') ? 'audio.mp4' : 'audio.webm';
@@ -862,13 +1333,12 @@ async function transcribeAudio(blob, mimeType) {
     });
     const json = await res.json();
     if (res.ok && json.text) {
-      document.getElementById('voiceText').textContent = json.text;
+      document.getElementById('voiceFinalText').textContent = '"' + json.text + '"';
       voiceTextForDisplay = json.text;
-      // Trigger parsing and nutritional evaluation
       setTimeout(() => sendVoiceText(json.text), 1000);
     } else {
-      document.getElementById('voiceText').textContent = '识别失败: ' + (json.error || '未知错误');
-      // Hide processing and show error
+      document.getElementById('voiceFinalText').textContent = '识别失败: ' + (json.error || 'unknown');
+      isVoiceRecording = false;
       setTimeout(() => {
         closeVoiceModal();
         alert(json.error || '语音转文字失败，请重试');
@@ -876,7 +1346,8 @@ async function transcribeAudio(blob, mimeType) {
     }
   } catch (err) {
     console.error('Speech upload error:', err);
-    document.getElementById('voiceText').textContent = '网络请求失败，请重试';
+    document.getElementById('voiceFinalText').textContent = '网络请求失败，请重试';
+    isVoiceRecording = false;
     setTimeout(closeVoiceModal, 1500);
   }
 }
@@ -884,12 +1355,16 @@ async function transcribeAudio(blob, mimeType) {
 async function sendVoiceText(text) {
   document.getElementById('voiceListening').classList.add('hidden');
   document.getElementById('voiceProcessing').classList.remove('hidden');
-  document.getElementById('voiceFinalText').textContent = '"' + text + '"';
+  document.getElementById('voiceFinalText').textContent = 'â' + text + 'â';
   try {
+    const payload = { text: text };
+    if (isLocalMode()) {
+      payload.is_app = true;
+    }
     const res = await fetch(API_BASE + '/api/voice-input', {
       method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({text: text})
+      headers: getAuthHeaders(),
+      body: JSON.stringify(payload)
     });
     const json = await res.json();
     closeVoiceModal();
@@ -905,13 +1380,14 @@ async function sendVoiceText(text) {
 }
 
 function closeVoiceModal() {
-  // Clear any voice timers and media recorder instances
+  isVoiceRecording = false;
+  currentRecordingSession++; 
   if (voiceIntervalId) {
     clearInterval(voiceIntervalId);
     voiceIntervalId = null;
   }
   if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-    mediaRecorder.onstop = null; // Prevent sending unfinished audio on manual cancel
+    mediaRecorder.onstop = null;
     mediaRecorder.stop();
   }
   if (voiceStream) {
@@ -928,16 +1404,24 @@ function closeVoiceModal() {
 // ===================== FETCH MEALS =====================
 async function fetchMeals() {
   try {
-    const res = await fetch(API_BASE + '/api/meals');
-    const json = await res.json();
+    let meals = [];
+    if (isLocalMode()) {
+      meals = MealStorage.getMeals();
+    } else {
+      const res = await fetch(API_BASE + '/api/meals', {
+        headers: getAuthHeaders()
+      });
+      const json = await res.json();
+      meals = json.data || [];
+    }
+
     const list = document.getElementById('mealList');
-    const meals = json.data || [];
     if (meals.length === 0) {
       list.innerHTML = '<p class="text-outline text-center py-8">暂无记录，点击底部扫描按钮开始吧！</p>';
       updateRings(0, 0, 0, 0);
       return;
     }
-    // Group by session_id
+    
     const groups = {};
     meals.forEach(m => {
       const sid = m.session_id || 'solo_' + m.id;
@@ -948,27 +1432,49 @@ async function fetchMeals() {
 
     let totalCal=0, totalPro=0, totalCarbs=0, totalFat=0;
     let html = '';
+    const todayStr = new Date().toISOString().split('T')[0];
+    
+    meals.forEach(m => {
+      let isToday = false;
+      if (m.created_at) {
+        if (m.created_at.includes('T') || m.created_at.includes('-')) {
+          isToday = m.created_at.startsWith(todayStr);
+        } else {
+          const d = new Date(m.created_at);
+          isToday = d.toDateString() === new Date().toDateString();
+        }
+      }
+      if (isToday) {
+        const portion = m.portion || 1.0;
+        totalCal += Math.round((m.calories || 0) * portion);
+        totalPro += Math.round((m.protein || 0) * portion);
+        totalCarbs += Math.round((m.carbs || 0) * portion);
+        totalFat += Math.round((m.fat || 0) * portion);
+      }
+    });
+
     Object.values(groups).forEach(g => {
-      const imgSrc = g.image_path ? (API_BASE + '/' + g.image_path) : '';
-      meals.forEach(m => {
-        totalCal += m.calories||0;
-        totalPro += m.protein||0;
-        totalCarbs += m.carbs||0;
-        totalFat += m.fat||0;
-      });
+      const imgSrc = g.image_path ? (g.image_path.startsWith('data:') || g.image_path.startsWith('file:') || g.image_path.startsWith('content:') ? g.image_path : (API_BASE + '/' + g.image_path)) : '';
       const foodNames = g.items.map(m => {
         const w = Math.round((m.weight || 100) * (m.portion || 1.0));
-        return `${m.food_name} (${w}g) ${m.calories}kcal`;
+        const c = Math.round((m.calories || 0) * (m.portion || 1.0));
+        return `${m.food_name} (${w}g) ${c}kcal`;
       }).join('<br>');
+      
+      let displayTime = g.items[0].created_at || '';
+      if (displayTime.includes('T')) {
+        displayTime = new Date(displayTime).toLocaleString();
+      }
+      
       html += `
         <div class="bg-surface-container-lowest rounded-xl shadow-sm border border-surface-variant p-stack-md" id="meal-group-${g.session_id}">
           <div class="flex gap-3">
-            <div class="w-12 h-12 rounded-lg bg-surface-container-high overflow-hidden flex-shrink-0 flex items-center justify-center">
+            <div class="w-12 h-12 rounded-lg bg-surface-container-high overflow-hidden flex-shrink-0 flex items-center justify-center border border-outline-variant">
               ${imgSrc ? `<img src="${imgSrc}" class="w-full h-full object-cover"/>` : `<span class="material-symbols-outlined text-outline">restaurant</span>`}
             </div>
             <div class="flex-1">
               <div class="font-body-md text-body-md text-on-background leading-relaxed mb-1">${foodNames}</div>
-              <p class="font-label-md text-label-md text-outline">${g.items[0].created_at||''}</p>
+              <p class="font-label-md text-label-md text-outline">${displayTime}</p>
             </div>
           </div>
           <div class="flex justify-end mt-2">
@@ -1001,10 +1507,18 @@ function updateRings(cal, pro, carbs, fat) {
 // ===================== FETCH HISTORY =====================
 async function fetchHistory() {
   try {
-    const res = await fetch(API_BASE + '/api/meals');
-    const json = await res.json();
+    let meals = [];
+    if (isLocalMode()) {
+      meals = MealStorage.getMeals();
+    } else {
+      const res = await fetch(API_BASE + '/api/meals', {
+        headers: getAuthHeaders()
+      });
+      const json = await res.json();
+      meals = json.data || [];
+    }
+
     const list = document.getElementById('historyList');
-    const meals = json.data || [];
     if (meals.length === 0) {
       list.innerHTML = '<p class="text-outline text-center py-8">暂无记录</p>';
       return;
@@ -1018,22 +1532,29 @@ async function fetchHistory() {
     });
     let html = '';
     Object.values(groups).forEach(g => {
-      const imgSrc = g.image_path ? (API_BASE + '/' + g.image_path) : '';
+      const imgSrc = g.image_path ? (g.image_path.startsWith('data:') || g.image_path.startsWith('file:') || g.image_path.startsWith('content:') ? g.image_path : (API_BASE + '/' + g.image_path)) : '';
       const foodNames = g.items.map(m => {
         const w = Math.round((m.weight || 100) * (m.portion || 1.0));
-        return `${m.food_name} (${w}g) ${m.calories}kcal`;
+        const c = Math.round((m.calories || 0) * (m.portion || 1.0));
+        return `${m.food_name} (${w}g) ${c}kcal`;
       }).join('<br>');
-      const groupCal = g.items.reduce((s, m) => s + (m.calories||0), 0);
+      const groupCal = g.items.reduce((s, m) => s + Math.round((m.calories||0) * (m.portion || 1.0)), 0);
+      
+      let displayTime = g.items[0].created_at || '';
+      if (displayTime.includes('T')) {
+        displayTime = new Date(displayTime).toLocaleString();
+      }
+
       html += `
         <div class="bg-surface-container-lowest rounded-xl shadow-sm border border-surface-variant p-stack-md">
           <div class="flex gap-3 items-start">
-            <div class="w-12 h-12 rounded-lg bg-surface-container-high overflow-hidden flex-shrink-0 flex items-center justify-center">
+            <div class="w-12 h-12 rounded-lg bg-surface-container-high overflow-hidden flex-shrink-0 flex items-center justify-center border border-outline-variant">
               ${imgSrc ? `<img src="${imgSrc}" class="w-full h-full object-cover"/>` : `<span class="material-symbols-outlined text-outline">restaurant</span>`}
             </div>
             <div class="flex-1">
               <div class="font-body-md text-body-md text-on-background leading-relaxed mb-1">${foodNames}</div>
               <div class="flex justify-between items-center">
-                <p class="font-label-md text-label-md text-outline">${g.items[0].created_at||''}</p>
+                <p class="font-label-md text-label-md text-outline">${displayTime}</p>
                 <span class="font-headline-md text-headline-md text-primary">${groupCal} kcal</span>
               </div>
             </div>
@@ -1059,8 +1580,19 @@ function deleteSession(sid) {
 async function confirmDelete() {
   if (!sessionToDelete) return;
   document.getElementById('deleteConfirmModal').style.display = 'none';
+  if (isLocalMode()) {
+    MealStorage.deleteSession(sessionToDelete);
+    const el = document.getElementById('meal-group-' + sessionToDelete);
+    if (el) { el.style.opacity='0'; el.style.transition='all .3s'; setTimeout(()=>el.remove(),300); }
+    setTimeout(() => { fetchMeals(); fetchHistory(); }, 400);
+    sessionToDelete = null;
+    return;
+  }
   try {
-    await fetch(API_BASE + '/api/meals/session/' + sessionToDelete, { method: 'DELETE' });
+    await fetch(API_BASE + '/api/meals/session/' + sessionToDelete, { 
+      method: 'DELETE',
+      headers: getAuthHeaders()
+    });
     const el = document.getElementById('meal-group-' + sessionToDelete);
     if (el) { el.style.opacity='0'; el.style.transition='all .3s'; setTimeout(()=>el.remove(),300); }
     setTimeout(() => { fetchMeals(); fetchHistory(); }, 400);
@@ -1071,16 +1603,23 @@ async function confirmDelete() {
 // ===================== WEEKLY REPORT =====================
 async function fetchWeeklyReport() {
   try {
-    const res = await fetch(API_BASE + '/api/report/weekly');
-    const json = await res.json();
-    const data = json.data || [];
-    const days = data.map(d => d.day.slice(5)); // MM-DD
-    const cals = data.map(d => Math.round(d.total_calories || 0));
-    const pros = data.map(d => Math.round(d.total_protein || 0));
-    const carbs = data.map(d => Math.round(d.total_carbs || 0));
-    const fats = data.map(d => Math.round(d.total_fat || 0));
+    let report = [];
+    if (isLocalMode()) {
+      report = MealStorage.getWeeklyReport();
+    } else {
+      const res = await fetch(API_BASE + '/api/report/weekly', {
+        headers: getAuthHeaders()
+      });
+      const json = await res.json();
+      report = json.data || [];
+    }
 
-    // Stats
+    const days = report.map(d => d.day.slice(5));
+    const cals = report.map(d => Math.round(d.total_calories || 0));
+    const pros = report.map(d => Math.round(d.total_protein || 0));
+    const carbs = report.map(d => Math.round(d.total_carbs || 0));
+    const fats = report.map(d => Math.round(d.total_fat || 0));
+
     const avgCal = cals.length ? Math.round(cals.reduce((a,b)=>a+b,0)/cals.length) : 0;
     const avgPro = pros.length ? Math.round(pros.reduce((a,b)=>a+b,0)/pros.length) : 0;
     document.getElementById('avgCal').textContent = avgCal;
@@ -1090,7 +1629,6 @@ async function fetchWeeklyReport() {
     const gridColor = isDark ? '#404943' : '#bfc9c1';
     const textColor = isDark ? '#bfc9c1' : '#404943';
 
-    // Calorie chart
     if (calChart) calChart.destroy();
     const calCtx = document.getElementById('calorieChart').getContext('2d');
     calChart = new Chart(calCtx, {
@@ -1120,7 +1658,6 @@ async function fetchWeeklyReport() {
       }
     });
 
-    // Macro chart
     if (macroChart) macroChart.destroy();
     const macroCtx = document.getElementById('macroChart').getContext('2d');
     macroChart = new Chart(macroCtx, {
@@ -1165,7 +1702,7 @@ function sendCoachMsg(quickMsg) {
   const chat = document.getElementById('chatMessages');
   chat.innerHTML += `
     <div class="flex items-start gap-3 justify-end">
-      <div class="bg-primary text-on-primary rounded-2xl rounded-tr-none px-4 py-3 max-w-[80%]">
+      <div class="bg-primary text-on-primary rounded-2xl rounded-tr-none px-4 py-3 max-w-[80%] shadow-sm">
         <p class="font-body-md text-body-md">${msg}</p>
       </div>
     </div>
@@ -1183,8 +1720,6 @@ function sendCoachMsg(quickMsg) {
 
 async function generateCoachResponse(userMsg) {
   const chat = document.getElementById('chatMessages');
-  
-  // Prepare payload
   const payload = {
     message: userMsg,
     history: chatHistory,
@@ -1192,23 +1727,31 @@ async function generateCoachResponse(userMsg) {
     proTarget: proTarget
   };
 
-  // Add the user message to history
+  if (isLocalMode()) {
+    const meals = MealStorage.getMeals();
+    const todayStr = new Date().toISOString().split('T')[0];
+    const todayMeals = meals.filter(m => {
+      if (m.created_at) {
+        return m.created_at.startsWith(todayStr);
+      }
+      return false;
+    });
+    payload.meals = todayMeals;
+  }
+
   chatHistory.push({ role: 'user', content: userMsg });
-  if (chatHistory.length > 20) chatHistory.shift(); // Keep history compact
+  if (chatHistory.length > 20) chatHistory.shift();
   
   let reply = '';
   try {
     const res = await fetch(API_BASE + '/api/coach/chat', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
+      headers: getAuthHeaders(),
       body: JSON.stringify(payload)
     });
     const json = await res.json();
     if (res.ok && json.success) {
       reply = json.reply;
-      // Add model reply to history
       chatHistory.push({ role: 'model', content: reply });
       if (chatHistory.length > 20) chatHistory.shift();
     } else {
@@ -1222,10 +1765,10 @@ async function generateCoachResponse(userMsg) {
   if (loading) loading.remove();
   chat.innerHTML += `
     <div class="flex items-start gap-3">
-      <div class="w-8 h-8 rounded-full bg-tertiary-container flex items-center justify-center flex-shrink-0 mt-1">
+      <div class="w-8 h-8 rounded-full bg-tertiary-container flex items-center justify-center flex-shrink-0 mt-1 shadow-sm">
         <span class="material-symbols-outlined text-on-primary text-sm" style="font-variation-settings:'FILL' 1">psychology</span>
       </div>
-      <div class="bg-surface-container rounded-2xl rounded-tl-none px-4 py-3 max-w-[80%]">
+      <div class="bg-surface-container rounded-2xl rounded-tl-none px-4 py-3 max-w-[80%] shadow-sm">
         <p class="font-body-md text-body-md text-on-background">${reply}</p>
       </div>
     </div>`;
@@ -1245,22 +1788,56 @@ function editTarget(type) {
   m.style.display = 'flex';
   input.focus();
 }
+
 function saveTarget() {
   const val = parseInt(document.getElementById('editTargetInput').value);
   if (val && val > 0) {
-    if (currentEditType === 'cal') { calTarget = val; localStorage.setItem('calTarget', calTarget); }
-    else { proTarget = val; localStorage.setItem('proTarget', proTarget); }
+    const user = getCurrentUser() || 'anonymous';
+    if (currentEditType === 'cal') { 
+      calTarget = val; 
+      localStorage.setItem('calTarget_' + user, calTarget); 
+      localStorage.setItem('calTarget', calTarget); 
+    } else { 
+      proTarget = val; 
+      localStorage.setItem('proTarget_' + user, proTarget); 
+      localStorage.setItem('proTarget', proTarget); 
+    }
     applyTargets();
     fetchMeals();
   }
   document.getElementById('editTargetModal').style.display = 'none';
 }
+
 function applyTargets() {
-  document.getElementById('calTargetDisplay').textContent = calTarget.toLocaleString() + ' kcal';
-  document.getElementById('proTargetDisplay').textContent = proTarget + 'g';
+  document.getElementById('calTargetDisplay').textContent = calTarget.toLocaleString();
+  document.getElementById('proTargetDisplay').textContent = proTarget;
   document.getElementById('calTargetLabel').textContent = calTarget.toLocaleString();
   document.getElementById('proTargetLabel').textContent = proTarget;
 }
+
+function toggleStorageMode() {
+  storageMode = (storageMode === 'local') ? 'server' : 'local';
+  localStorage.setItem('storageMode', storageMode);
+  updateProfileUI();
+  fetchMeals();
+}
+
+function updateProfileUI() {
+  const user = getCurrentUser() || 'guest';
+  const profileUsername = document.getElementById('profileUsername');
+  if (profileUsername) {
+    profileUsername.textContent = user === 'local_user' ? '离线游客 (local_user)' : user;
+  }
+  const profileStorageMode = document.getElementById('profileStorageMode');
+  if (profileStorageMode) {
+    profileStorageMode.textContent = isLocalMode() ? '数据存储模式: 本地离线' : '数据存储模式: 服务器同步';
+  }
+  const storageModeDisplay = document.getElementById('storageModeDisplay');
+  if (storageModeDisplay) {
+    storageModeDisplay.textContent = isLocalMode() ? '本地离线' : '服务器同步';
+  }
+}
+
 function showAbout() {
   const m = document.getElementById('aboutModal');
   m.classList.remove('hidden');
@@ -1277,25 +1854,21 @@ function toggleDarkMode() {
 
 function updateDarkModeUI() {
   const isDark = document.documentElement.classList.contains('dark');
-  
   const headerIcon = document.getElementById('headerDarkModeIcon');
   if (headerIcon) {
     headerIcon.textContent = isDark ? 'light_mode' : 'dark_mode';
   }
-  
   const statusLabel = document.getElementById('darkModeStatusLabel');
   if (statusLabel) {
     statusLabel.textContent = isDark ? '已开启' : '已关闭';
   }
-  
   if (calChart || macroChart) {
-    fetchWeeklyReport(); // Re-render charts with appropriate dark mode grid colors
+    fetchWeeklyReport();
   }
 }
 
 // ===================== INIT =====================
 document.addEventListener('DOMContentLoaded', () => {
-  // Init dark mode
   if (localStorage.getItem('darkMode') === 'enabled' || 
       (!localStorage.getItem('darkMode') && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
     document.documentElement.classList.add('dark');
@@ -1304,8 +1877,14 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   updateDarkModeUI();
 
-  applyTargets();
-  switchTab('home');
+  if (!getCurrentUser()) {
+    showAuthOverlay();
+  } else {
+    loadTargets();
+    applyTargets();
+    updateProfileUI();
+    switchTab('home');
+  }
 });
 </script>
 </body>
