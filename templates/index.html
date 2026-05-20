@@ -747,7 +747,7 @@ function startVoiceInput() {
   };
   recognition.onerror = (e) => {
     console.error('Speech error:', e);
-    document.getElementById('voiceText').textContent = '识别失败，请重试';
+    document.getElementById('voiceText').textContent = `识别失败 (${e.error})，请重试`;
   };
   recognition.onend = () => {
     if (voiceTranscript) {
