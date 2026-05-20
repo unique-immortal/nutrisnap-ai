@@ -720,59 +720,120 @@ function resetScan() {
 }
 
 // ===================== VOICE INPUT =====================
-let recognition = null;
-let voiceTranscript = '';
+let mediaRecorder = null;
+let audioChunks = [];
+let voiceStream = null;
 
 function startVoiceInput() {
-  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SpeechRecognition) {
-    alert('您的浏览器不支持语音输入。请使用 Chrome 浏览器。');
-    return;
-  }
-  voiceTranscript = '';
   const m = document.getElementById('voiceModal');
   m.style.display = 'flex';
   m.classList.remove('hidden');
   document.getElementById('voiceListening').classList.remove('hidden');
   document.getElementById('voiceProcessing').classList.add('hidden');
-  document.getElementById('voiceText').textContent = '请说出你吃了什么';
+  document.getElementById('voiceText').textContent = '请说出你吃了什么...';
 
-  recognition = new SpeechRecognition();
-  recognition.lang = 'zh-CN';
-  recognition.interimResults = true;
-  recognition.continuous = false;
-  recognition.onresult = (e) => {
-    voiceTranscript = Array.from(e.results).map(r => r[0].transcript).join('');
-    document.getElementById('voiceText').textContent = voiceTranscript || '正在聆听...';
-  };
-  recognition.onerror = (e) => {
-    console.error('Speech error:', e);
-    document.getElementById('voiceText').textContent = `识别失败 (${e.error})，请重试`;
-  };
-  recognition.onend = () => {
-    if (voiceTranscript) {
-      setTimeout(() => sendVoiceText(voiceTranscript), 1000);
-    }
-  };
-
-  // Force microphone permission prompt in hybrid apps (WebView)
-  if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-    navigator.mediaDevices.getUserMedia({ audio: true })
-      .then((stream) => {
-        stream.getTracks().forEach(track => track.stop());
-        recognition.start();
-      })
-      .catch((err) => {
-        console.error('Microphone access denied:', err);
-        document.getElementById('voiceText').textContent = '请在系统设置中允许麦克风权限';
-      });
-  } else {
-    recognition.start();
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) {
+    document.getElementById('voiceText').textContent = '您的设备不支持语音录制功能。';
+    return;
   }
+
+  navigator.mediaDevices.getUserMedia({ audio: true })
+    .then((stream) => {
+      voiceStream = stream;
+      audioChunks = [];
+
+      // Determine supported MIME types
+      let mimeType = 'audio/webm';
+      if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
+        mimeType = 'audio/webm;codecs=opus';
+      } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
+        mimeType = 'audio/mp4';
+      }
+
+      mediaRecorder = new MediaRecorder(stream, { mimeType });
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) {
+          audioChunks.push(e.data);
+        }
+      };
+
+      mediaRecorder.onstop = async () => {
+        // Stop all tracks on the stream to turn off the microphone icon
+        if (voiceStream) {
+          voiceStream.getTracks().forEach(track => track.stop());
+          voiceStream = null;
+        }
+
+        const audioBlob = new Blob(audioChunks, { type: mimeType });
+        if (audioBlob.size > 1000) { // Verify audio is not silent/empty
+          await transcribeAudio(audioBlob, mimeType);
+        } else {
+          document.getElementById('voiceText').textContent = '录音过短，请重试';
+        }
+      };
+
+      // Start recording
+      mediaRecorder.start();
+      
+      // Update text in UI to indicate we are recording
+      let seconds = 0;
+      const intervalId = setInterval(() => {
+        if (!mediaRecorder || mediaRecorder.state === 'inactive') {
+          clearInterval(intervalId);
+          return;
+        }
+        seconds++;
+        document.getElementById('voiceText').textContent = `正在聆听 (${seconds}s)...`;
+        // Stop after 20 seconds maximum to prevent huge uploads
+        if (seconds >= 20) {
+          stopVoiceInput();
+        }
+      }, 1000);
+    })
+    .catch((err) => {
+      console.error('Microphone access denied:', err);
+      document.getElementById('voiceText').textContent = '无法获取麦克风权限，请在系统设置中允许。';
+    });
 }
 
 function stopVoiceInput() {
-  if (recognition) recognition.stop();
+  if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+    mediaRecorder.stop();
+  }
+}
+
+async function transcribeAudio(blob, mimeType) {
+  document.getElementById('voiceListening').classList.add('hidden');
+  document.getElementById('voiceProcessing').classList.remove('hidden');
+  document.getElementById('voiceText').textContent = '正在识别语音...';
+
+  const formData = new FormData();
+  const filename = mimeType.includes('mp4') ? 'audio.mp4' : 'audio.webm';
+  formData.append('audio', blob, filename);
+
+  try {
+    const res = await fetch(API_BASE + '/api/speech-to-text', {
+      method: 'POST',
+      body: formData
+    });
+    const json = await res.json();
+    if (res.ok && json.text) {
+      document.getElementById('voiceText').textContent = json.text;
+      // Trigger parsing and nutritional evaluation
+      setTimeout(() => sendVoiceText(json.text), 1000);
+    } else {
+      document.getElementById('voiceText').textContent = '识别失败: ' + (json.error || '未知错误');
+      // Hide processing and show error
+      setTimeout(() => {
+        closeVoiceModal();
+        alert(json.error || '语音转文字失败，请重试');
+      }, 1500);
+    }
+  } catch (err) {
+    console.error('Speech upload error:', err);
+    document.getElementById('voiceText').textContent = '网络请求失败，请重试';
+    setTimeout(closeVoiceModal, 1500);
+  }
 }
 
 async function sendVoiceText(text) {
@@ -790,7 +851,7 @@ async function sendVoiceText(text) {
     if (res.ok && json.success) {
       showResult(json);
     } else {
-      alert(json.error || '语音识别失败');
+      alert(json.error || '分析食物失败');
     }
   } catch (err) {
     closeVoiceModal();

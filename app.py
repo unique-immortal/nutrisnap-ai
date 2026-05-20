@@ -317,6 +317,82 @@ def voice_input():
         return jsonify({"error": f"语音识别失败: {str(e)}"}), 500
 
 
+@app.route('/api/speech-to-text', methods=['POST'])
+def speech_to_text():
+    """将上传的语音文件通过 Gemini 2.5/2.0 转写为文字"""
+    if 'audio' not in request.files:
+        return jsonify({"error": "没有找到语音文件"}), 400
+
+    audio_file = request.files['audio']
+    if audio_file.filename == '':
+        return jsonify({"error": "语音文件名为空"}), 400
+
+    mime_type = audio_file.content_type
+    # If mime_type is not provided, estimate it
+    if not mime_type or mime_type == 'application/octet-stream':
+        if audio_file.filename.endswith('.mp4'):
+            mime_type = 'audio/mp4'
+        elif audio_file.filename.endswith('.webm'):
+            mime_type = 'audio/webm'
+        else:
+            mime_type = 'audio/webm' # Default fallback
+
+    try:
+        audio_bytes = audio_file.read()
+        if len(audio_bytes) < 100:
+            return jsonify({"error": "音频文件过小或无效"}), 400
+
+        from google.genai import types
+
+        models_to_try = [
+            'gemini-2.5-flash',
+            'gemini-2.5-flash-lite',
+            'gemini-2.0-flash',
+            'gemini-1.5-flash',
+        ]
+        
+        result_text = None
+        last_error = None
+
+        prompt = "请将这段录音直接转写成中文文本，不要包含任何额外的引导语、标点纠正解释，仅输出转写文本本身。如果是静音或没有说话，请直接返回空字符串。"
+
+        for model_name in models_to_try:
+            try:
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=[
+                        types.Part.from_bytes(
+                            data=audio_bytes,
+                            mime_type=mime_type
+                        ),
+                        prompt
+                    ]
+                )
+                result_text = response.text
+                break
+            except Exception as api_err:
+                last_error = api_err
+                err_str = str(api_err)
+                print(f"Failed STT with model {model_name}: {err_str}")
+                if '429' in err_str or 'RESOURCE_EXHAUSTED' in err_str or 'quota' in err_str.lower():
+                    continue
+                continue
+
+        if result_text is None:
+            raise last_error
+
+        transcription = result_text.strip()
+        # Clean quotes or markdown from the transcription
+        transcription = re.sub(r'^["\'`]|["\'`]$', '', transcription).strip()
+        
+        print(f"Speech transcription result: {transcription}")
+        return jsonify({"text": transcription})
+
+    except Exception as e:
+        print(f"Speech to text API error: {e}")
+        return jsonify({"error": f"语音听写失败: {str(e)}"}), 500
+
+
 @app.route('/api/meals', methods=['GET'])
 def get_meals():
     conn = get_db_connection()
