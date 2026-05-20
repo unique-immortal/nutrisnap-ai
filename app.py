@@ -1075,6 +1075,7 @@ def delete_exercise(ex_id):
     return jsonify({"success": True})
 
 @app.route('/api/report/suggestions', methods=['GET', 'POST'])
+@app.route('/api/coach/suggestions', methods=['GET', 'POST'])
 def report_suggestions():
     username = request.headers.get('X-User-Id') or 'anonymous'
     

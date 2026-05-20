@@ -435,6 +435,53 @@ html.dark .coach-ai-bubble {
   margin-right:.35rem;
 }
 
+.modal-backdrop{
+  padding:1rem;
+  overscroll-behavior:contain;
+}
+
+.modal-panel{
+  max-height:calc(100dvh - 2rem);
+  overflow-y:auto;
+  overscroll-behavior:contain;
+  -webkit-overflow-scrolling:touch;
+}
+
+.modal-actions{
+  position:sticky;
+  bottom:0;
+  background:var(--surface-container-lowest);
+  padding-top:.75rem;
+  padding-bottom:env(safe-area-inset-bottom, 0);
+}
+
+.field-invalid{
+  border-color:var(--error) !important;
+  box-shadow:0 0 0 2px color-mix(in srgb, var(--error) 16%, transparent);
+}
+
+.toast{
+  position:fixed;
+  left:50%;
+  bottom:calc(5.5rem + env(safe-area-inset-bottom, 0));
+  transform:translateX(-50%) translateY(1rem);
+  z-index:1200;
+  max-width:min(22rem, calc(100vw - 2rem));
+  padding:.85rem 1rem;
+  border-radius:1rem;
+  background:var(--inverse-surface);
+  color:var(--inverse-on-surface);
+  box-shadow:0 14px 40px rgba(0,0,0,.22);
+  opacity:0;
+  pointer-events:none;
+  transition:opacity .2s ease, transform .2s ease;
+}
+
+.toast.show{
+  opacity:1;
+  transform:translateX(-50%) translateY(0);
+}
+
 @media (min-width:768px){
   .page{min-height:calc(100dvh - 88px)}
   .surface-panel{border-radius:1.5rem}
@@ -571,6 +618,7 @@ html.dark .onboarding-slide:nth-child(3) {
 </style>
 </head>
 <body class="bg-background text-on-background font-body-md min-h-screen pb-28">
+<div id="appToast" class="toast" role="status" aria-live="polite"></div>
 <!-- ========== Onboarding Overlay ========== -->
 <div id="onboardingOverlay" class="onboarding-overlay hidden">
   <button class="onboarding-skip-btn" onclick="completeOnboarding()">跳过</button>
@@ -818,7 +866,7 @@ html.dark .onboarding-slide:nth-child(3) {
         <h2 class="font-headline-lg-mobile text-headline-lg-mobile text-on-background">你想怎么记录这一餐？</h2>
       </div>
       <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <button class="entry-card card-premium touch-target" onclick="document.getElementById('fileInput').click()">
+        <button class="entry-card card-premium touch-target" onclick="openImagePicker()">
           <span class="icon-badge">
             <span class="material-symbols-outlined" style="font-variation-settings:'FILL' 1">photo_camera</span>
           </span>
@@ -850,13 +898,13 @@ html.dark .onboarding-slide:nth-child(3) {
 
     <!-- Upload Area -->
     <section class="surface-panel p-4 flex flex-col gap-4">
-      <div id="uploadArea" class="w-full min-h-[18rem] rounded-2xl border-2 border-dashed border-primary/30 bg-surface-container flex flex-col items-center justify-center cursor-pointer hover:bg-surface-container-high transition-colors relative overflow-hidden" onclick="document.getElementById('fileInput').click()">
-        <input type="file" id="fileInput" accept="image/*" capture="environment" class="hidden" onchange="handleFile(event)"/>
+      <div id="uploadArea" class="w-full min-h-[18rem] rounded-2xl border-2 border-dashed border-primary/30 bg-surface-container flex flex-col items-center justify-center cursor-pointer hover:bg-surface-container-high transition-colors relative overflow-hidden" onclick="openImagePicker()">
+        <input type="file" id="fileInput" accept="image/*" class="hidden" onchange="handleFile(event)"/>
         <div id="uploadHint" class="flex flex-col items-center gap-3 text-center px-6">
           <span class="material-symbols-outlined text-[64px] text-primary">add_a_photo</span>
           <div>
             <p class="font-body-lg text-body-lg text-on-background font-semibold">点击拍照或上传图片</p>
-            <p class="font-label-md text-label-md text-outline mt-1">支持 JPG / PNG，建议拍完整餐盘</p>
+            <p class="font-label-md text-label-md text-outline mt-1">系统会让你选择相机或相册，支持 JPG / PNG</p>
           </div>
         </div>
         <img id="imgPreview" class="hidden absolute inset-0 w-full h-full object-cover"/>
@@ -909,7 +957,7 @@ html.dark .onboarding-slide:nth-child(3) {
 
     <div class="flex gap-3 mt-5">
       <button onclick="closeManualFoodModal()" class="flex-1 bg-surface-container-high text-on-surface font-body-lg text-body-lg py-3 rounded-xl transition-colors">取消</button>
-      <button onclick="saveManualFood()" class="flex-1 bg-primary text-on-primary font-body-lg text-body-lg py-3 rounded-xl hover:scale-[1.02] active:scale-95 transition-transform">保存</button>
+      <button id="btnManualFoodSave" onclick="saveManualFood()" class="flex-1 bg-primary text-on-primary font-body-lg text-body-lg py-3 rounded-xl hover:scale-[1.02] active:scale-95 transition-transform">保存</button>
     </div>
   </div>
 </div>
@@ -1325,10 +1373,30 @@ html.dark .onboarding-slide:nth-child(3) {
 <div id="editTargetModal" class="fixed inset-0 bg-black/40 z-[100] items-center justify-center hidden" onclick="if(event.target===this)this.style.display='none'">
   <div class="bg-surface-container-lowest rounded-2xl p-6 mx-6 max-w-sm w-full shadow-xl">
     <h3 class="font-headline-md text-headline-md text-on-background mb-4" id="editTargetTitle">编辑目标</h3>
-    <input type="number" id="editTargetInput" class="w-full bg-surface-container rounded-xl px-4 py-3 font-body-md text-body-md text-on-background border border-outline-variant focus:border-primary focus:outline-none mb-6" />
+    <input type="number" id="editTargetInput" min="1" max="10000" inputmode="numeric" class="w-full bg-surface-container rounded-xl px-4 py-3 font-body-md text-body-md text-on-background border border-outline-variant focus:border-primary focus:outline-none mb-6" />
     <div class="flex gap-3">
       <button onclick="document.getElementById('editTargetModal').style.display='none'" class="flex-1 bg-surface-container-high text-on-surface font-body-lg text-body-lg py-3 rounded-xl transition-colors">取消</button>
       <button onclick="saveTarget()" class="flex-1 bg-primary text-on-primary font-body-lg text-body-lg py-3 rounded-xl hover:scale-[1.02] active:scale-95 transition-transform">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Recorded Meal Modal -->
+<div id="editMealModal" class="modal-backdrop fixed inset-0 bg-black/40 z-[100] items-center justify-center hidden" onclick="if(event.target===this)closeEditMealModal()">
+  <div class="modal-panel bg-surface-container-lowest rounded-2xl p-6 mx-0 max-w-xl w-full shadow-xl" onclick="event.stopPropagation()">
+    <div class="flex items-start justify-between gap-4 mb-4">
+      <div>
+        <h3 class="font-headline-md text-headline-md text-on-background" id="editMealTitle">编辑饮食记录</h3>
+        <p class="text-sm text-on-surface-variant mt-1">修改后会更新本地记录、首页摘要和周报统计。</p>
+      </div>
+      <button onclick="closeEditMealModal()" class="w-10 h-10 rounded-full bg-surface-container-high text-outline hover:text-on-background flex items-center justify-center transition-colors" aria-label="关闭">
+        <span class="material-symbols-outlined text-[20px]">close</span>
+      </button>
+    </div>
+    <div id="editMealItems" class="flex flex-col gap-4"></div>
+    <div class="modal-actions flex flex-col sm:flex-row gap-3 mt-2">
+      <button onclick="closeEditMealModal()" class="flex-1 bg-surface-container-high text-on-surface font-body-lg text-body-lg py-3 rounded-xl transition-colors">取消</button>
+      <button id="btnEditMealSave" onclick="saveEditedMeal()" class="flex-1 bg-primary text-on-primary font-body-lg text-body-lg py-3 rounded-xl hover:scale-[1.02] active:scale-95 transition-transform">保存修改</button>
     </div>
   </div>
 </div>
@@ -1354,8 +1422,8 @@ html.dark .onboarding-slide:nth-child(3) {
 </div>
 
 <!-- BMR / Physical Data Setup Modal -->
-<div id="bmrSetupModal" class="fixed inset-0 bg-black/40 z-[100] items-center justify-center hidden" onclick="if(event.target===this)closeBMRSetupModal()">
-  <div class="bg-surface-container-lowest rounded-2xl p-6 mx-6 max-w-sm w-full shadow-xl" onclick="event.stopPropagation()">
+<div id="bmrSetupModal" class="modal-backdrop fixed inset-0 bg-black/40 z-[100] items-center justify-center hidden" onclick="if(event.target===this)closeBMRSetupModal()">
+  <div class="modal-panel bg-surface-container-lowest rounded-2xl p-6 mx-0 max-w-sm w-full shadow-xl" onclick="event.stopPropagation()">
     <h3 class="font-headline-md text-headline-md text-on-background mb-4" id="bmrSetupTitle">基础代谢 (BMR) 设置</h3>
     
     <div class="flex flex-col gap-3 mb-6">
@@ -1403,16 +1471,16 @@ html.dark .onboarding-slide:nth-child(3) {
       </div>
     </div>
     
-    <div class="flex gap-3">
+    <div class="modal-actions flex gap-3">
       <button onclick="closeBMRSetupModal()" id="btnBMRCancel" class="flex-1 bg-surface-container-high text-on-surface font-body-lg text-body-lg py-3 rounded-xl transition-colors">取消</button>
-      <button onclick="saveBMRProfile()" class="flex-1 bg-primary text-on-primary font-body-lg text-body-lg py-3 rounded-xl hover:scale-[1.02] active:scale-95 transition-transform">确认</button>
+      <button id="btnBMRSave" onclick="saveBMRProfile()" class="flex-1 bg-primary text-on-primary font-body-lg text-body-lg py-3 rounded-xl hover:scale-[1.02] active:scale-95 transition-transform">确认</button>
     </div>
   </div>
 </div>
 
 <!-- Exercise Log Modal -->
-<div id="exerciseLogModal" class="fixed inset-0 bg-black/40 z-[100] items-center justify-center hidden" onclick="if(event.target===this)closeExerciseLogModal()">
-  <div class="bg-surface-container-lowest rounded-2xl p-6 mx-6 max-w-sm w-full shadow-xl" onclick="event.stopPropagation()">
+<div id="exerciseLogModal" class="modal-backdrop fixed inset-0 bg-black/40 z-[100] items-center justify-center hidden" onclick="if(event.target===this)closeExerciseLogModal()">
+  <div class="modal-panel bg-surface-container-lowest rounded-2xl p-6 mx-0 max-w-sm w-full shadow-xl" onclick="event.stopPropagation()">
     <h3 class="font-headline-md text-headline-md text-on-background mb-4">记录运动</h3>
     
     <div class="flex flex-col gap-3 mb-6">
@@ -1444,7 +1512,7 @@ html.dark .onboarding-slide:nth-child(3) {
         </div>
         <div>
           <label for="exCalories" class="text-xs text-on-surface-variant font-semibold mb-1 block">消耗 (kcal)</label>
-          <input type="number" id="exCalories" placeholder="自动推荐" class="w-full bg-surface-container rounded-xl px-4 py-3 font-body-md text-body-md text-on-background border border-outline-variant focus:border-primary focus:outline-none" />
+          <input type="number" id="exCalories" min="0" max="5000" placeholder="自动推荐" class="w-full bg-surface-container rounded-xl px-4 py-3 font-body-md text-body-md text-on-background border border-outline-variant focus:border-primary focus:outline-none" />
         </div>
       </div>
       
@@ -1463,9 +1531,9 @@ html.dark .onboarding-slide:nth-child(3) {
       </div>
     </div>
     
-    <div class="flex gap-3">
+    <div class="modal-actions flex gap-3">
       <button onclick="closeExerciseLogModal()" class="flex-1 bg-surface-container-high text-on-surface font-body-lg text-body-lg py-3 rounded-xl transition-colors">取消</button>
-      <button onclick="saveExerciseLog()" class="flex-1 bg-primary text-on-primary font-body-lg text-body-lg py-3 rounded-xl hover:scale-[1.02] active:scale-95 transition-transform">保存</button>
+      <button id="btnExerciseSave" onclick="saveExerciseLog()" class="flex-1 bg-primary text-on-primary font-body-lg text-body-lg py-3 rounded-xl hover:scale-[1.02] active:scale-95 transition-transform">保存</button>
     </div>
   </div>
 </div>
@@ -1481,7 +1549,7 @@ html.dark .onboarding-slide:nth-child(3) {
     <span class="font-label-md text-label-md text-[11px] nav-label">教练</span>
   </a>
   <!-- FAB Menu Popup -->
-  <div id="fabMenu" class="fixed bottom-28 right-4 z-[60] flex-col gap-2 hidden" style="display:none">
+  <div id="fabMenu" class="fixed left-1/2 bottom-24 z-[60] w-[min(20rem,calc(100vw-2rem))] -translate-x-1/2 flex-col gap-2 hidden" style="display:none">
     <div class="bg-surface-container-lowest rounded-2xl shadow-2xl border border-outline-variant overflow-hidden animate-slide-up">
       <div onclick="switchTab('scan'); closeFabMenu()" class="flex items-center gap-3 px-5 py-3.5 hover:bg-surface-container active:bg-surface-variant transition-colors cursor-pointer">
         <span class="material-symbols-outlined text-primary" style="font-variation-settings:'FILL' 1">photo_camera</span>
@@ -1496,7 +1564,7 @@ html.dark .onboarding-slide:nth-child(3) {
   </div>
 
   <!-- Backdrop for FAB menu -->
-  <div id="fabBackdrop" class="fixed inset-0 z-[55] hidden" onclick="closeFabMenu()" style="display:none"></div>
+  <div id="fabBackdrop" class="fixed inset-0 z-[55] hidden bg-black/5" onclick="closeFabMenu()" style="display:none"></div>
 
   <a class="flex items-center justify-center bg-primary text-on-primary rounded-full w-14 h-14 -mt-6 shadow-lg border-4 border-surface-container-lowest relative z-10 hover:scale-105 active:scale-95 transition-transform cursor-pointer" onclick="toggleFabMenu()">
     <span class="material-symbols-outlined text-[28px]" id="fabIcon" style="font-variation-settings:'FILL' 1">add</span>
@@ -1522,6 +1590,112 @@ let macroChart = null;
 let chatHistory = [];
 let pendingResult = { foods: [], exercises: [], source: '', session_id: '' };
 let isVoiceInputFlow = false;
+let editingMealSessionId = null;
+let editingMealItems = [];
+const actionLocks = new Set();
+let toastTimer = null;
+
+function showToast(message, type = 'info') {
+  const toast = document.getElementById('appToast');
+  if (!toast) {
+    console.warn(message);
+    return;
+  }
+  toast.textContent = message;
+  toast.dataset.type = type;
+  toast.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toast.classList.remove('show'), 3200);
+}
+
+function normalizeErrorMessage(err, fallback = '操作失败，请稍后再试') {
+  const msg = err && err.message ? err.message : String(err || '');
+  if (!navigator.onLine || /failed to fetch|network|load failed|请求失败/i.test(msg)) {
+    return '网络连接异常，请检查网络后重试';
+  }
+  return msg || fallback;
+}
+
+window.addEventListener('unhandledrejection', event => {
+  console.error('Unhandled promise rejection:', event.reason);
+  showToast(normalizeErrorMessage(event.reason, '请求失败，请稍后再试'), 'error');
+  event.preventDefault();
+});
+
+window.addEventListener('offline', () => showToast('当前已离线，AI 分析和同步会暂时不可用', 'error'));
+window.addEventListener('online', () => showToast('网络已恢复', 'success'));
+
+async function withActionLock(key, buttonOrId, work, loadingText = '处理中...') {
+  if (actionLocks.has(key)) return null;
+  actionLocks.add(key);
+  const btn = typeof buttonOrId === 'string' ? document.getElementById(buttonOrId) : buttonOrId;
+  const oldHTML = btn ? btn.innerHTML : '';
+  const oldDisabled = btn ? btn.disabled : false;
+  if (btn) {
+    btn.disabled = true;
+    btn.classList.add('disabled-cta');
+    if (loadingText) btn.innerHTML = `<span>${loadingText}</span>`;
+  }
+  try {
+    return await work();
+  } finally {
+    actionLocks.delete(key);
+    if (btn) {
+      btn.disabled = oldDisabled;
+      btn.classList.remove('disabled-cta');
+      btn.innerHTML = oldHTML;
+      hydrateIcons(btn);
+    }
+  }
+}
+
+function markFieldInvalid(id, invalid) {
+  const el = document.getElementById(id);
+  if (el) el.classList.toggle('field-invalid', !!invalid);
+}
+
+function readNumberField(id, options = {}) {
+  const el = document.getElementById(id);
+  const raw = (el?.value ?? '').trim();
+  const label = options.label || id;
+  const required = options.required !== false;
+  let value;
+  if (!raw) {
+    if (!required && Object.prototype.hasOwnProperty.call(options, 'defaultValue')) {
+      markFieldInvalid(id, false);
+      return { ok: true, value: options.defaultValue };
+    }
+    markFieldInvalid(id, true);
+    return { ok: false, message: `请填写${label}` };
+  }
+  value = Number(raw);
+  if (!Number.isFinite(value)) {
+    markFieldInvalid(id, true);
+    return { ok: false, message: `${label}必须是有效数字` };
+  }
+  if (options.integer) value = Math.round(value);
+  if (typeof options.min === 'number' && value < options.min) {
+    markFieldInvalid(id, true);
+    return { ok: false, message: `${label}不能小于 ${options.min}` };
+  }
+  if (typeof options.max === 'number' && value > options.max) {
+    markFieldInvalid(id, true);
+    return { ok: false, message: `${label}不能大于 ${options.max}` };
+  }
+  markFieldInvalid(id, false);
+  return { ok: true, value };
+}
+
+function validOrToast(result) {
+  if (result.ok) return true;
+  showToast(result.message, 'error');
+  return false;
+}
+
+function finiteNumber(value, fallback = 0) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
 
 const ICON_PATHS = {
   add: '<path d="M12 5v14"/><path d="M5 12h14"/>',
@@ -1637,11 +1811,11 @@ async function syncDailySummary(dateStr) {
       match = m.created_at.startsWith(dateStr);
     }
     if (match) {
-      const portion = m.portion || 1.0;
-      total_calories += Math.round((m.calories || 0) * portion);
-      total_protein += Math.round((m.protein || 0) * portion);
-      total_carbs += Math.round((m.carbs || 0) * portion);
-      total_fat += Math.round((m.fat || 0) * portion);
+      const portion = Math.max(0, finiteNumber(m.portion, 1.0));
+      total_calories += Math.round(finiteNumber(m.calories, 0) * portion);
+      total_protein += Math.round(finiteNumber(m.protein, 0) * portion);
+      total_carbs += Math.round(finiteNumber(m.carbs, 0) * portion);
+      total_fat += Math.round(finiteNumber(m.fat, 0) * portion);
     }
   });
   
@@ -1654,8 +1828,8 @@ async function syncDailySummary(dateStr) {
       match = ex.created_at.startsWith(dateStr);
     }
     if (match) {
-      total_burn_calories += Math.round(ex.calories || 0);
-      total_exercise_duration += Math.round(ex.duration || 0);
+      total_burn_calories += Math.round(finiteNumber(ex.calories, 0));
+      total_exercise_duration += Math.round(finiteNumber(ex.duration, 0));
     }
   });
   
@@ -1683,8 +1857,10 @@ async function syncDailySummary(dateStr) {
 
 function loadTargets() {
   const user = getCurrentUser() || 'anonymous';
-  calTarget = parseInt(localStorage.getItem('calTarget_' + user)) || parseInt(localStorage.getItem('calTarget')) || 2000;
-  proTarget = parseInt(localStorage.getItem('proTarget_' + user)) || parseInt(localStorage.getItem('proTarget')) || 120;
+  const storedCal = Number(localStorage.getItem('calTarget_' + user) || localStorage.getItem('calTarget'));
+  const storedPro = Number(localStorage.getItem('proTarget_' + user) || localStorage.getItem('proTarget'));
+  calTarget = Number.isFinite(storedCal) && storedCal > 0 && storedCal <= 10000 ? Math.round(storedCal) : 2000;
+  proTarget = Number.isFinite(storedPro) && storedPro > 0 && storedPro <= 500 ? Math.round(storedPro) : 120;
 }
 
 // ===================== MEAL STORAGE (LOCAL MODE) =====================
@@ -1726,11 +1902,11 @@ const MealStorage = {
   },
   deleteSession(sessionId) {
     let meals = this.getMeals();
-    const target = meals.find(m => m.session_id === sessionId);
+    const target = meals.find(m => mealSessionKey(m) === sessionId);
     if (!target) return;
     const dateStr = target.created_at.split('T')[0];
     
-    meals = meals.filter(m => m.session_id !== sessionId);
+    meals = meals.filter(m => mealSessionKey(m) !== sessionId);
     this.saveMeals(meals);
     
     syncDailySummary(dateStr);
@@ -1758,11 +1934,11 @@ const MealStorage = {
       if (m.created_at) {
         const dateStr = m.created_at.split('T')[0];
         if (reportMap[dateStr]) {
-          const portion = m.portion || 1.0;
-          reportMap[dateStr].total_calories += (m.calories || 0) * portion;
-          reportMap[dateStr].total_protein += (m.protein || 0) * portion;
-          reportMap[dateStr].total_carbs += (m.carbs || 0) * portion;
-          reportMap[dateStr].total_fat += (m.fat || 0) * portion;
+          const portion = Math.max(0, finiteNumber(m.portion, 1.0));
+          reportMap[dateStr].total_calories += finiteNumber(m.calories, 0) * portion;
+          reportMap[dateStr].total_protein += finiteNumber(m.protein, 0) * portion;
+          reportMap[dateStr].total_carbs += finiteNumber(m.carbs, 0) * portion;
+          reportMap[dateStr].total_fat += finiteNumber(m.fat, 0) * portion;
         }
       }
     });
@@ -1770,8 +1946,8 @@ const MealStorage = {
       if (ex.created_at) {
         const dateStr = ex.created_at.split('T')[0];
         if (reportMap[dateStr]) {
-          reportMap[dateStr].total_burn_calories += (ex.calories || 0);
-          reportMap[dateStr].total_exercise_duration += (ex.duration || 0);
+          reportMap[dateStr].total_burn_calories += finiteNumber(ex.calories, 0);
+          reportMap[dateStr].total_exercise_duration += finiteNumber(ex.duration, 0);
         }
       }
     });
@@ -1909,8 +2085,8 @@ async function handleAuthSubmit() {
   
   errorEl.classList.add('hidden');
   const endpoint = authMode === 'login' ? '/api/login' : '/api/register';
-  
-  try {
+
+  await withActionLock('auth-submit', 'authPrimaryBtn', async () => {
     const res = await fetch(API_BASE + endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1918,30 +2094,22 @@ async function handleAuthSubmit() {
     });
     const json = await res.json();
     if (res.ok && json.success) {
-      if (authMode === 'register') {
-        authMode = 'login';
-        toggleAuthMode();
-        document.getElementById('authUsername').value = username;
-        document.getElementById('authPassword').value = password;
-        handleAuthSubmit();
-      } else {
-        localStorage.setItem('currentUser', json.username);
-        storageMode = 'server';
-        localStorage.setItem('storageMode', 'server');
-        hideAuthOverlay();
-        loadTargets();
-        applyTargets();
-        updateProfileUI();
-        switchTab('home');
-      }
+      localStorage.setItem('currentUser', json.username || username);
+      storageMode = 'server';
+      localStorage.setItem('storageMode', 'server');
+      hideAuthOverlay();
+      loadTargets();
+      applyTargets();
+      updateProfileUI();
+      switchTab('home');
     } else {
       errorEl.textContent = json.error || '操作失败';
       errorEl.classList.remove('hidden');
     }
-  } catch (err) {
-    errorEl.textContent = '网络错误，请稍后再试';
+  }, authMode === 'login' ? '登录中...' : '注册中...').catch(err => {
+    errorEl.textContent = normalizeErrorMessage(err, '网络错误，请稍后再试');
     errorEl.classList.remove('hidden');
-  }
+  });
 }
 
 function loginAsGuest() {
@@ -1996,6 +2164,13 @@ function setAnalyzeButtonReady(isReady) {
   btn.classList.toggle('pulse-scan', isReady);
 }
 
+function openImagePicker() {
+  const input = document.getElementById('fileInput');
+  if (!input) return;
+  input.value = '';
+  input.click();
+}
+
 function handleFile(e) {
   isVoiceInputFlow = false;
   const file = e.target.files[0];
@@ -2016,6 +2191,8 @@ function handleFile(e) {
 async function doAnalyze() {
   isVoiceInputFlow = false;
   if (!selectedFile) return;
+  if (actionLocks.has('analyze-food')) return;
+  actionLocks.add('analyze-food');
   setAnalyzeButtonReady(false);
   document.getElementById('analyzeLoading').classList.remove('hidden');
   const fd = new FormData();
@@ -2043,9 +2220,10 @@ async function doAnalyze() {
       setAnalyzeButtonReady(true);
     }
   } catch (err) {
-    alert('Network error: ' + err.message);
+    showToast(normalizeErrorMessage(err, 'AI 分析请求失败，请稍后再试'), 'error');
     setAnalyzeButtonReady(true);
   } finally {
+    actionLocks.delete('analyze-food');
     document.getElementById('analyzeLoading').classList.add('hidden');
   }
 }
@@ -2058,6 +2236,23 @@ function escapeHTML(value) {
     '"': '&quot;',
     "'": '&#39;'
   }[ch]));
+}
+
+function escapeJSString(value) {
+  return String(value ?? '')
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/\r/g, '')
+    .replace(/\n/g, '\\n');
+}
+
+function mealSessionKey(meal) {
+  return meal?.session_id || ('solo_' + meal?.id);
+}
+
+function adjustedMealValue(meal, field, fallback = 0) {
+  const portion = finiteNumber(meal?.portion, 1);
+  return Math.round(finiteNumber(meal?.[field], fallback) * (portion > 0 ? portion : 1));
 }
 
 function updateConfirmResultButton() {
@@ -2251,20 +2446,23 @@ function deletePendingFood(id) {
   renderPendingResult();
 }
 
-function confirmResult() {
+async function confirmResult() {
   const foods = pendingResult.foods || [];
   const exercises = pendingResult.exercises || [];
   if (!foods.length && !exercises.length) return;
 
-  if (foods.length) {
-    MealStorage.addMeals(foods.map(f => ({...f})));
-  }
-  exercises.forEach(ex => ExerciseStorage.addExercise({...ex}));
-  pendingResult = { foods: [], exercises: [], source: '', session_id: '' };
-  resetScan();
-  fetchTodayData();
-  fetchWeeklyReport();
-  fetchAISuggestions();
+  await withActionLock('confirm-result', 'confirmResultBtn', async () => {
+    if (foods.length) {
+      MealStorage.addMeals(foods.map(f => ({...f})));
+    }
+    exercises.forEach(ex => ExerciseStorage.addExercise({...ex}));
+    pendingResult = { foods: [], exercises: [], source: '', session_id: '' };
+    resetScan();
+    await fetchTodayData();
+    fetchWeeklyReport();
+    fetchAISuggestions();
+    showToast('记录已保存', 'success');
+  }, '保存中...');
 }
 
 function onSliderInput(id, portion, origCal, origPro, origCarbs, origFat, origWeight) {
@@ -2364,7 +2562,8 @@ function updateSummary(foods) {
 function resetScan() {
   selectedFile = null;
   pendingResult = { foods: [], exercises: [], source: '', session_id: '' };
-  document.getElementById('fileInput').value = '';
+  const fileInput = document.getElementById('fileInput');
+  if (fileInput) fileInput.value = '';
   document.getElementById('imgPreview').classList.add('hidden');
   document.getElementById('imgPreview').src = '';
   document.getElementById('uploadHint').classList.remove('hidden');
@@ -2399,26 +2598,28 @@ function fillManualFoodPreset(name, calories, protein, carbs, fat, weight) {
 }
 
 function saveManualFood() {
+  if (actionLocks.has('manual-food-save')) return;
   const name = document.getElementById('manualFoodName').value.trim();
-  const calories = parseInt(document.getElementById('manualFoodCalories').value);
-  const protein = parseInt(document.getElementById('manualFoodProtein').value) || 0;
-  const carbs = parseInt(document.getElementById('manualFoodCarbs').value) || 0;
-  const fat = parseInt(document.getElementById('manualFoodFat').value) || 0;
-  const weight = parseInt(document.getElementById('manualFoodWeight').value) || 100;
 
   if (!name) {
-    alert('请输入食物名称');
+    showToast('请输入食物名称', 'error');
     return;
   }
-  if (isNaN(calories) || calories < 0 || calories > 5000) {
-    alert('请输入 0-5000 kcal 范围内的热量');
-    return;
+  const caloriesResult = readNumberField('manualFoodCalories', { label: '热量', min: 0, max: 5000, integer: true });
+  const weightResult = readNumberField('manualFoodWeight', { label: '重量', min: 1, max: 2000, integer: true });
+  const proteinResult = readNumberField('manualFoodProtein', { label: '蛋白质', min: 0, max: 300, defaultValue: 0, required: false });
+  const carbsResult = readNumberField('manualFoodCarbs', { label: '碳水', min: 0, max: 500, defaultValue: 0, required: false });
+  const fatResult = readNumberField('manualFoodFat', { label: '脂肪', min: 0, max: 300, defaultValue: 0, required: false });
+  for (const result of [caloriesResult, weightResult, proteinResult, carbsResult, fatResult]) {
+    if (!validOrToast(result)) return;
   }
-  if (weight < 1 || weight > 2000) {
-    alert('请输入 1-2000g 范围内的重量');
-    return;
-  }
+  const calories = caloriesResult.value;
+  const weight = weightResult.value;
+  const protein = proteinResult.value;
+  const carbs = carbsResult.value;
+  const fat = fatResult.value;
 
+  actionLocks.add('manual-food-save');
   closeManualFoodModal();
   isVoiceInputFlow = false;
   showResult({
@@ -2437,6 +2638,144 @@ function saveManualFood() {
     }],
     image_url: ''
   });
+  actionLocks.delete('manual-food-save');
+}
+
+function openEditMealModal(sessionId) {
+  const meals = MealStorage.getMeals();
+  const items = meals.filter(m => mealSessionKey(m) === sessionId);
+  if (!items.length) {
+    showToast('没有找到这组饮食记录', 'error');
+    return;
+  }
+
+  editingMealSessionId = sessionId;
+  editingMealItems = items.map(item => ({ ...item }));
+  const modal = document.getElementById('editMealModal');
+  const title = document.getElementById('editMealTitle');
+  if (title) title.textContent = items.length > 1 ? `编辑这餐 · ${items.length} 种食物` : '编辑饮食记录';
+  renderEditMealItems();
+  modal.classList.remove('hidden');
+  modal.style.display = 'flex';
+}
+
+function renderEditMealItems() {
+  const container = document.getElementById('editMealItems');
+  if (!container) return;
+  container.innerHTML = editingMealItems.map((item, idx) => {
+    const name = escapeHTML(item.food_name || '');
+    const weight = adjustedMealValue(item, 'weight', 100);
+    const calories = adjustedMealValue(item, 'calories', 0);
+    const protein = adjustedMealValue(item, 'protein', 0);
+    const carbs = adjustedMealValue(item, 'carbs', 0);
+    const fat = adjustedMealValue(item, 'fat', 0);
+    return `
+      <div class="surface-panel p-4">
+        <div class="flex items-center justify-between gap-3 mb-3">
+          <div class="flex items-center gap-3 min-w-0">
+            <div class="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center flex-shrink-0">
+              <span class="material-symbols-outlined text-[20px]">restaurant</span>
+            </div>
+            <div class="min-w-0">
+              <p class="text-xs text-on-surface-variant">食物 ${idx + 1}</p>
+              <p class="font-semibold text-on-background truncate">${name || '未命名食物'}</p>
+            </div>
+          </div>
+          <span class="status-pill">${calories} kcal</span>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <label class="flex flex-col gap-1">
+            <span class="text-xs text-on-surface-variant font-semibold">食物名称</span>
+            <input id="editMealName-${idx}" type="text" value="${name}" class="w-full bg-surface-container rounded-xl px-4 py-3 text-body-md text-on-background border border-outline-variant focus:border-primary focus:outline-none" />
+          </label>
+          <label class="flex flex-col gap-1">
+            <span class="text-xs text-on-surface-variant font-semibold">重量 (g)</span>
+            <input id="editMealWeight-${idx}" type="number" min="1" max="2000" inputmode="numeric" value="${weight}" class="w-full bg-surface-container rounded-xl px-4 py-3 text-body-md text-on-background border border-outline-variant focus:border-primary focus:outline-none" />
+          </label>
+          <label class="flex flex-col gap-1">
+            <span class="text-xs text-on-surface-variant font-semibold">热量 (kcal)</span>
+            <input id="editMealCalories-${idx}" type="number" min="0" max="5000" inputmode="numeric" value="${calories}" class="w-full bg-surface-container rounded-xl px-4 py-3 text-body-md text-on-background border border-outline-variant focus:border-primary focus:outline-none" />
+          </label>
+          <label class="flex flex-col gap-1">
+            <span class="text-xs text-on-surface-variant font-semibold">蛋白质 (g)</span>
+            <input id="editMealProtein-${idx}" type="number" min="0" max="300" step="0.1" value="${protein}" class="w-full bg-surface-container rounded-xl px-4 py-3 text-body-md text-on-background border border-outline-variant focus:border-primary focus:outline-none" />
+          </label>
+          <label class="flex flex-col gap-1">
+            <span class="text-xs text-on-surface-variant font-semibold">碳水 (g)</span>
+            <input id="editMealCarbs-${idx}" type="number" min="0" max="500" step="0.1" value="${carbs}" class="w-full bg-surface-container rounded-xl px-4 py-3 text-body-md text-on-background border border-outline-variant focus:border-primary focus:outline-none" />
+          </label>
+          <label class="flex flex-col gap-1">
+            <span class="text-xs text-on-surface-variant font-semibold">脂肪 (g)</span>
+            <input id="editMealFat-${idx}" type="number" min="0" max="300" step="0.1" value="${fat}" class="w-full bg-surface-container rounded-xl px-4 py-3 text-body-md text-on-background border border-outline-variant focus:border-primary focus:outline-none" />
+          </label>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function closeEditMealModal() {
+  const modal = document.getElementById('editMealModal');
+  if (modal) {
+    modal.style.display = 'none';
+    modal.classList.add('hidden');
+  }
+  editingMealSessionId = null;
+  editingMealItems = [];
+}
+
+async function saveEditedMeal() {
+  if (!editingMealSessionId || !editingMealItems.length) return;
+
+  const updated = [];
+  for (let idx = 0; idx < editingMealItems.length; idx++) {
+    const nameEl = document.getElementById(`editMealName-${idx}`);
+    const name = (nameEl?.value || '').trim();
+    if (!name) {
+      showToast('食物名称不能为空', 'error');
+      nameEl?.classList.add('field-invalid');
+      return;
+    }
+    nameEl?.classList.remove('field-invalid');
+
+    const weight = readNumberField(`editMealWeight-${idx}`, { label: '重量', min: 1, max: 2000, integer: true });
+    const calories = readNumberField(`editMealCalories-${idx}`, { label: '热量', min: 0, max: 5000, integer: true });
+    const protein = readNumberField(`editMealProtein-${idx}`, { label: '蛋白质', min: 0, max: 300, defaultValue: 0, required: false });
+    const carbs = readNumberField(`editMealCarbs-${idx}`, { label: '碳水', min: 0, max: 500, defaultValue: 0, required: false });
+    const fat = readNumberField(`editMealFat-${idx}`, { label: '脂肪', min: 0, max: 300, defaultValue: 0, required: false });
+    for (const result of [weight, calories, protein, carbs, fat]) {
+      if (!validOrToast(result)) return;
+    }
+    updated.push({
+      ...editingMealItems[idx],
+      food_name: name,
+      weight: weight.value,
+      calories: calories.value,
+      protein: protein.value,
+      carbs: carbs.value,
+      fat: fat.value,
+      portion: 1.0
+    });
+  }
+
+  await withActionLock('edit-meal-save', 'btnEditMealSave', async () => {
+    const editedById = new Map(updated.map(item => [String(item.id), item]));
+    const changedDates = new Set();
+    const meals = MealStorage.getMeals().map(meal => {
+      const edited = editedById.get(String(meal.id));
+      if (!edited) return meal;
+      if (meal.created_at) changedDates.add(meal.created_at.split('T')[0]);
+      return { ...meal, ...edited };
+    });
+
+    MealStorage.saveMeals(meals);
+    changedDates.forEach(date => syncDailySummary(date));
+    closeEditMealModal();
+    await fetchTodayData();
+    fetchWeeklyReport();
+    fetchAISuggestions();
+    fetchHistory();
+    showToast('饮食记录已更新', 'success');
+  }, '保存中...');
 }
 
 // ===================== VOICE INPUT =====================
@@ -2470,6 +2809,7 @@ function startVoiceInput() {
 
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) {
     document.getElementById('voiceText').textContent = '您的设备不支持语音录制功能。';
+    showToast('当前设备不支持语音录制，请使用文字或手动补录', 'error');
     isVoiceRecording = false;
     return;
   }
@@ -2540,10 +2880,31 @@ function startVoiceInput() {
       }, 1000);
     })
     .catch((err) => {
-      console.error('Microphone access denied:', err);
-      document.getElementById('voiceText').textContent = '无法获取麦克风权限，请在系统设置中充许。';
-      isVoiceRecording = false;
+      handleVoiceCaptureError(err);
     });
+}
+
+function handleVoiceCaptureError(err) {
+  console.error('Microphone capture error:', err);
+  currentRecordingSession++;
+  if (voiceIntervalId) {
+    clearInterval(voiceIntervalId);
+    voiceIntervalId = null;
+  }
+  if (voiceStream) {
+    voiceStream.getTracks().forEach(track => track.stop());
+    voiceStream = null;
+  }
+  mediaRecorder = null;
+  const message = err && err.name === 'NotAllowedError'
+    ? '无法获取麦克风权限，请在系统设置中允许麦克风访问。'
+    : '麦克风暂时不可用，请检查设备后重试。';
+  document.getElementById('voiceListening').classList.remove('hidden');
+  document.getElementById('voiceProcessing').classList.add('hidden');
+  document.getElementById('voiceStatusTitle').textContent = '语音录制不可用';
+  document.getElementById('voiceText').textContent = message;
+  showToast(message, 'error');
+  isVoiceRecording = false;
 }
 
 function stopVoiceInput() {
@@ -2580,13 +2941,14 @@ async function transcribeAudio(blob, mimeType) {
       isVoiceRecording = false;
       setTimeout(() => {
         closeVoiceModal();
-        alert(json.error || '语音转文字失败，请重试');
+        showToast(json.error || '语音转文字失败，请重试', 'error');
       }, 1500);
     }
   } catch (err) {
     console.error('Speech upload error:', err);
-    document.getElementById('voiceFinalText').textContent = '网络请求失败，请重试';
+    document.getElementById('voiceFinalText').textContent = normalizeErrorMessage(err, '语音上传失败，请重试');
     isVoiceRecording = false;
+    showToast(normalizeErrorMessage(err, '语音上传失败，请重试'), 'error');
     setTimeout(closeVoiceModal, 1500);
   }
 }
@@ -2610,11 +2972,11 @@ async function sendVoiceText(text) {
     if (res.ok && json.success) {
       showResult(json);
     } else {
-      alert(json.error || '分析食物失败');
+      showToast(json.error || '分析食物失败', 'error');
     }
   } catch (err) {
     closeVoiceModal();
-    alert('Network error: ' + err.message);
+    showToast(normalizeErrorMessage(err, '语音分析请求失败'), 'error');
   }
 }
 
@@ -2649,6 +3011,7 @@ function showBMRSetupModal(forceClose = false) {
   const modal = document.getElementById('bmrSetupModal');
   modal.classList.remove('hidden');
   modal.style.display = 'flex';
+  ['bmrAge', 'bmrHeight', 'bmrWeight'].forEach(id => markFieldInvalid(id, false));
   
   const btnCancel = document.getElementById('btnBMRCancel');
   if (forceClose) {
@@ -2733,75 +3096,72 @@ function calculateBMRTDEE(gender, age, height, weight, activity_level) {
 
 async function saveBMRProfile() {
   const gender = bmrGenderSelected;
-  const age = parseInt(document.getElementById('bmrAge').value);
-  const height = parseFloat(document.getElementById('bmrHeight').value);
-  const weight = parseFloat(document.getElementById('bmrWeight').value);
+  const ageResult = readNumberField('bmrAge', { label: '年龄', min: 15, max: 120, integer: true });
+  const heightResult = readNumberField('bmrHeight', { label: '身高', min: 80, max: 250 });
+  const weightResult = readNumberField('bmrWeight', { label: '体重', min: 20, max: 200 });
   const activity_level = document.getElementById('bmrActivity').value;
   
-  if (!gender || isNaN(age) || isNaN(height) || isNaN(weight)) {
-    alert('请填写完整的身体参数');
-    return;
+  for (const result of [ageResult, heightResult, weightResult]) {
+    if (!validOrToast(result)) return;
   }
-  if (age < 15 || age > 120) {
-    alert('年龄需在 15-120 岁之间');
-    return;
-  }
-  if (height < 80 || height > 250) {
-    alert('身高需在 80-250 cm 之间');
-    return;
-  }
-  if (weight < 20 || weight > 200) {
-    alert('体重需在 20-200 kg 之间');
-    return;
-  }
-  
+
+  const age = ageResult.value;
+  const height = heightResult.value;
+  const weight = weightResult.value;
+
   const payload = { gender, age, height, weight, activity_level };
-  
-  // Save locally first (always!)
-  ProfileStorage.saveProfile(payload);
-  const calcs = calculateBMRTDEE(gender, age, height, weight, activity_level);
-  const user = getCurrentUser() || 'guest';
-  localStorage.setItem('calTarget_' + user, calcs.tdee);
-  localStorage.setItem('proTarget_' + user, calcs.protein_target);
-  calTarget = calcs.tdee;
-  proTarget = calcs.protein_target;
-  applyTargets();
-  
-  // If logged in, upload to the server
-  if (!isLocalMode() && user !== 'guest' && user !== 'anonymous' && user !== 'local_user') {
-    try {
-      const res = await fetch(API_BASE + '/api/profile', {
-        method: 'POST',
-        headers: getAuthHeaders(),
-        body: JSON.stringify(payload)
-      });
-      if (!res.ok) {
-        const json = await res.json().catch(() => ({}));
-        throw new Error(json.error || '服务器未保存身体数据');
+
+  await withActionLock('bmr-save', 'btnBMRSave', async () => {
+    // Save locally first (always!)
+    ProfileStorage.saveProfile(payload);
+    const calcs = calculateBMRTDEE(gender, age, height, weight, activity_level);
+    const user = getCurrentUser() || 'guest';
+    localStorage.setItem('calTarget_' + user, calcs.tdee);
+    localStorage.setItem('proTarget_' + user, calcs.protein_target);
+    calTarget = calcs.tdee;
+    proTarget = calcs.protein_target;
+    applyTargets();
+
+    // If logged in, upload to the server
+    if (!isLocalMode() && user !== 'guest' && user !== 'anonymous' && user !== 'local_user') {
+      try {
+        const res = await fetch(API_BASE + '/api/profile', {
+          method: 'POST',
+          headers: getAuthHeaders(),
+          body: JSON.stringify(payload)
+        });
+        if (!res.ok) {
+          const json = await res.json().catch(() => ({}));
+          throw new Error(json.error || '服务器未保存身体数据');
+        }
+        // Sync today's summary since weight change might impact MET calculations
+        syncDailySummary(new Date().toISOString().split('T')[0]);
+      } catch (err) {
+        console.error('Failed to sync profile to server:', err);
+        showToast(normalizeErrorMessage(err, '身体数据已保存到本地，云端同步失败'), 'error');
       }
-      // Sync today's summary since weight change might impact MET calculations
-      syncDailySummary(new Date().toISOString().split('T')[0]);
-    } catch (err) {
-      console.error('Failed to sync profile to server:', err);
     }
-  }
-  
-  // Update bento card immediately (before async updateProfileUI)
-  const summary = document.getElementById('bmrSummaryText');
-  if (summary) {
-    summary.textContent = `基础代谢 ${calcs.bmr} kcal · TDEE ${calcs.tdee} kcal · 推荐蛋白 ${calcs.protein_target}g`;
-  }
-  
-  closeBMRSetupModal();
-  updateProfileUI();
-  fetchTodayData();
-  fetchWeeklyReport();
+
+    // Update bento card immediately (before async updateProfileUI)
+    const summary = document.getElementById('bmrSummaryText');
+    if (summary) {
+      summary.textContent = `基础代谢 ${calcs.bmr} kcal · TDEE ${calcs.tdee} kcal · 推荐蛋白 ${calcs.protein_target}g`;
+    }
+
+    closeBMRSetupModal();
+    updateProfileUI();
+    fetchTodayData();
+    fetchWeeklyReport();
+    fetchAISuggestions();
+    showToast('身体数据已更新', 'success');
+  }, '保存中...');
 }
 
 function showExerciseLogModal() {
   const modal = document.getElementById('exerciseLogModal');
   modal.classList.remove('hidden');
   modal.style.display = 'flex';
+  ['exDuration', 'exCalories'].forEach(id => markFieldInvalid(id, false));
   
   document.getElementById('exName').value = '';
   document.getElementById('exDuration').value = '30';
@@ -2861,10 +3221,13 @@ function toggleMusclePill(button, muscleName) {
 // Intelligent calorie estimation
 function recommendExerciseCalories() {
   const name = document.getElementById('exName').value.trim();
-  const duration = parseFloat(document.getElementById('exDuration').value);
+  const duration = finiteNumber(document.getElementById('exDuration').value, 0);
   const type = document.querySelector('input[name="exType"]:checked')?.value || 'aerobic';
   
-  if (isNaN(duration) || duration <= 0) return;
+  if (duration <= 0) {
+    document.getElementById('exCalories').placeholder = '自动推荐';
+    return;
+  }
   
   // Basic MET-based calculation: weight * MET * (duration / 60)
   // Assuming a default weight of 70kg if profile not set
@@ -2876,8 +3239,9 @@ function recommendExerciseCalories() {
     profile = currentBMRProfile;
   }
   if (profile && profile.weight) {
-    weight = parseFloat(profile.weight);
+    weight = finiteNumber(profile.weight, 70);
   }
+  if (weight <= 0) weight = 70;
   
   let met = 4.0; // Default moderately light activity
   
@@ -2901,28 +3265,27 @@ function recommendExerciseCalories() {
     }
   }
   
-  const estimatedCals = Math.round(weight * met * (duration / 60));
+  const estimatedCals = Math.max(0, Math.round(weight * met * (duration / 60)));
   document.getElementById('exCalories').placeholder = `推荐: ${estimatedCals} kcal`;
 }
 
 async function saveExerciseLog() {
   const exercise_name = document.getElementById('exName').value.trim() || '运动';
-  const duration = parseInt(document.getElementById('exDuration').value);
-  const calVal = document.getElementById('exCalories').value.trim();
+  const durationResult = readNumberField('exDuration', { label: '运动时长', min: 1, max: 600, integer: true });
+  const caloriesResult = readNumberField('exCalories', { label: '消耗热量', min: 0, max: 5000, integer: true, required: false, defaultValue: null });
   const exercise_type = document.querySelector('input[name="exType"]:checked')?.value || 'aerobic';
   
-  if (isNaN(duration) || duration <= 0) {
-    alert('请填写有效的运动时长 (分钟)');
-    return;
-  }
+  if (!validOrToast(durationResult) || !validOrToast(caloriesResult)) return;
   
-  let calories = parseFloat(calVal);
-  if (isNaN(calories)) {
+  const duration = durationResult.value;
+  let calories = caloriesResult.value;
+  if (calories === null) {
     // Use placeholder estimated value if not manually filled
     const placeholderStr = document.getElementById('exCalories').placeholder;
     const match = placeholderStr.match(/\d+/);
-    calories = match ? parseFloat(match[0]) : 150; // fallback default
+    calories = match ? finiteNumber(match[0], 150) : 150; // fallback default
   }
+  calories = Math.max(0, Math.min(5000, Math.round(finiteNumber(calories, 150))));
   
   const target_muscles = exercise_type === 'strength' ? activeMusclePills.join(', ') : '';
   
@@ -2934,10 +3297,14 @@ async function saveExerciseLog() {
     target_muscles
   };
   
-  ExerciseStorage.addExercise(payload);
-  closeExerciseLogModal();
-  fetchTodayData();
-  fetchWeeklyReport();
+  await withActionLock('exercise-save', 'btnExerciseSave', async () => {
+    ExerciseStorage.addExercise(payload);
+    closeExerciseLogModal();
+    await fetchTodayData();
+    fetchWeeklyReport();
+    fetchAISuggestions();
+    showToast('运动记录已保存', 'success');
+  }, '保存中...');
 }
 
 let exerciseToDelete = null;
@@ -2983,11 +3350,11 @@ async function fetchTodayData() {
       }
       if (isToday) {
         todayMeals.push(m);
-        const portion = m.portion || 1.0;
-        totalIntakeCal += Math.round((m.calories || 0) * portion);
-        totalPro += Math.round((m.protein || 0) * portion);
-        totalCarbs += Math.round((m.carbs || 0) * portion);
-        totalFat += Math.round((m.fat || 0) * portion);
+        const portion = Math.max(0, finiteNumber(m.portion, 1.0));
+        totalIntakeCal += Math.round(finiteNumber(m.calories, 0) * portion);
+        totalPro += Math.round(finiteNumber(m.protein, 0) * portion);
+        totalCarbs += Math.round(finiteNumber(m.carbs, 0) * portion);
+        totalFat += Math.round(finiteNumber(m.fat, 0) * portion);
       }
     });
     
@@ -3007,7 +3374,7 @@ async function fetchTodayData() {
       }
       if (isToday) {
         todayExercises.push(ex);
-        totalBurnCal += Math.round(ex.calories || 0);
+        totalBurnCal += Math.round(finiteNumber(ex.calories, 0));
       }
     });
 
@@ -3092,11 +3459,17 @@ async function fetchTodayData() {
       if (item.type === 'meal') {
         const imgSrc = item.image_path ? (item.image_path.startsWith('data:') || item.image_path.startsWith('file:') || item.image_path.startsWith('content:') ? item.image_path : (API_BASE + '/' + item.image_path)) : '';
         const foodNames = item.items.map(m => {
-          const w = Math.round((m.weight || 100) * (m.portion || 1.0));
-          const c = Math.round((m.calories || 0) * (m.portion || 1.0));
-          return `${m.food_name} (${w}g) ${c}kcal`;
+          const portion = Math.max(0, finiteNumber(m.portion, 1.0));
+          const w = Math.round(finiteNumber(m.weight, 100) * portion);
+          const c = Math.round(finiteNumber(m.calories, 0) * portion);
+          return `${escapeHTML(m.food_name || '食物')} (${w}g) ${c}kcal`;
         }).join('<br>');
-        const deleteSummary = item.items.map(m => m.food_name + ' ' + Math.round((m.calories||0)*(m.portion||1.0)) + 'kcal').join('、');
+        const deleteSummary = item.items.map(m => {
+          const portion = Math.max(0, finiteNumber(m.portion, 1.0));
+          return (m.food_name || '食物') + ' ' + Math.round(finiteNumber(m.calories, 0) * portion) + 'kcal';
+        }).join('、');
+        const safeSessionId = escapeJSString(item.session_id);
+        const safeDeleteSummary = escapeJSString(deleteSummary);
         
         let displayTime = formatTime(item.items[0].created_at);
         
@@ -3111,8 +3484,9 @@ async function fetchTodayData() {
                 <p class="font-label-md text-label-md text-outline">${displayTime}</p>
               </div>
             </div>
-            <div class="flex justify-end mt-2">
-              <button onclick="deleteSession('${item.session_id}', '${deleteSummary.replace(/'/g, "\\'")}')" class="text-xs text-outline hover:text-error px-2 py-1 rounded-full hover:bg-error-container transition-colors">删除</button>
+            <div class="flex justify-end gap-2 mt-2">
+              <button onclick="openEditMealModal('${safeSessionId}')" class="text-xs text-primary px-3 py-2 rounded-full bg-primary/10 hover:bg-primary/15 transition-colors touch-target">编辑</button>
+              <button onclick="deleteSession('${safeSessionId}', '${safeDeleteSummary}')" class="text-xs text-outline hover:text-error px-3 py-2 rounded-full hover:bg-error-container transition-colors touch-target">删除</button>
             </div>
           </div>`;
       } else if (item.type === 'exercise') {
@@ -3127,10 +3501,10 @@ async function fetchTodayData() {
               </div>
               <div class="flex-1">
                 <div class="font-body-md text-body-md text-on-background leading-relaxed mb-1 font-bold">
-                  ${item.exercise_name} (${item.duration}分钟)
+                  ${escapeHTML(item.exercise_name || '运动')} (${Math.round(finiteNumber(item.duration, 0))}分钟)
                 </div>
                 <div class="text-xs text-on-surface-variant mb-1">
-                  消耗 ${item.calories} kcal ${item.target_muscles ? `· 训练肌群: ${item.target_muscles}` : ''}
+                  消耗 ${Math.round(finiteNumber(item.calories, 0))} kcal ${item.target_muscles ? `· 训练肌群: ${escapeHTML(item.target_muscles)}` : ''}
                 </div>
                 <p class="font-label-md text-label-md text-outline">${displayTime}</p>
               </div>
@@ -3150,16 +3524,25 @@ async function fetchTodayData() {
 }
 
 function updateRings(cal, pro, carbs, fat, burn = 0) {
+  cal = Math.max(0, Math.round(finiteNumber(cal, 0)));
+  pro = Math.max(0, Math.round(finiteNumber(pro, 0)));
+  carbs = Math.max(0, Math.round(finiteNumber(carbs, 0)));
+  fat = Math.max(0, Math.round(finiteNumber(fat, 0)));
+  burn = Math.max(0, Math.round(finiteNumber(burn, 0)));
+  calTarget = Math.max(1, Math.round(finiteNumber(calTarget, 2000)));
+  proTarget = Math.max(1, Math.round(finiteNumber(proTarget, 120)));
+
   const netCal = cal - burn;
-  const calPct = Math.max(0, Math.min(cal / calTarget, 1));
-  const proPct = Math.min(pro / proTarget, 1);
+  const ratio = (value, target) => Math.max(0, Math.min(value / Math.max(1, target), 1));
+  const calPct = ratio(cal, calTarget);
+  const proPct = ratio(pro, proTarget);
   
   // Calculate carbs and fat targets dynamically
-  const carbsTarget = Math.round((calTarget * 0.5) / 4);
-  const fatTarget = Math.round((calTarget * 0.3) / 9);
+  const carbsTarget = Math.max(1, Math.round((calTarget * 0.5) / 4));
+  const fatTarget = Math.max(1, Math.round((calTarget * 0.3) / 9));
   
-  const carbsPct = Math.min(carbs / carbsTarget, 1);
-  const fatPct = Math.min(fat / fatTarget, 1);
+  const carbsPct = ratio(carbs, carbsTarget);
+  const fatPct = ratio(fat, fatTarget);
   
   const calRing = document.getElementById('calRing');
   const proRing = document.getElementById('proRing');
@@ -3235,7 +3618,7 @@ async function fetchHistory() {
     const groups = {};
     meals.forEach(m => {
       const sid = m.session_id || 'solo_' + m.id;
-      if (!groups[sid]) groups[sid] = {items:[], image_path: '', created_at: m.created_at};
+      if (!groups[sid]) groups[sid] = {items:[], image_path: '', created_at: m.created_at, session_id: sid};
       groups[sid].items.push(m);
       if (m.image_path) groups[sid].image_path = m.image_path;
       if (m.created_at && (!groups[sid].created_at || m.created_at < groups[sid].created_at)) {
@@ -3259,12 +3642,21 @@ async function fetchHistory() {
       .forEach(g => {
       const imgSrc = g.image_path ? (g.image_path.startsWith('data:') || g.image_path.startsWith('file:') || g.image_path.startsWith('content:') ? g.image_path : (API_BASE + '/' + g.image_path)) : '';
       const foodNames = g.items.map(m => {
-        const w = Math.round((m.weight || 100) * (m.portion || 1.0));
-        const c = Math.round((m.calories || 0) * (m.portion || 1.0));
-        return `${m.food_name} (${w}g) ${c}kcal`;
+        const portion = Math.max(0, finiteNumber(m.portion, 1.0));
+        const w = Math.round(finiteNumber(m.weight, 100) * portion);
+        const c = Math.round(finiteNumber(m.calories, 0) * portion);
+        return `${escapeHTML(m.food_name || '食物')} (${w}g) ${c}kcal`;
       }).join('<br>');
-      const groupCal = g.items.reduce((s, m) => s + Math.round((m.calories||0) * (m.portion || 1.0)), 0);
-      const histSummary = g.items.map(m => m.food_name + ' ' + Math.round((m.calories||0)*(m.portion||1.0)) + 'kcal').join('、');
+      const groupCal = g.items.reduce((s, m) => {
+        const portion = Math.max(0, finiteNumber(m.portion, 1.0));
+        return s + Math.round(finiteNumber(m.calories, 0) * portion);
+      }, 0);
+      const histSummary = g.items.map(m => {
+        const portion = Math.max(0, finiteNumber(m.portion, 1.0));
+        return (m.food_name || '食物') + ' ' + Math.round(finiteNumber(m.calories, 0) * portion) + 'kcal';
+      }).join('、');
+      const safeSessionId = escapeJSString(g.session_id);
+      const safeHistSummary = escapeJSString(histSummary);
       
       let displayTime = formatTime(g.items[0].created_at);
       const label = dateHeading(g.created_at || g.items[0].created_at);
@@ -3286,7 +3678,14 @@ async function fetchHistory() {
                 <span class="font-headline-md text-headline-md text-primary">${groupCal} kcal</span>
               </div>
             </div>
-            <button onclick="deleteSession('${g.items[0].session_id}', '${histSummary.replace(/'/g, "\\'")}')" class="text-outline hover:text-error p-1"><span class="material-symbols-outlined text-[18px]">delete</span></button>
+            <div class="flex items-center gap-1">
+              <button onclick="openEditMealModal('${safeSessionId}')" class="text-primary hover:bg-primary/10 p-2 rounded-full touch-target" aria-label="编辑饮食记录">
+                <span class="material-symbols-outlined text-[18px]">edit_note</span>
+              </button>
+              <button onclick="deleteSession('${safeSessionId}', '${safeHistSummary}')" class="text-outline hover:text-error hover:bg-error-container p-2 rounded-full touch-target" aria-label="删除饮食记录">
+                <span class="material-symbols-outlined text-[18px]">delete</span>
+              </button>
+            </div>
           </div>
         </div>`;
     });
@@ -3355,6 +3754,17 @@ async function fetchWeeklyReport() {
         report = MealStorage.getWeeklyReport();
       }
     }
+
+    report = (Array.isArray(report) ? report : []).map(d => ({
+      ...d,
+      day: d.day || '',
+      total_calories: Math.max(0, Math.round(finiteNumber(d.total_calories, 0))),
+      total_protein: Math.max(0, Math.round(finiteNumber(d.total_protein, 0))),
+      total_carbs: Math.max(0, Math.round(finiteNumber(d.total_carbs, 0))),
+      total_fat: Math.max(0, Math.round(finiteNumber(d.total_fat, 0))),
+      total_burn_calories: Math.max(0, Math.round(finiteNumber(d.total_burn_calories, 0))),
+      total_exercise_duration: Math.max(0, Math.round(finiteNumber(d.total_exercise_duration, 0)))
+    }));
 
     const days = report.map(d => d.day.slice(5));
     const cals = report.map(d => Math.round(d.total_calories || 0));
@@ -3474,21 +3884,49 @@ async function fetchWeeklyReport() {
 async function fetchAISuggestions() {
   const container = document.getElementById('reportSuggestionsText');
   if (!container) return;
-  container.innerHTML = `
-    <div class="flex flex-col items-center justify-center py-6 text-outline">
-      <div class="animate-spin rounded-full h-6 w-6 border-2 border-primary border-t-transparent mb-2"></div>
-      <p class="text-xs">AI 智能教练正在分析您的饮食与运动...</p>
-    </div>`;
   try {
     const meals = MealStorage.getMeals();
     const exercises = ExerciseStorage.getExercises();
-    const todayStr = new Date().toISOString().split('T')[0];
-    const todayMeals = meals.filter(m => m.created_at && m.created_at.startsWith(todayStr));
-    const todayExercises = exercises.filter(ex => ex.created_at && ex.created_at.startsWith(todayStr));
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
+    sevenDaysAgo.setHours(0, 0, 0, 0);
+    const inRecentWindow = item => {
+      if (!item.created_at) return false;
+      const d = new Date(item.created_at);
+      return Number.isFinite(d.getTime()) && d >= sevenDaysAgo;
+    };
+    const recentMeals = meals.filter(inRecentWindow);
+    const recentExercises = exercises.filter(inRecentWindow);
+    const activeDays = new Set([
+      ...recentMeals.map(m => m.created_at.split('T')[0]),
+      ...recentExercises.map(ex => ex.created_at.split('T')[0])
+    ]).size;
+
+    if (activeDays < 3) {
+      container.innerHTML = `
+        <div class="empty-state">
+          <div class="flex items-start gap-3">
+            <span class="material-symbols-outlined text-3xl text-primary">insights</span>
+            <div>
+              <h3 class="font-headline-md text-headline-md text-on-background">记录 3 天后解锁 AI 洞察</h3>
+              <p class="text-sm text-on-surface-variant mt-2 leading-relaxed">你会看到热量趋势、蛋白质达标情况、训练恢复建议和下一餐优化方向。</p>
+            </div>
+          </div>
+        </div>`;
+      hydrateIcons(container);
+      return;
+    }
+
+    container.innerHTML = `
+      <div class="flex flex-col items-center justify-center py-6 text-outline">
+        <div class="animate-spin rounded-full h-6 w-6 border-2 border-primary border-t-transparent mb-2"></div>
+        <p class="text-xs">AI 智能教练正在分析您的饮食与运动...</p>
+      </div>`;
 
     const payload = {
-      meals: todayMeals,
-      exercises: todayExercises,
+      meals: recentMeals,
+      exercises: recentExercises,
+      profile: ProfileStorage.getProfile(),
       calTarget: calTarget,
       proTarget: proTarget
     };
@@ -3496,7 +3934,7 @@ async function fetchAISuggestions() {
     let headers = getAuthHeaders();
     headers['Content-Type'] = 'application/json';
 
-    const res = await fetch(API_BASE + '/api/coach/suggestions', {
+    const res = await fetch(API_BASE + '/api/report/suggestions', {
       method: 'POST',
       headers: headers,
       body: JSON.stringify(payload)
@@ -3506,10 +3944,10 @@ async function fetchAISuggestions() {
     if (res.ok && json.success) {
       container.innerHTML = parseMarkdownToHTML(json.suggestions);
     } else {
-      container.innerHTML = `<p class="text-error text-center py-4">无法获取 AI 建议: ${json.error || '未知错误'}</p>`;
+      container.innerHTML = `<p class="text-error text-center py-4">无法获取 AI 建议: ${escapeHTML(json.error || '未知错误')}</p>`;
     }
   } catch (err) {
-    container.innerHTML = `<p class="text-error text-center py-4">网络请求失败: ${err.message}</p>`;
+    container.innerHTML = `<p class="text-error text-center py-4">${escapeHTML(normalizeErrorMessage(err, '网络请求失败'))}</p>`;
   }
 }
 
@@ -3627,28 +4065,39 @@ function editTarget(type) {
   const input = document.getElementById('editTargetInput');
   title.textContent = type === 'cal' ? '每日热量目标 (kcal)' : '每日蛋白质目标 (g)';
   input.value = type === 'cal' ? calTarget : proTarget;
+  input.max = type === 'cal' ? '10000' : '500';
+  markFieldInvalid('editTargetInput', false);
   m.classList.remove('hidden');
   m.style.display = 'flex';
   input.focus();
 }
 
 function saveTarget() {
-  const val = parseInt(document.getElementById('editTargetInput').value);
-  if (val && val > 0) {
-    const user = getCurrentUser() || 'anonymous';
-    if (currentEditType === 'cal') { 
-      calTarget = val; 
-      localStorage.setItem('calTarget_' + user, calTarget); 
-      localStorage.setItem('calTarget', calTarget); 
-    } else { 
-      proTarget = val; 
-      localStorage.setItem('proTarget_' + user, proTarget); 
-      localStorage.setItem('proTarget', proTarget); 
-    }
-    applyTargets();
-    fetchMeals();
+  const isCal = currentEditType === 'cal';
+  const result = readNumberField('editTargetInput', {
+    label: isCal ? '热量目标' : '蛋白质目标',
+    min: 1,
+    max: isCal ? 10000 : 500,
+    integer: true
+  });
+  if (!validOrToast(result)) return;
+  const val = result.value;
+  const user = getCurrentUser() || 'anonymous';
+  if (isCal) {
+    calTarget = val;
+    localStorage.setItem('calTarget_' + user, calTarget);
+    localStorage.setItem('calTarget', calTarget);
+  } else {
+    proTarget = val;
+    localStorage.setItem('proTarget_' + user, proTarget);
+    localStorage.setItem('proTarget', proTarget);
   }
+  applyTargets();
+  fetchMeals();
+  fetchWeeklyReport();
+  fetchAISuggestions();
   document.getElementById('editTargetModal').style.display = 'none';
+  showToast('目标已更新', 'success');
 }
 
 function applyTargets() {
@@ -3673,9 +4122,9 @@ function applyTargets() {
 function toggleStorageMode() {
   const user = getCurrentUser();
   if (!user || user === 'guest' || user === 'local_user' || user === 'anonymous') {
-    alert("提示：当前为游客离线模式。注册并登录账号后，系统会自动开启云端同步，备份您的每日健康统计数据！");
+    showToast('当前为游客离线模式。注册并登录后会自动开启云端汇总同步。', 'info');
   } else {
-    alert("提示：云端汇总同步已自动开启！为节省服务器资源并保护隐私，详细的餐食与运动记录仅保存在本地设备中，服务器只同步每日卡路里和宏量营养素的总量。");
+    showToast('云端汇总同步已开启，详细餐食和运动记录仍保存在本地设备。', 'info');
   }
 }
 
