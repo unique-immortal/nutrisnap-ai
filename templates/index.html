@@ -754,7 +754,21 @@ function startVoiceInput() {
       setTimeout(() => sendVoiceText(voiceTranscript), 1000);
     }
   };
-  recognition.start();
+
+  // Force microphone permission prompt in hybrid apps (WebView)
+  if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+    navigator.mediaDevices.getUserMedia({ audio: true })
+      .then((stream) => {
+        stream.getTracks().forEach(track => track.stop());
+        recognition.start();
+      })
+      .catch((err) => {
+        console.error('Microphone access denied:', err);
+        document.getElementById('voiceText').textContent = '请在系统设置中允许麦克风权限';
+      });
+  } else {
+    recognition.start();
+  }
 }
 
 function stopVoiceInput() {

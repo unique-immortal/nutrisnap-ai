@@ -40,6 +40,10 @@ jobs:
         run: |
           npx cap add android
 
+      - name: Patch Android Manifest Permissions
+        run: |
+          python patch_manifest.py
+
       - name: Build APK
         run: |
           cd android
