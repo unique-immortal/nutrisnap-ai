@@ -318,9 +318,20 @@ html.dark .card-premium:hover {
     </div>
   </header>
   <main class="px-container-margin flex-1 flex flex-col gap-stack-lg pb-32">
-    <div class="w-full h-48 rounded-xl overflow-hidden shadow-md border border-outline-variant">
+    <div id="resultImgContainer" class="w-full h-48 rounded-xl overflow-hidden shadow-md border border-outline-variant">
       <img id="resultImg" class="w-full h-full object-cover" src="" alt="Food"/>
     </div>
+    
+    <div id="resultVoiceContainer" class="hidden w-full rounded-xl p-6 flex flex-col justify-center items-center text-center shadow-md relative overflow-hidden"
+         style="min-height: 10rem; background: linear-gradient(135deg, var(--secondary-container), var(--surface-container)); border: 1px solid var(--outline-variant); color: var(--on-surface);">
+      <div class="absolute opacity-10 material-symbols-outlined select-none" style="font-size: 140px; right: -20px; bottom: -35px; color: var(--primary);">mic</div>
+      <div class="w-12 h-12 rounded-full flex items-center justify-center mb-3" style="background-color: var(--surface-container-high); border: 2px solid var(--primary);">
+        <span class="material-symbols-outlined text-[28px]" style="font-variation-settings:'FILL' 1; color: var(--primary);">mic</span>
+      </div>
+      <p class="font-headline-sm text-headline-sm mb-2" style="color: var(--primary); font-weight: 600;">语音记录分析</p>
+      <p class="font-body-md text-body-md max-w-[85%] italic text-outline" id="resultVoiceText" style="line-height: 1.5; color: var(--on-surface-variant); font-size: 1.05rem;"></p>
+    </div>
+
     <div id="resultFoods" class="flex flex-col gap-stack-md"></div>
     <!-- Summary totals -->
     <section class="bg-primary text-on-primary rounded-xl p-6 shadow-sm">
@@ -588,6 +599,7 @@ function switchTab(tab) {
 
 // ===================== FILE HANDLING =====================
 function handleFile(e) {
+  isVoiceInputFlow = false;
   const file = e.target.files[0];
   if (!file) return;
   selectedFile = file;
@@ -604,6 +616,7 @@ function handleFile(e) {
 
 // ===================== ANALYZE =====================
 async function doAnalyze() {
+  isVoiceInputFlow = false;
   if (!selectedFile) return;
   document.getElementById('analyzeBtn').classList.add('hidden');
   document.getElementById('analyzeLoading').classList.remove('hidden');
@@ -627,7 +640,15 @@ async function doAnalyze() {
 }
 
 function showResult(json) {
-  document.getElementById('resultImg').src = document.getElementById('imgPreview').src ? document.getElementById('imgPreview').src : (API_BASE + '/' + json.image_url);
+  if (isVoiceInputFlow) {
+    document.getElementById('resultImgContainer').classList.add('hidden');
+    document.getElementById('resultVoiceContainer').classList.remove('hidden');
+    document.getElementById('resultVoiceText').textContent = voiceTextForDisplay ? `“ ${voiceTextForDisplay} ”` : "语音记录分析";
+  } else {
+    document.getElementById('resultImgContainer').classList.remove('hidden');
+    document.getElementById('resultVoiceContainer').classList.add('hidden');
+    document.getElementById('resultImg').src = document.getElementById('imgPreview').src ? document.getElementById('imgPreview').src : (API_BASE + '/' + json.image_url);
+  }
   const foods = json.foods || [];
   let html = '';
   foods.forEach((f, i) => {
@@ -726,8 +747,11 @@ let mediaRecorder = null;
 let audioChunks = [];
 let voiceStream = null;
 let voiceIntervalId = null;
+let isVoiceInputFlow = false;
+let voiceTextForDisplay = "";
 
 function startVoiceInput() {
+  isVoiceInputFlow = true;
   // Clear any existing interval
   if (voiceIntervalId) {
     clearInterval(voiceIntervalId);
@@ -839,6 +863,7 @@ async function transcribeAudio(blob, mimeType) {
     const json = await res.json();
     if (res.ok && json.text) {
       document.getElementById('voiceText').textContent = json.text;
+      voiceTextForDisplay = json.text;
       // Trigger parsing and nutritional evaluation
       setTimeout(() => sendVoiceText(json.text), 1000);
     } else {
