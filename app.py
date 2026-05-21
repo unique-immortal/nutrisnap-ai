@@ -231,12 +231,14 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
-    # Migrate: add session_id, portion, weight, and username columns (idempotent)
+    # Migrate: add session_id, portion, weight, username, client_id, updated_at columns (idempotent)
     for col, col_def in [
         ('session_id', 'TEXT'),
         ('portion', 'REAL DEFAULT 1.0'),
         ('weight', 'INTEGER DEFAULT 100'),
-        ('username', 'TEXT')
+        ('username', 'TEXT'),
+        ('client_id', 'TEXT'),
+        ('updated_at', 'TEXT')
     ]:
         try:
             cursor.execute(f'ALTER TABLE meals ADD COLUMN {col} {col_def}')
@@ -288,6 +290,12 @@ def init_db():
     # Backfill old records without session_id or username
     cursor.execute("UPDATE meals SET session_id = 'legacy_' || id WHERE session_id IS NULL")
     cursor.execute("UPDATE meals SET username = 'anonymous' WHERE username IS NULL")
+    cursor.execute("UPDATE meals SET client_id = 'server_' || id WHERE client_id IS NULL")
+    cursor.execute("UPDATE meals SET updated_at = COALESCE(created_at, CURRENT_TIMESTAMP) WHERE updated_at IS NULL")
+    cursor.execute('''
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_meals_username_client_id
+        ON meals(username, client_id)
+    ''')
     conn.commit()
     conn.close()
 
@@ -306,7 +314,7 @@ def get_db_connection():
 def health():
     return jsonify({
         "version": "v5.1.0",
-        "architecture": "local-meals + server-daily-summaries + OpenRouter",
+        "architecture": "local-first + throttled-meal-sync + server-daily-summaries + OpenRouter",
         "models": [
             'gemini-3.5-flash',
             'gemini-2.5-flash',
@@ -410,6 +418,63 @@ def validate_profile_payload(data):
         'weight': weight,
         'activity_level': activity_level
     }, None
+
+def clamp_number(value, default=0, min_value=0, max_value=10000, integer=True):
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        number = default
+    if number < min_value:
+        number = min_value
+    if number > max_value:
+        number = max_value
+    return int(round(number)) if integer else round(number, 3)
+
+def clean_text(value, default='', max_len=160):
+    text = str(value or default).strip()
+    return text[:max_len]
+
+def normalize_client_meal(data):
+    client_id = clean_text(data.get('client_id') or data.get('id'), max_len=96)
+    if not client_id:
+        return None
+    created_at = clean_text(data.get('created_at'), max_len=40) or datetime.datetime.utcnow().isoformat()
+    updated_at = clean_text(data.get('updated_at'), max_len=40) or created_at
+    return {
+        'client_id': client_id,
+        'session_id': clean_text(data.get('session_id') or f'solo_{client_id}', max_len=96),
+        'image_path': '',  # Keep server storage light: meal sync does not upload or persist photos.
+        'food_name': clean_text(data.get('food_name'), default='未知食物', max_len=120),
+        'calories': clamp_number(data.get('calories'), default=0, min_value=0, max_value=5000),
+        'protein': clamp_number(data.get('protein'), default=0, min_value=0, max_value=300),
+        'carbs': clamp_number(data.get('carbs'), default=0, min_value=0, max_value=500),
+        'fat': clamp_number(data.get('fat'), default=0, min_value=0, max_value=300),
+        'weight': clamp_number(data.get('weight'), default=100, min_value=1, max_value=2000),
+        'portion': clamp_number(data.get('portion'), default=1.0, min_value=0.1, max_value=10, integer=False),
+        'created_at': created_at,
+        'updated_at': updated_at
+    }
+
+def upsert_daily_summary(cursor, username, summary):
+    date_str = clean_text(summary.get('date'), max_len=10)
+    if not date_str:
+        return False
+    cursor.execute('''
+        INSERT OR REPLACE INTO daily_summaries (
+            username, date, total_calories, total_protein, total_carbs, total_fat,
+            total_burn_calories, total_exercise_duration
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (
+        username,
+        date_str,
+        clamp_number(summary.get('total_calories'), 0, 0, 100000),
+        clamp_number(summary.get('total_protein'), 0, 0, 10000),
+        clamp_number(summary.get('total_carbs'), 0, 0, 10000),
+        clamp_number(summary.get('total_fat'), 0, 0, 10000),
+        clamp_number(summary.get('total_burn_calories'), 0, 0, 100000),
+        clamp_number(summary.get('total_exercise_duration'), 0, 0, 10000)
+    ))
+    return True
 
 @app.route('/api/register', methods=['POST'])
 def register():
@@ -712,12 +777,12 @@ def get_meals():
     username = request.headers.get('X-User-Id') or 'anonymous'
     conn = get_db_connection()
     meals = conn.execute('''
-        SELECT id, image_path, food_name,
+        SELECT id, client_id, image_path, food_name,
                CAST(calories * COALESCE(portion, 1.0) AS INTEGER) as calories,
                CAST(protein * COALESCE(portion, 1.0) AS INTEGER) as protein,
                CAST(carbs * COALESCE(portion, 1.0) AS INTEGER) as carbs,
                CAST(fat * COALESCE(portion, 1.0) AS INTEGER) as fat,
-               created_at, session_id, COALESCE(portion, 1.0) as portion
+               weight, created_at, updated_at, session_id, COALESCE(portion, 1.0) as portion
         FROM meals
         WHERE username = ?
         ORDER BY created_at DESC LIMIT 50
@@ -725,6 +790,121 @@ def get_meals():
     conn.close()
     return jsonify({"data": [dict(m) for m in meals]})
 
+
+@app.route('/api/meals/sync', methods=['GET', 'POST'])
+def sync_meals():
+    username = request.headers.get('X-User-Id') or 'anonymous'
+    if username in ('anonymous', 'guest', 'local_user'):
+        return jsonify({"error": "请登录后再同步饮食记录"}), 401
+
+    if request.method == 'GET':
+        limit = min(max(request.args.get('limit', default=500, type=int), 1), 1000)
+        conn = get_db_connection()
+        rows = conn.execute('''
+            SELECT id as server_id, client_id, session_id, food_name, calories, protein, carbs, fat,
+                   weight, COALESCE(portion, 1.0) as portion, created_at, updated_at
+            FROM meals
+            WHERE username = ?
+            ORDER BY datetime(created_at) DESC
+            LIMIT ?
+        ''', (username, limit)).fetchall()
+        conn.close()
+        return jsonify({"success": True, "data": [dict(row) for row in rows]})
+
+    data = request.get_json() or {}
+    incoming_meals = data.get('meals') or []
+    deleted_client_ids = data.get('deleted_client_ids') or []
+    summaries = data.get('summaries') or []
+
+    if not isinstance(incoming_meals, list) or not isinstance(deleted_client_ids, list) or not isinstance(summaries, list):
+        return jsonify({"error": "同步数据格式不正确"}), 400
+    if len(incoming_meals) > 250 or len(deleted_client_ids) > 500 or len(summaries) > 31:
+        return jsonify({"error": "单次同步数据过多，请稍后自动分批同步"}), 413
+
+    normalized_meals = []
+    seen_client_ids = set()
+    for item in incoming_meals:
+        if not isinstance(item, dict):
+            continue
+        meal = normalize_client_meal(item)
+        if not meal or meal['client_id'] in seen_client_ids:
+            continue
+        normalized_meals.append(meal)
+        seen_client_ids.add(meal['client_id'])
+
+    deleted_client_ids = [
+        clean_text(client_id, max_len=96)
+        for client_id in deleted_client_ids
+        if clean_text(client_id, max_len=96)
+    ][:500]
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        deleted_count = 0
+        if deleted_client_ids:
+            placeholders = ','.join(['?'] * len(deleted_client_ids))
+            cursor.execute(
+                f'DELETE FROM meals WHERE username = ? AND client_id IN ({placeholders})',
+                [username] + deleted_client_ids
+            )
+            deleted_count = cursor.rowcount
+
+        synced_count = 0
+        for meal in normalized_meals:
+            cursor.execute('''
+                INSERT INTO meals (
+                    username, client_id, image_path, food_name, calories, protein, carbs, fat,
+                    weight, portion, created_at, updated_at, session_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(username, client_id) DO UPDATE SET
+                    image_path = excluded.image_path,
+                    food_name = excluded.food_name,
+                    calories = excluded.calories,
+                    protein = excluded.protein,
+                    carbs = excluded.carbs,
+                    fat = excluded.fat,
+                    weight = excluded.weight,
+                    portion = excluded.portion,
+                    created_at = excluded.created_at,
+                    updated_at = excluded.updated_at,
+                    session_id = excluded.session_id
+            ''', (
+                username,
+                meal['client_id'],
+                meal['image_path'],
+                meal['food_name'],
+                meal['calories'],
+                meal['protein'],
+                meal['carbs'],
+                meal['fat'],
+                meal['weight'],
+                meal['portion'],
+                meal['created_at'],
+                meal['updated_at'],
+                meal['session_id']
+            ))
+            synced_count += 1
+
+        summary_count = 0
+        for summary in summaries:
+            if isinstance(summary, dict) and upsert_daily_summary(cursor, username, summary):
+                summary_count += 1
+
+        conn.commit()
+        return jsonify({
+            "success": True,
+            "synced": synced_count,
+            "deleted": deleted_count,
+            "summaries": summary_count,
+            "server_time": datetime.datetime.utcnow().isoformat()
+        })
+    except Exception as e:
+        conn.rollback()
+        print(f"Meal sync error: {e}")
+        return jsonify({"error": f"饮食记录同步失败: {str(e)}"}), 500
+    finally:
+        conn.close()
 
 
 @app.route('/api/meals/<int:meal_id>', methods=['PATCH', 'DELETE'])
@@ -1213,24 +1393,13 @@ def handle_daily_summaries():
         date_str = data.get('date')
         if not date_str:
             return jsonify({"error": "缺少日期参数"}), 400
-            
-        total_cal = int(data.get('total_calories', 0))
-        total_pro = int(data.get('total_protein', 0))
-        total_carbs = int(data.get('total_carbs', 0))
-        total_fat = int(data.get('total_fat', 0))
-        total_burn = int(data.get('total_burn_calories', 0))
-        total_duration = int(data.get('total_exercise_duration', 0))
-        
+
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute('''
-            INSERT OR REPLACE INTO daily_summaries (
-                username, date, total_calories, total_protein, total_carbs, total_fat, total_burn_calories, total_exercise_duration
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (username, date_str, total_cal, total_pro, total_carbs, total_fat, total_burn, total_duration))
+        upsert_daily_summary(cursor, username, data)
         conn.commit()
         conn.close()
-        
+
         return jsonify({"success": True})
 
 

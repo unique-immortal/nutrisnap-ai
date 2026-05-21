@@ -1592,6 +1592,11 @@ let pendingResult = { foods: [], exercises: [], source: '', session_id: '' };
 let isVoiceInputFlow = false;
 let editingMealSessionId = null;
 let editingMealItems = [];
+let mealSyncTimer = null;
+let mealSyncInFlight = false;
+const pendingMealUpserts = new Map();
+const pendingMealDeletes = new Set();
+const pendingMealSummaryDates = new Set();
 const actionLocks = new Set();
 let toastTimer = null;
 
@@ -1793,24 +1798,65 @@ function getAuthHeaders() {
   };
 }
 
-async function syncDailySummary(dateStr) {
+function canSyncUserData() {
   const user = getCurrentUser();
-  if (!user || user === 'guest' || user === 'anonymous' || user === 'local_user' || isLocalMode()) return;
-  
+  return !!user && !['guest', 'anonymous', 'local_user'].includes(user) && !isLocalMode();
+}
+
+function normalizeMealForStorage(meal) {
+  const normalized = { ...(meal || {}) };
+  if (!normalized.id) normalized.id = Date.now() + Math.random();
+  if (!normalized.created_at) normalized.created_at = new Date().toISOString();
+  if (!normalized.session_id) normalized.session_id = 'solo_' + normalized.id;
+  if (!normalized.client_id) normalized.client_id = 'meal_' + String(normalized.id).replace(/[^a-zA-Z0-9_.:-]/g, '_');
+  if (!normalized.updated_at) normalized.updated_at = normalized.created_at;
+  normalized.portion = Math.max(0.1, finiteNumber(normalized.portion, 1.0));
+  normalized.weight = Math.max(1, Math.round(finiteNumber(normalized.weight, 100)));
+  normalized.calories = Math.max(0, Math.round(finiteNumber(normalized.calories, 0)));
+  normalized.protein = Math.max(0, finiteNumber(normalized.protein, 0));
+  normalized.carbs = Math.max(0, finiteNumber(normalized.carbs, 0));
+  normalized.fat = Math.max(0, finiteNumber(normalized.fat, 0));
+  normalized.food_name = String(normalized.food_name || '未知食物').slice(0, 120);
+  return normalized;
+}
+
+function normalizeMealListForStorage(meals) {
+  return (Array.isArray(meals) ? meals : []).map(normalizeMealForStorage);
+}
+
+function mealChangedAtNow(meal) {
+  meal.updated_at = new Date().toISOString();
+  return meal;
+}
+
+function mealForServerSync(meal) {
+  const m = normalizeMealForStorage(meal);
+  return {
+    client_id: m.client_id,
+    session_id: m.session_id,
+    food_name: m.food_name,
+    calories: m.calories,
+    protein: m.protein,
+    carbs: m.carbs,
+    fat: m.fat,
+    weight: m.weight,
+    portion: m.portion,
+    created_at: m.created_at,
+    updated_at: m.updated_at
+  };
+}
+
+function buildDailySummaryPayload(dateStr) {
   const meals = MealStorage.getMeals();
   const exercises = ExerciseStorage.getExercises();
-  
+
   let total_calories = 0;
   let total_protein = 0;
   let total_carbs = 0;
   let total_fat = 0;
-  
+
   meals.forEach(m => {
-    let match = false;
-    if (m.created_at) {
-      match = m.created_at.startsWith(dateStr);
-    }
-    if (match) {
+    if (m.created_at && m.created_at.startsWith(dateStr)) {
       const portion = Math.max(0, finiteNumber(m.portion, 1.0));
       total_calories += Math.round(finiteNumber(m.calories, 0) * portion);
       total_protein += Math.round(finiteNumber(m.protein, 0) * portion);
@@ -1818,22 +1864,17 @@ async function syncDailySummary(dateStr) {
       total_fat += Math.round(finiteNumber(m.fat, 0) * portion);
     }
   });
-  
+
   let total_burn_calories = 0;
   let total_exercise_duration = 0;
-  
   exercises.forEach(ex => {
-    let match = false;
-    if (ex.created_at) {
-      match = ex.created_at.startsWith(dateStr);
-    }
-    if (match) {
+    if (ex.created_at && ex.created_at.startsWith(dateStr)) {
       total_burn_calories += Math.round(finiteNumber(ex.calories, 0));
       total_exercise_duration += Math.round(finiteNumber(ex.duration, 0));
     }
   });
-  
-  const payload = {
+
+  return {
     date: dateStr,
     total_calories,
     total_protein,
@@ -1842,7 +1883,13 @@ async function syncDailySummary(dateStr) {
     total_burn_calories,
     total_exercise_duration
   };
-  
+}
+
+async function syncDailySummary(dateStr) {
+  const user = getCurrentUser();
+  if (!user || user === 'guest' || user === 'anonymous' || user === 'local_user' || isLocalMode()) return;
+  const payload = buildDailySummaryPayload(dateStr);
+
   try {
     const res = await fetch(API_BASE + '/api/daily-summaries', {
       method: 'POST',
@@ -1868,48 +1915,55 @@ const MealStorage = {
   getMeals() {
     const user = getCurrentUser() || 'anonymous';
     const data = localStorage.getItem('meals_' + user);
-    return data ? JSON.parse(data) : [];
+    const rawMeals = data ? JSON.parse(data) : [];
+    const normalized = normalizeMealListForStorage(rawMeals);
+    if (JSON.stringify(rawMeals) !== JSON.stringify(normalized)) {
+      localStorage.setItem('meals_' + user, JSON.stringify(normalized));
+    }
+    return normalized;
   },
   saveMeals(meals) {
     const user = getCurrentUser() || 'anonymous';
-    localStorage.setItem('meals_' + user, JSON.stringify(meals));
+    localStorage.setItem('meals_' + user, JSON.stringify(normalizeMealListForStorage(meals)));
   },
   addMeals(newMeals) {
     const meals = this.getMeals();
-    newMeals.forEach(meal => {
-      if (!meal.id) meal.id = Date.now() + Math.random();
-      if (!meal.created_at) meal.created_at = new Date().toISOString();
-      meals.unshift(meal);
+    const normalizedNewMeals = newMeals.map(meal => {
+      const normalized = normalizeMealForStorage(mealChangedAtNow(meal));
+      meals.unshift(normalized);
+      return normalized;
     });
     this.saveMeals(meals);
-    
-    // Sync each affected date to server daily summaries
-    const dates = [...new Set(newMeals.map(m => m.created_at.split('T')[0]))];
-    dates.forEach(d => syncDailySummary(d));
+
+    // Meal detail sync is throttled and also carries daily summaries to save requests.
+    const dates = [...new Set(normalizedNewMeals.map(m => m.created_at.split('T')[0]))];
+    queueMealSync({ upserts: normalizedNewMeals, dates });
   },
   updateMealPortion(id, portion) {
     const meals = this.getMeals();
     const idx = meals.findIndex(m => m.id == id);
     if (idx !== -1) {
       meals[idx].portion = parseFloat(portion);
+      mealChangedAtNow(meals[idx]);
       this.saveMeals(meals);
-      
+
       const dateStr = meals[idx].created_at.split('T')[0];
-      syncDailySummary(dateStr);
+      queueMealSync({ upserts: [meals[idx]], dates: [dateStr] });
       return meals[idx];
     }
     return null;
   },
   deleteSession(sessionId) {
     let meals = this.getMeals();
-    const target = meals.find(m => mealSessionKey(m) === sessionId);
-    if (!target) return;
-    const dateStr = target.created_at.split('T')[0];
-    
+    const targets = meals.filter(m => mealSessionKey(m) === sessionId);
+    if (!targets.length) return;
+    const dates = [...new Set(targets.map(m => m.created_at?.split('T')[0]).filter(Boolean))];
+    const deletes = targets.map(m => m.client_id).filter(Boolean);
+
     meals = meals.filter(m => mealSessionKey(m) !== sessionId);
     this.saveMeals(meals);
-    
-    syncDailySummary(dateStr);
+
+    queueMealSync({ deletes, dates }, true);
   },
   getWeeklyReport() {
     const meals = this.getMeals();
@@ -2051,6 +2105,17 @@ function hideAuthOverlay() {
   overlay.style.display = 'none';
 }
 
+async function initializeSignedInSession() {
+  loadTargets();
+  applyTargets();
+  updateProfileUI();
+  switchTab('home');
+  if (canSyncUserData()) {
+    await syncMealRecordsFromServer();
+    syncRecentLocalMeals();
+  }
+}
+
 function toggleAuthMode() {
   authMode = (authMode === 'login') ? 'register' : 'login';
   const title = document.getElementById('authTitle');
@@ -2098,10 +2163,7 @@ async function handleAuthSubmit() {
       storageMode = 'server';
       localStorage.setItem('storageMode', 'server');
       hideAuthOverlay();
-      loadTargets();
-      applyTargets();
-      updateProfileUI();
-      switchTab('home');
+      await initializeSignedInSession();
     } else {
       errorEl.textContent = json.error || '操作失败';
       errorEl.classList.remove('hidden');
@@ -2123,7 +2185,8 @@ function loginAsGuest() {
   switchTab('home');
 }
 
-function logout() {
+async function logout() {
+  if (canSyncUserData()) await flushMealSyncQueue();
   localStorage.removeItem('currentUser');
   storageMode = 'local';
   localStorage.setItem('storageMode', 'local');
@@ -2226,6 +2289,139 @@ async function doAnalyze() {
     actionLocks.delete('analyze-food');
     document.getElementById('analyzeLoading').classList.add('hidden');
   }
+}
+
+function queueMealSync({ upserts = [], deletes = [], dates = [] } = {}, immediate = false) {
+  if (!canSyncUserData()) return;
+
+  upserts.forEach(meal => {
+    const normalized = normalizeMealForStorage(meal);
+    pendingMealDeletes.delete(normalized.client_id);
+    pendingMealUpserts.set(normalized.client_id, mealForServerSync(normalized));
+    if (normalized.created_at) pendingMealSummaryDates.add(normalized.created_at.split('T')[0]);
+  });
+
+  deletes.forEach(clientId => {
+    if (!clientId) return;
+    pendingMealUpserts.delete(clientId);
+    pendingMealDeletes.add(String(clientId));
+  });
+
+  dates.forEach(date => {
+    if (date) pendingMealSummaryDates.add(date);
+  });
+
+  if (mealSyncTimer) clearTimeout(mealSyncTimer);
+  mealSyncTimer = setTimeout(flushMealSyncQueue, immediate ? 0 : 3200);
+}
+
+async function flushMealSyncQueue() {
+  if (mealSyncTimer) {
+    clearTimeout(mealSyncTimer);
+    mealSyncTimer = null;
+  }
+  if (!canSyncUserData()) return;
+  if (mealSyncInFlight) {
+    mealSyncTimer = setTimeout(flushMealSyncQueue, 1200);
+    return;
+  }
+  const meals = Array.from(pendingMealUpserts.values());
+  const deleted_client_ids = Array.from(pendingMealDeletes.values());
+  const summaries = Array.from(pendingMealSummaryDates.values()).map(buildDailySummaryPayload);
+  if (!meals.length && !deleted_client_ids.length && !summaries.length) return;
+
+  pendingMealUpserts.clear();
+  pendingMealDeletes.clear();
+  pendingMealSummaryDates.clear();
+  mealSyncInFlight = true;
+  try {
+    const res = await fetch(API_BASE + '/api/meals/sync', {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ meals, deleted_client_ids, summaries })
+    });
+    if (!res.ok) {
+      const json = await res.json().catch(() => ({}));
+      throw new Error(json.error || '饮食同步失败');
+    }
+    console.log('Meal records synced:', { meals: meals.length, deleted: deleted_client_ids.length, summaries: summaries.length });
+  } catch (err) {
+    console.error('Failed to sync meal records:', err);
+    meals.forEach(meal => pendingMealUpserts.set(meal.client_id, meal));
+    deleted_client_ids.forEach(id => pendingMealDeletes.add(id));
+    summaries.forEach(summary => pendingMealSummaryDates.add(summary.date));
+    if (navigator.onLine) showToast('饮食记录稍后会自动重试同步', 'error');
+  } finally {
+    mealSyncInFlight = false;
+    if (pendingMealUpserts.size || pendingMealDeletes.size || pendingMealSummaryDates.size) {
+      mealSyncTimer = setTimeout(flushMealSyncQueue, 1200);
+    }
+  }
+}
+
+async function syncMealRecordsFromServer() {
+  if (!canSyncUserData()) return;
+  try {
+    const res = await fetch(API_BASE + '/api/meals/sync?limit=500', {
+      headers: getAuthHeaders()
+    });
+    const json = await res.json();
+    if (!res.ok || !json.success || !Array.isArray(json.data)) {
+      throw new Error(json.error || '无法获取云端饮食记录');
+    }
+
+    const localMeals = MealStorage.getMeals();
+    const byClientId = new Map(localMeals.map(meal => [meal.client_id, meal]));
+    let changed = false;
+
+    json.data.forEach((serverMeal, idx) => {
+      const incoming = normalizeMealForStorage({
+        ...serverMeal,
+        id: byClientId.get(serverMeal.client_id)?.id || ('srv_' + serverMeal.server_id + '_' + idx),
+        image_path: ''
+      });
+      const existing = byClientId.get(incoming.client_id);
+      if (!existing) {
+        localMeals.push(incoming);
+        changed = true;
+        return;
+      }
+      const incomingTime = new Date(incoming.updated_at || incoming.created_at).getTime();
+      const existingTime = new Date(existing.updated_at || existing.created_at).getTime();
+      if (Number.isFinite(incomingTime) && (!Number.isFinite(existingTime) || incomingTime > existingTime)) {
+        Object.assign(existing, incoming, { id: existing.id });
+        changed = true;
+      }
+    });
+
+    if (changed) {
+      MealStorage.saveMeals(localMeals);
+      await fetchTodayData();
+      fetchHistory();
+      fetchWeeklyReport();
+    }
+  } catch (err) {
+    console.error('Failed to load server meal records:', err);
+  }
+}
+
+function syncRecentLocalMeals(immediate = false) {
+  if (!canSyncUserData()) return;
+  const ninetyDaysAgo = new Date();
+  ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+  const recentMeals = MealStorage.getMeals()
+    .filter(meal => {
+      const d = new Date(meal.created_at);
+      return !Number.isFinite(d.getTime()) || d >= ninetyDaysAgo;
+    })
+    .sort((a, b) => {
+      const bt = new Date(b.updated_at || b.created_at).getTime();
+      const at = new Date(a.updated_at || a.created_at).getTime();
+      return (Number.isFinite(bt) ? bt : 0) - (Number.isFinite(at) ? at : 0);
+    })
+    .slice(0, 180);
+  const dates = [...new Set(recentMeals.map(meal => meal.created_at?.split('T')[0]).filter(Boolean))];
+  queueMealSync({ upserts: recentMeals, dates }, immediate);
 }
 
 function escapeHTML(value) {
@@ -2753,7 +2949,8 @@ async function saveEditedMeal() {
       protein: protein.value,
       carbs: carbs.value,
       fat: fat.value,
-      portion: 1.0
+      portion: 1.0,
+      updated_at: new Date().toISOString()
     });
   }
 
@@ -2764,11 +2961,11 @@ async function saveEditedMeal() {
       const edited = editedById.get(String(meal.id));
       if (!edited) return meal;
       if (meal.created_at) changedDates.add(meal.created_at.split('T')[0]);
-      return { ...meal, ...edited };
+      return normalizeMealForStorage({ ...meal, ...edited });
     });
 
     MealStorage.saveMeals(meals);
-    changedDates.forEach(date => syncDailySummary(date));
+    queueMealSync({ upserts: updated, dates: Array.from(changedDates) }, true);
     closeEditMealModal();
     await fetchTodayData();
     fetchWeeklyReport();
@@ -3736,8 +3933,15 @@ async function confirmDelete() {
 async function fetchWeeklyReport() {
   try {
     let report = [];
-    if (isLocalMode()) {
-      report = MealStorage.getWeeklyReport();
+    const localReport = MealStorage.getWeeklyReport();
+    const hasLocalWeeklyData = localReport.some(d =>
+      (d.total_calories || 0) > 0 ||
+      (d.total_protein || 0) > 0 ||
+      (d.total_burn_calories || 0) > 0 ||
+      (d.total_exercise_duration || 0) > 0
+    );
+    if (isLocalMode() || hasLocalWeeklyData) {
+      report = localReport;
     } else {
       try {
         const res = await fetch(API_BASE + '/api/report/weekly', {
@@ -4122,9 +4326,9 @@ function applyTargets() {
 function toggleStorageMode() {
   const user = getCurrentUser();
   if (!user || user === 'guest' || user === 'local_user' || user === 'anonymous') {
-    showToast('当前为游客离线模式。注册并登录后会自动开启云端汇总同步。', 'info');
+    showToast('当前为游客离线模式。注册并登录后会自动同步饮食记录和每日汇总。', 'info');
   } else {
-    showToast('云端汇总同步已开启，详细餐食和运动记录仍保存在本地设备。', 'info');
+    showToast('云端同步已开启：饮食明细会节流同步，图片仍只保存在本地以节省资源。', 'info');
   }
 }
 
@@ -4136,14 +4340,14 @@ async function updateProfileUI() {
   }
   const profileStorageMode = document.getElementById('profileStorageMode');
   if (profileStorageMode) {
-    profileStorageMode.textContent = isLocalMode() ? '数据存储模式: 本地离线' : '数据存储模式: 云端汇总同步';
+    profileStorageMode.textContent = isLocalMode() ? '数据存储模式: 本地离线' : '数据存储模式: 饮食与汇总同步';
   }
   const storageModeDisplay = document.getElementById('storageModeDisplay');
   if (storageModeDisplay) {
     storageModeDisplay.textContent = isLocalMode() ? '本地离线' : '已同步';
   }
   const profileModeShort = document.getElementById('profileModeShort');
-  if (profileModeShort) profileModeShort.textContent = isLocalMode() ? '本地离线' : '云端汇总';
+  if (profileModeShort) profileModeShort.textContent = isLocalMode() ? '本地离线' : '云端同步';
   const profileTargetSummary = document.getElementById('profileTargetSummary');
   if (profileTargetSummary) profileTargetSummary.textContent = `${calTarget.toLocaleString()} kcal / ${proTarget}g`;
 
@@ -4350,10 +4554,7 @@ function completeOnboarding() {
   if (!getCurrentUser()) {
     showAuthOverlay();
   } else {
-    loadTargets();
-    applyTargets();
-    updateProfileUI();
-    switchTab('home');
+    initializeSignedInSession();
   }
 }
 
@@ -4412,10 +4613,7 @@ document.addEventListener('DOMContentLoaded', () => {
   } else if (!getCurrentUser()) {
     showAuthOverlay();
   } else {
-    loadTargets();
-    applyTargets();
-    updateProfileUI();
-    switchTab('home');
+    initializeSignedInSession();
   }
 });
 </script>
