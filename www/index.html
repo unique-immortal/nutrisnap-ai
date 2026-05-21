@@ -186,7 +186,20 @@ html.dark .glass-header {
 }
 html.dark .glass-nav {
   background: rgba(12, 15, 13, 0.8) !important;
+  padding-bottom: calc(4px + env(safe-area-inset-bottom)) !important;
 }
+
+.preset-pill {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.muscle-pill { white-space: nowrap !important; }
+
+html.dark .surface-panel { box-shadow: 0 2px 8px rgba(0,0,0,0.6) !important; }
+html.dark .modal-panel { box-shadow: 0 8px 24px rgba(0,0,0,0.6) !important; }
 
 /* Premium micro-interactions */
 .card-premium {
@@ -936,10 +949,10 @@ html.dark .onboarding-slide:nth-child(3) {
     </div>
 
     <div class="flex flex-wrap gap-2 mb-4">
-      <button type="button" onclick="fillManualFoodPreset('米饭', 200, 4, 44, 0, 150)" class="px-3 py-1.5 rounded-full bg-surface-container text-xs text-on-surface border border-outline-variant">米饭</button>
-      <button type="button" onclick="fillManualFoodPreset('鸡胸肉', 165, 31, 0, 4, 100)" class="px-3 py-1.5 rounded-full bg-surface-container text-xs text-on-surface border border-outline-variant">鸡胸肉</button>
-      <button type="button" onclick="fillManualFoodPreset('鸡蛋', 78, 6, 1, 5, 50)" class="px-3 py-1.5 rounded-full bg-surface-container text-xs text-on-surface border border-outline-variant">鸡蛋</button>
-      <button type="button" onclick="fillManualFoodPreset('苹果', 95, 0, 25, 0, 180)" class="px-3 py-1.5 rounded-full bg-surface-container text-xs text-on-surface border border-outline-variant">苹果</button>
+      <button type="button" onclick="fillManualFoodPreset('米饭', 200, 4, 44, 0, 150)" class="preset-pill px-3 py-1.5 rounded-full bg-surface-container text-xs text-on-surface border border-outline-variant">米饭</button>
+      <button type="button" onclick="fillManualFoodPreset('鸡胸肉', 165, 31, 0, 4, 100)" class="preset-pill px-3 py-1.5 rounded-full bg-surface-container text-xs text-on-surface border border-outline-variant">鸡胸肉</button>
+      <button type="button" onclick="fillManualFoodPreset('鸡蛋', 78, 6, 1, 5, 50)" class="preset-pill px-3 py-1.5 rounded-full bg-surface-container text-xs text-on-surface border border-outline-variant">鸡蛋</button>
+      <button type="button" onclick="fillManualFoodPreset('苹果', 95, 0, 25, 0, 180)" class="preset-pill px-3 py-1.5 rounded-full bg-surface-container text-xs text-on-surface border border-outline-variant">苹果</button>
     </div>
 
     <div class="flex flex-col gap-3">
@@ -1582,6 +1595,33 @@ html.dark .onboarding-slide:nth-child(3) {
 <script>
 // ===================== CONFIG =====================
 const API_BASE = "https://nutrisnap-ai-940406235442.us-central1.run.app";
+
+async function safeFetchJSON(url, options = {}) {
+  const response = await fetch(url, options);
+  if (!response.ok) {
+    let errMsg = `HTTP error! status: ${response.status}`;
+    try {
+      const contentType = response.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        const errJson = await response.json();
+        if (errJson && errJson.error) {
+          errMsg = errJson.error;
+        } else if (errJson && errJson.message) {
+          errMsg = errJson.message;
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
+    throw new Error(errMsg);
+  }
+  const contentType = response.headers.get('content-type') || '';
+  if (!contentType.includes('application/json')) {
+    throw new Error('\u670d\u52a1\u5668\u8fd4\u56de\u4e86\u975e JSON \u683c\u5f0f\u7684\u54cd\u5e94\uff0c\u8bf7\u7a0d\u540e\u518d\u8bd5');
+  }
+  return await response.json();
+}
+
 let selectedFile = null;
 let calTarget = 2000;
 let proTarget = 120;
@@ -1613,24 +1653,24 @@ function showToast(message, type = 'info') {
   toastTimer = setTimeout(() => toast.classList.remove('show'), 3200);
 }
 
-function normalizeErrorMessage(err, fallback = '操作失败，请稍后再试') {
+function normalizeErrorMessage(err, fallback = '\u64cd\u4f5c\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u518d\u8bd5') {
   const msg = err && err.message ? err.message : String(err || '');
-  if (!navigator.onLine || /failed to fetch|network|load failed|请求失败/i.test(msg)) {
-    return '网络连接异常，请检查网络后重试';
+  if (!navigator.onLine || /failed to fetch|network|load failed|\u8bf7\u6c42\u5931\u8d25/i.test(msg)) {
+    return '\u7f51\u7edc\u8fde\u63a5\u5f02\u5e38\uff0c\u8bf7\u68c0\u67e5\u7f51\u7edc\u540e\u91cd\u8bd5';
   }
   return msg || fallback;
 }
 
 window.addEventListener('unhandledrejection', event => {
   console.error('Unhandled promise rejection:', event.reason);
-  showToast(normalizeErrorMessage(event.reason, '请求失败，请稍后再试'), 'error');
+  showToast(normalizeErrorMessage(event.reason, '\u8bf7\u6c42\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u518d\u8bd5'), 'error');
   event.preventDefault();
 });
 
-window.addEventListener('offline', () => showToast('当前已离线，AI 分析和同步会暂时不可用', 'error'));
-window.addEventListener('online', () => showToast('网络已恢复', 'success'));
+window.addEventListener('offline', () => showToast('\u5f53\u524d\u5df2\u79bb\u7ebf\uff0cAI \u5206\u6790\u548c\u540c\u6b65\u4f1a\u6682\u65f6\u4e0d\u53ef\u7528', 'error'));
+window.addEventListener('online', () => showToast('\u7f51\u7edc\u5df2\u6062\u590d', 'success'));
 
-async function withActionLock(key, buttonOrId, work, loadingText = '处理中...') {
+async function withActionLock(key, buttonOrId, work, loadingText = '\u5904\u7406\u4e2d...') {
   if (actionLocks.has(key)) return null;
   actionLocks.add(key);
   const btn = typeof buttonOrId === 'string' ? document.getElementById(buttonOrId) : buttonOrId;
@@ -1644,6 +1684,8 @@ async function withActionLock(key, buttonOrId, work, loadingText = '处理中...
   try {
     return await work();
   } finally {
+    // 300ms debounce to prevent double-click race conditions
+    await new Promise(r => setTimeout(r, 300));
     actionLocks.delete(key);
     if (btn) {
       btn.disabled = oldDisabled;
@@ -1671,21 +1713,27 @@ function readNumberField(id, options = {}) {
       return { ok: true, value: options.defaultValue };
     }
     markFieldInvalid(id, true);
-    return { ok: false, message: `请填写${label}` };
+    return { ok: false, message: `\u8bf7\u586b\u5199${label}` };
+  }
+  // Validate input format to block SQL injection and malformed payloads
+  const pattern = options.integer ? /^\d+$/ : /^\d+(\.\d+)?$/;
+  if (!pattern.test(raw)) {
+    markFieldInvalid(id, true);
+    return { ok: false, message: `${label}\u5fc5\u987b\u662f\u6709\u6548\u6570\u5b57` };
   }
   value = Number(raw);
   if (!Number.isFinite(value)) {
     markFieldInvalid(id, true);
-    return { ok: false, message: `${label}必须是有效数字` };
+    return { ok: false, message: `${label}\u5fc5\u987b\u662f\u6709\u6548\u6570\u5b57` };
   }
   if (options.integer) value = Math.round(value);
   if (typeof options.min === 'number' && value < options.min) {
     markFieldInvalid(id, true);
-    return { ok: false, message: `${label}不能小于 ${options.min}` };
+    return { ok: false, message: `${label}\u4e0d\u80fd\u5c0f\u4e8e ${options.min}` };
   }
   if (typeof options.max === 'number' && value > options.max) {
     markFieldInvalid(id, true);
-    return { ok: false, message: `${label}不能大于 ${options.max}` };
+    return { ok: false, message: `${label}\u4e0d\u80fd\u5927\u4e8e ${options.max}` };
   }
   markFieldInvalid(id, false);
   return { ok: true, value };
@@ -1816,7 +1864,7 @@ function normalizeMealForStorage(meal) {
   normalized.protein = Math.max(0, finiteNumber(normalized.protein, 0));
   normalized.carbs = Math.max(0, finiteNumber(normalized.carbs, 0));
   normalized.fat = Math.max(0, finiteNumber(normalized.fat, 0));
-  normalized.food_name = String(normalized.food_name || '未知食物').slice(0, 120);
+  normalized.food_name = String(normalized.food_name || '\u672a\u77e5\u98df\u7269').slice(0, 120);
   return normalized;
 }
 
@@ -1891,7 +1939,7 @@ async function syncDailySummary(dateStr) {
   const payload = buildDailySummaryPayload(dateStr);
 
   try {
-    const res = await fetch(API_BASE + '/api/daily-summaries', {
+    await safeFetchJSON(API_BASE + '/api/daily-summaries', {
       method: 'POST',
       headers: getAuthHeaders(),
       body: JSON.stringify(payload)
@@ -2091,12 +2139,18 @@ const ExerciseStorage = {
 let authMode = 'login';
 
 function showAuthOverlay() {
+  authMode = 'login';
   const overlay = document.getElementById('loginOverlay');
   overlay.classList.remove('hidden');
   overlay.style.display = 'flex';
   document.getElementById('authUsername').value = '';
   document.getElementById('authPassword').value = '';
   document.getElementById('authError').classList.add('hidden');
+  // Reset UI to login state
+  document.getElementById('authTitle').textContent = '\u6b22\u8fce\u56de\u6765';
+  document.getElementById('authSubtitle').textContent = '\u62cd\u7167\u8bb0\u5f55\u996e\u98df\uff0c\u81ea\u52a8\u5206\u6790\u70ed\u91cf\u4e0e\u8425\u517b';
+  document.getElementById('authPrimaryBtn').querySelector('span').textContent = '\u767b\u5f55';
+  document.getElementById('authToggleBtn').textContent = '\u6ca1\u6709\u8d26\u53f7\uff1f\u7acb\u5373\u6ce8\u518c';
 }
 
 function hideAuthOverlay() {
@@ -2124,15 +2178,15 @@ function toggleAuthMode() {
   const toggleBtn = document.getElementById('authToggleBtn');
   
   if (authMode === 'register') {
-    title.textContent = '创建账号';
-    subtitle.textContent = '拍照记录饮食，自动分析热量与营养';
-    primaryBtn.querySelector('span').textContent = '注册';
-    toggleBtn.textContent = '已有账号？立即登录';
+    title.textContent = '\u521b\u5efa\u8d26\u53f7';
+    subtitle.textContent = '\u62cd\u7167\u8bb0\u5f55\u996e\u98df\uff0c\u81ea\u52a8\u5206\u6790\u70ed\u91cf\u4e0e\u8425\u517b';
+    primaryBtn.querySelector('span').textContent = '\u6ce8\u518c';
+    toggleBtn.textContent = '\u5df2\u6709\u8d26\u53f7\uff1f\u7acb\u5373\u767b\u5f55';
   } else {
-    title.textContent = '欢迎回来';
-    subtitle.textContent = '拍照记录饮食，自动分析热量与营养';
-    primaryBtn.querySelector('span').textContent = '登录';
-    toggleBtn.textContent = '没有账号？立即注册';
+    title.textContent = '\u6b22\u8fce\u56de\u6765';
+    subtitle.textContent = '\u62cd\u7167\u8bb0\u5f55\u996e\u98df\uff0c\u81ea\u52a8\u5206\u6790\u70ed\u91cf\u4e0e\u8425\u517b';
+    primaryBtn.querySelector('span').textContent = '\u767b\u5f55';
+    toggleBtn.textContent = '\u6ca1\u6709\u8d26\u53f7\uff1f\u7acb\u5373\u6ce8\u518c';
   }
   document.getElementById('authError').classList.add('hidden');
 }
@@ -2143,7 +2197,7 @@ async function handleAuthSubmit() {
   const errorEl = document.getElementById('authError');
   
   if (!username || !password) {
-    errorEl.textContent = '用户名和密码不能为空';
+    errorEl.textContent = '\u7528\u6237\u540d\u548c\u5bc6\u7801\u4e0d\u80fd\u4e3a\u7a7a';
     errorEl.classList.remove('hidden');
     return;
   }
@@ -2152,24 +2206,23 @@ async function handleAuthSubmit() {
   const endpoint = authMode === 'login' ? '/api/login' : '/api/register';
 
   await withActionLock('auth-submit', 'authPrimaryBtn', async () => {
-    const res = await fetch(API_BASE + endpoint, {
+    const json = await safeFetchJSON(API_BASE + endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password })
     });
-    const json = await res.json();
-    if (res.ok && json.success) {
+    if (json.success) {
       localStorage.setItem('currentUser', json.username || username);
       storageMode = 'server';
       localStorage.setItem('storageMode', 'server');
       hideAuthOverlay();
       await initializeSignedInSession();
     } else {
-      errorEl.textContent = json.error || '操作失败';
+      errorEl.textContent = json.error || '\u64cd\u4f5c\u5931\u8d25';
       errorEl.classList.remove('hidden');
     }
-  }, authMode === 'login' ? '登录中...' : '注册中...').catch(err => {
-    errorEl.textContent = normalizeErrorMessage(err, '网络错误，请稍后再试');
+  }, authMode === 'login' ? '\u767b\u5f55\u4e2d...' : '\u6ce8\u518c\u4e2d...').catch(err => {
+    errorEl.textContent = normalizeErrorMessage(err, '\u7f51\u7edc\u9519\u8bef\uff0c\u8bf7\u7a0d\u540e\u518d\u8bd5');
     errorEl.classList.remove('hidden');
   });
 }
@@ -2270,20 +2323,19 @@ async function doAnalyze() {
   }
   
   try {
-    const res = await fetch(API_BASE + '/api/analyze', { 
+    const json = await safeFetchJSON(API_BASE + '/api/analyze', { 
       method: 'POST', 
       headers: headers,
       body: fd 
     });
-    const json = await res.json();
-    if (res.ok && json.success) {
+    if (json.success) {
       showResult(json);
     } else {
-      showManualFoodModal(json.error || 'AI 未识别到食物，可以手动补录');
+      showManualFoodModal(json.error || 'AI \u672a\u8bc6\u522b\u5230\u98df\u7269\uff0c\u53ef\u4ee5\u624b\u52a8\u8865\u5f55');
       setAnalyzeButtonReady(true);
     }
   } catch (err) {
-    showToast(normalizeErrorMessage(err, 'AI 分析请求失败，请稍后再试'), 'error');
+    showToast(normalizeErrorMessage(err, 'AI \u5206\u6790\u8bf7\u6c42\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u518d\u8bd5'), 'error');
     setAnalyzeButtonReady(true);
   } finally {
     actionLocks.delete('analyze-food');
@@ -2335,22 +2387,18 @@ async function flushMealSyncQueue() {
   pendingMealSummaryDates.clear();
   mealSyncInFlight = true;
   try {
-    const res = await fetch(API_BASE + '/api/meals/sync', {
+    await safeFetchJSON(API_BASE + '/api/meals/sync', {
       method: 'POST',
       headers: getAuthHeaders(),
       body: JSON.stringify({ meals, deleted_client_ids, summaries })
     });
-    if (!res.ok) {
-      const json = await res.json().catch(() => ({}));
-      throw new Error(json.error || '饮食同步失败');
-    }
     console.log('Meal records synced:', { meals: meals.length, deleted: deleted_client_ids.length, summaries: summaries.length });
   } catch (err) {
     console.error('Failed to sync meal records:', err);
     meals.forEach(meal => pendingMealUpserts.set(meal.client_id, meal));
     deleted_client_ids.forEach(id => pendingMealDeletes.add(id));
     summaries.forEach(summary => pendingMealSummaryDates.add(summary.date));
-    if (navigator.onLine) showToast('饮食记录稍后会自动重试同步', 'error');
+    if (navigator.onLine) showToast('\u996e\u98df\u8bb0\u5f55\u7a0d\u540e\u4f1a\u81ea\u52a8\u91cd\u8bd5\u540c\u6b65', 'error');
   } finally {
     mealSyncInFlight = false;
     if (pendingMealUpserts.size || pendingMealDeletes.size || pendingMealSummaryDates.size) {
@@ -2362,12 +2410,11 @@ async function flushMealSyncQueue() {
 async function syncMealRecordsFromServer() {
   if (!canSyncUserData()) return;
   try {
-    const res = await fetch(API_BASE + '/api/meals/sync?limit=500', {
+    const json = await safeFetchJSON(API_BASE + '/api/meals/sync?limit=500', {
       headers: getAuthHeaders()
     });
-    const json = await res.json();
-    if (!res.ok || !json.success || !Array.isArray(json.data)) {
-      throw new Error(json.error || '无法获取云端饮食记录');
+    if (!json.success || !Array.isArray(json.data)) {
+      throw new Error(json.error || '\u65e0\u6cd5\u83b7\u53d6\u4e91\u7aef\u996e\u98df\u8bb0\u5f55');
     }
 
     const localMeals = MealStorage.getMeals();
@@ -2463,7 +2510,7 @@ function showResult(json) {
   if (isVoiceInputFlow) {
     document.getElementById('resultImgContainer').classList.add('hidden');
     document.getElementById('resultVoiceContainer').classList.remove('hidden');
-    document.getElementById('resultVoiceText').textContent = voiceTextForDisplay ? `“ ${voiceTextForDisplay} ”` : "语音记录分析";
+    document.getElementById('resultVoiceText').textContent = voiceTextForDisplay ? `\u201c ${voiceTextForDisplay} \u201d` : "\u8bed\u97f3\u8bb0\u5f55\u5206\u6790";
   } else if (json.source === 'manual') {
     document.getElementById('resultImgContainer').classList.add('hidden');
     document.getElementById('resultVoiceContainer').classList.add('hidden');
@@ -2520,15 +2567,15 @@ function renderPendingResult() {
     const initialPortion = f.portion || 1.0;
     const initialWeight = Math.round(origWeight * initialPortion);
     const per100 = origWeight > 0 ? Math.round(f.calories / (origWeight / 100)) : Math.round(f.calories);
-    const safeName = escapeHTML(f.food_name || '未命名食物');
+    const safeName = escapeHTML(f.food_name || '\u672a\u547d\u540d\u98df\u7269');
     
     html += `
       <div class="surface-panel p-stack-md flex flex-col gap-4" id="pending-food-${f.id}">
         <div class="flex justify-between items-start">
           <div>
-            <p class="font-label-md text-label-md text-primary">食物 ${i + 1}</p>
+            <p class="font-label-md text-label-md text-primary">\u98df\u7269 ${i + 1}</p>
             <h3 class="font-headline-md text-headline-md text-on-background font-semibold">${safeName}</h3>
-            <p class="font-label-md text-label-md text-outline">每 100g 约 ${per100} kcal</p>
+            <p class="font-label-md text-label-md text-outline">\u6bcf 100g \u7ea6 ${per100} kcal</p>
           </div>
           <div class="text-right">
             <span class="font-stats-xl text-stats-xl text-primary font-extrabold"><span id="adjCal-${f.id}">${Math.round(f.calories * initialPortion)}</span></span>
@@ -2539,15 +2586,15 @@ function renderPendingResult() {
         <!-- Macro Grid -->
         <div class="grid grid-cols-3 gap-2 bg-surface-container p-2.5 rounded-xl border border-outline-variant/20">
           <div class="text-center">
-            <span class="block text-[11px] font-bold text-outline uppercase tracking-wider">蛋白质</span>
+            <span class="block text-[11px] font-bold text-outline uppercase tracking-wider">\u86cb\u767d\u8d28</span>
             <span class="font-headline-md text-headline-md text-on-background font-bold" id="adjPro-${f.id}">${Math.round(f.protein * initialPortion)}</span><span class="text-xs text-outline">g</span>
           </div>
           <div class="text-center border-x border-outline-variant/30">
-            <span class="block text-[11px] font-bold text-outline uppercase tracking-wider">碳水</span>
+            <span class="block text-[11px] font-bold text-outline uppercase tracking-wider">\u78b3\u6c34</span>
             <span class="font-headline-md text-headline-md text-on-background font-bold" id="adjCarbs-${f.id}">${Math.round(f.carbs * initialPortion)}</span><span class="text-xs text-outline">g</span>
           </div>
           <div class="text-center">
-            <span class="block text-[11px] font-bold text-outline uppercase tracking-wider">脂肪</span>
+            <span class="block text-[11px] font-bold text-outline uppercase tracking-wider">\u8102\u80aa</span>
             <span class="font-headline-md text-headline-md text-on-background font-bold" id="adjFat-${f.id}">${Math.round(f.fat * initialPortion)}</span><span class="text-xs text-outline">g</span>
           </div>
         </div>
@@ -2555,12 +2602,12 @@ function renderPendingResult() {
         <!-- Elegant Portion Selector -->
         <div class="flex flex-col gap-3 mt-1 pt-3 border-t border-outline-variant/20">
           <div class="flex justify-between items-center">
-            <span class="font-label-md text-label-md text-outline font-semibold">修改食用量</span>
+            <span class="font-label-md text-label-md text-outline font-semibold">\u4fee\u6539\u98df\u7528\u91cf</span>
             
             <div class="flex items-center gap-1.5 bg-surface-container rounded-full p-1 border border-outline-variant/30 shadow-inner">
               <!-- Decrease button -->
               <button onclick="changePortionStep('${f.id}', -0.25, ${f.calories}, ${f.protein}, ${f.carbs}, ${f.fat}, ${origWeight})" 
-                      class="w-7 h-7 rounded-full bg-surface-container-high hover:bg-surface-variant active:scale-90 flex items-center justify-center text-on-surface transition-all select-none" title="−${Math.round(origWeight * 0.25)}g">
+                      class="w-7 h-7 rounded-full bg-surface-container-high hover:bg-surface-variant active:scale-90 flex items-center justify-center text-on-surface transition-all select-none" title="\u2212${Math.round(origWeight * 0.25)}g">
                 <span class="material-symbols-outlined text-sm font-bold">remove</span>
               </button>
               
@@ -2588,22 +2635,22 @@ function renderPendingResult() {
               onchange="savePortion('${f.id}', this.value)">
             <span class="font-label-md text-label-md text-primary font-bold min-w-[42px] text-right" id="portionLabel-${f.id}">${initialPortion.toFixed(2)}x</span>
           </div>
-          <button onclick="deletePendingFood('${f.id}')" class="self-end text-xs text-outline hover:text-error px-3 py-2 rounded-full hover:bg-error-container transition-colors touch-target">删除此食物</button>
+          <button onclick="deletePendingFood('${f.id}')" class="self-end text-xs text-outline hover:text-error px-3 py-2 rounded-full hover:bg-error-container transition-colors touch-target">\u5220\u9664\u6b64\u98df\u7269</button>
         </div>
       </div>`;
   });
 
   // Render exercises
   exercises.forEach((ex, i) => {
-    const safeName = escapeHTML(ex.exercise_name || '运动记录');
+    const safeName = escapeHTML(ex.exercise_name || '\u8fd0\u52a8\u8bb0\u5f55');
     const safeMuscles = escapeHTML(ex.target_muscles || '');
     html += `
       <div class="surface-panel p-stack-md flex flex-col gap-3 relative overflow-hidden">
         <div class="absolute left-0 top-0 bottom-0 w-1.5 bg-gradient-to-b from-[#d97706] to-[#0f5238]"></div>
         <div class="flex justify-between items-start pl-1.5">
           <div>
-            <h3 class="font-headline-md text-headline-md text-on-background font-bold">${safeName} (运动)</h3>
-            <p class="font-label-md text-label-md text-outline">时长 ${ex.duration} 分钟 ${safeMuscles ? `· 目标肌群: ${safeMuscles}` : ''}</p>
+            <h3 class="font-headline-md text-headline-md text-on-background font-bold">${safeName} (\u8fd0\u52a8)</h3>
+            <p class="font-label-md text-label-md text-outline">\u65f6\u957f ${ex.duration} \u5206\u949f ${safeMuscles ? `\u00b7 \u76ee\u6807\u808c\u7fa4: ${safeMuscles}` : ''}</p>
           </div>
           <div class="text-right">
             <span class="font-stats-xl text-stats-xl text-primary font-extrabold">${ex.calories}</span>
@@ -2617,9 +2664,9 @@ function renderPendingResult() {
     html = `
       <div class="empty-state text-center">
         <span class="material-symbols-outlined text-4xl text-outline">playlist_remove</span>
-        <h3 class="font-headline-md text-headline-md text-on-background mt-2">当前没有可确认的记录</h3>
-        <p class="text-sm text-on-surface-variant mt-1">你可以返回重新拍照，或使用手动补录添加食物。</p>
-        <button onclick="showManualFoodModal('当前结果为空，可手动补录一项食物。')" class="mt-4 bg-primary text-on-primary rounded-xl px-4 py-3 font-semibold touch-target">手动补录</button>
+        <h3 class="font-headline-md text-headline-md text-on-background mt-2">\u5f53\u524d\u6ca1\u6709\u53ef\u786e\u8ba4\u7684\u8bb0\u5f55</h3>
+        <p class="text-sm text-on-surface-variant mt-1">\u4f60\u53ef\u4ee5\u8fd4\u56de\u91cd\u65b0\u62cd\u7167\uff0c\u6216\u4f7f\u7528\u624b\u52a8\u8865\u5f55\u6dfb\u52a0\u98df\u7269\u3002</p>
+        <button onclick="showManualFoodModal('\u5f53\u524d\u7ed3\u679c\u4e3a\u7a7a\uff0c\u53ef\u624b\u52a8\u8865\u5f55\u4e00\u9879\u98df\u7269\u3002')" class="mt-4 bg-primary text-on-primary rounded-xl px-4 py-3 font-semibold touch-target">\u624b\u52a8\u8865\u5f55</button>
       </div>`;
   }
 
@@ -2630,7 +2677,7 @@ function renderPendingResult() {
     const totalBurn = exercises.reduce((acc, ex) => acc + (ex.calories || 0), 0);
     const notice = document.createElement('div');
     notice.className = "mt-4 text-right text-xs font-semibold text-primary";
-    notice.innerHTML = `已同步记录 ${exercises.length} 项运动，共消耗 ${totalBurn} kcal`;
+    notice.innerHTML = `\u5df2\u540c\u6b65\u8bb0\u5f55 ${exercises.length} \u9879\u8fd0\u52a8\uff0c\u5171\u6d88\u8017 ${totalBurn} kcal`;
     document.getElementById('resultFoods').appendChild(notice);
   }
 
@@ -2657,8 +2704,8 @@ async function confirmResult() {
     await fetchTodayData();
     fetchWeeklyReport();
     fetchAISuggestions();
-    showToast('记录已保存', 'success');
-  }, '保存中...');
+    showToast('\u8bb0\u5f55\u5df2\u4fdd\u5b58', 'success');
+  }, '\u4fdd\u5b58\u4e2d...');
 }
 
 function onSliderInput(id, portion, origCal, origPro, origCarbs, origFat, origWeight) {
@@ -2769,7 +2816,7 @@ function resetScan() {
 
 function showManualFoodModal(reason) {
   const modal = document.getElementById('manualFoodModal');
-  document.getElementById('manualFoodReason').textContent = reason || 'AI 未识别到食物时，可手动补录。';
+  document.getElementById('manualFoodReason').textContent = reason || 'AI \u672a\u8bc6\u522b\u5230\u98df\u7269\u65f6\uff0c\u53ef\u624b\u52a8\u8865\u5f55\u3002';
   ['manualFoodName', 'manualFoodWeight', 'manualFoodCalories', 'manualFoodProtein', 'manualFoodCarbs', 'manualFoodFat'].forEach(id => {
     document.getElementById(id).value = '';
   });
@@ -2793,55 +2840,54 @@ function fillManualFoodPreset(name, calories, protein, carbs, fat, weight) {
   document.getElementById('manualFoodWeight').value = weight;
 }
 
-function saveManualFood() {
-  if (actionLocks.has('manual-food-save')) return;
-  const name = document.getElementById('manualFoodName').value.trim();
+async function saveManualFood() {
+  await withActionLock('manual-food-save', 'btnManualFoodSave', async () => {
+    const name = document.getElementById('manualFoodName').value.trim();
 
-  if (!name) {
-    showToast('请输入食物名称', 'error');
-    return;
-  }
-  const caloriesResult = readNumberField('manualFoodCalories', { label: '热量', min: 0, max: 5000, integer: true });
-  const weightResult = readNumberField('manualFoodWeight', { label: '重量', min: 1, max: 2000, integer: true });
-  const proteinResult = readNumberField('manualFoodProtein', { label: '蛋白质', min: 0, max: 300, defaultValue: 0, required: false });
-  const carbsResult = readNumberField('manualFoodCarbs', { label: '碳水', min: 0, max: 500, defaultValue: 0, required: false });
-  const fatResult = readNumberField('manualFoodFat', { label: '脂肪', min: 0, max: 300, defaultValue: 0, required: false });
-  for (const result of [caloriesResult, weightResult, proteinResult, carbsResult, fatResult]) {
-    if (!validOrToast(result)) return;
-  }
-  const calories = caloriesResult.value;
-  const weight = weightResult.value;
-  const protein = proteinResult.value;
-  const carbs = carbsResult.value;
-  const fat = fatResult.value;
+    if (!name) {
+      showToast('\u8bf7\u8f93\u5165\u98df\u7269\u540d\u79f0', 'error');
+      return;
+    }
+    const caloriesResult = readNumberField('manualFoodCalories', { label: '\u70ed\u91cf', min: 0, max: 5000, integer: true });
+    const weightResult = readNumberField('manualFoodWeight', { label: '\u91cd\u91cf', min: 1, max: 2000, integer: true });
+    const proteinResult = readNumberField('manualFoodProtein', { label: '\u86cb\u767d\u8d28', min: 0, max: 300, defaultValue: 0, required: false });
+    const carbsResult = readNumberField('manualFoodCarbs', { label: '\u78b3\u6c34', min: 0, max: 500, defaultValue: 0, required: false });
+    const fatResult = readNumberField('manualFoodFat', { label: '\u8102\u80aa', min: 0, max: 300, defaultValue: 0, required: false });
+    for (const result of [caloriesResult, weightResult, proteinResult, carbsResult, fatResult]) {
+      if (!validOrToast(result)) return;
+    }
+    const calories = caloriesResult.value;
+    const weight = weightResult.value;
+    const protein = proteinResult.value;
+    const carbs = carbsResult.value;
+    const fat = fatResult.value;
 
-  actionLocks.add('manual-food-save');
-  closeManualFoodModal();
-  isVoiceInputFlow = false;
-  showResult({
-    success: true,
-    source: 'manual',
-    session_id: 'manual_' + Date.now(),
-    foods: [{
-      id: Date.now(),
-      food_name: name,
-      calories,
-      protein,
-      carbs,
-      fat,
-      weight,
-      portion: 1.0
-    }],
-    image_url: ''
+    closeManualFoodModal();
+    isVoiceInputFlow = false;
+    showResult({
+      success: true,
+      source: 'manual',
+      session_id: 'manual_' + Date.now(),
+      foods: [{
+        id: Date.now(),
+        food_name: name,
+        calories,
+        protein,
+        carbs,
+        fat,
+        weight,
+        portion: 1.0
+      }],
+      image_url: ''
+    });
   });
-  actionLocks.delete('manual-food-save');
 }
 
 function openEditMealModal(sessionId) {
   const meals = MealStorage.getMeals();
   const items = meals.filter(m => mealSessionKey(m) === sessionId);
   if (!items.length) {
-    showToast('没有找到这组饮食记录', 'error');
+    showToast('\u6ca1\u6709\u627e\u5230\u8fd9\u7ec4\u996e\u98df\u8bb0\u5f55', 'error');
     return;
   }
 
@@ -2849,7 +2895,7 @@ function openEditMealModal(sessionId) {
   editingMealItems = items.map(item => ({ ...item }));
   const modal = document.getElementById('editMealModal');
   const title = document.getElementById('editMealTitle');
-  if (title) title.textContent = items.length > 1 ? `编辑这餐 · ${items.length} 种食物` : '编辑饮食记录';
+  if (title) title.textContent = items.length > 1 ? `\u7f16\u8f91\u8fd9\u9910 \u00b7 ${items.length} \u79cd\u98df\u7269` : '\u7f16\u8f91\u996e\u98df\u8bb0\u5f55';
   renderEditMealItems();
   modal.classList.remove('hidden');
   modal.style.display = 'flex';
@@ -2873,35 +2919,35 @@ function renderEditMealItems() {
               <span class="material-symbols-outlined text-[20px]">restaurant</span>
             </div>
             <div class="min-w-0">
-              <p class="text-xs text-on-surface-variant">食物 ${idx + 1}</p>
-              <p class="font-semibold text-on-background truncate">${name || '未命名食物'}</p>
+              <p class="text-xs text-on-surface-variant">\u98df\u7269 ${idx + 1}</p>
+              <p class="font-semibold text-on-background truncate">${name || '\u672a\u547d\u540d\u98df\u7269'}</p>
             </div>
           </div>
           <span class="status-pill">${calories} kcal</span>
         </div>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <label class="flex flex-col gap-1">
-            <span class="text-xs text-on-surface-variant font-semibold">食物名称</span>
+            <span class="text-xs text-on-surface-variant font-semibold">\u98df\u7269\u540d\u79f0</span>
             <input id="editMealName-${idx}" type="text" value="${name}" class="w-full bg-surface-container rounded-xl px-4 py-3 text-body-md text-on-background border border-outline-variant focus:border-primary focus:outline-none" />
           </label>
           <label class="flex flex-col gap-1">
-            <span class="text-xs text-on-surface-variant font-semibold">重量 (g)</span>
+            <span class="text-xs text-on-surface-variant font-semibold">\u91cd\u91cf (g)</span>
             <input id="editMealWeight-${idx}" type="number" min="1" max="2000" inputmode="numeric" value="${weight}" class="w-full bg-surface-container rounded-xl px-4 py-3 text-body-md text-on-background border border-outline-variant focus:border-primary focus:outline-none" />
           </label>
           <label class="flex flex-col gap-1">
-            <span class="text-xs text-on-surface-variant font-semibold">热量 (kcal)</span>
+            <span class="text-xs text-on-surface-variant font-semibold">\u70ed\u91cf (kcal)</span>
             <input id="editMealCalories-${idx}" type="number" min="0" max="5000" inputmode="numeric" value="${calories}" class="w-full bg-surface-container rounded-xl px-4 py-3 text-body-md text-on-background border border-outline-variant focus:border-primary focus:outline-none" />
           </label>
           <label class="flex flex-col gap-1">
-            <span class="text-xs text-on-surface-variant font-semibold">蛋白质 (g)</span>
+            <span class="text-xs text-on-surface-variant font-semibold">\u86cb\u767d\u8d28 (g)</span>
             <input id="editMealProtein-${idx}" type="number" min="0" max="300" step="0.1" value="${protein}" class="w-full bg-surface-container rounded-xl px-4 py-3 text-body-md text-on-background border border-outline-variant focus:border-primary focus:outline-none" />
           </label>
           <label class="flex flex-col gap-1">
-            <span class="text-xs text-on-surface-variant font-semibold">碳水 (g)</span>
+            <span class="text-xs text-on-surface-variant font-semibold">\u78b3\u6c34 (g)</span>
             <input id="editMealCarbs-${idx}" type="number" min="0" max="500" step="0.1" value="${carbs}" class="w-full bg-surface-container rounded-xl px-4 py-3 text-body-md text-on-background border border-outline-variant focus:border-primary focus:outline-none" />
           </label>
           <label class="flex flex-col gap-1">
-            <span class="text-xs text-on-surface-variant font-semibold">脂肪 (g)</span>
+            <span class="text-xs text-on-surface-variant font-semibold">\u8102\u80aa (g)</span>
             <input id="editMealFat-${idx}" type="number" min="0" max="300" step="0.1" value="${fat}" class="w-full bg-surface-container rounded-xl px-4 py-3 text-body-md text-on-background border border-outline-variant focus:border-primary focus:outline-none" />
           </label>
         </div>
@@ -2927,17 +2973,17 @@ async function saveEditedMeal() {
     const nameEl = document.getElementById(`editMealName-${idx}`);
     const name = (nameEl?.value || '').trim();
     if (!name) {
-      showToast('食物名称不能为空', 'error');
+      showToast('\u98df\u7269\u540d\u79f0\u4e0d\u80fd\u4e3a\u7a7a', 'error');
       nameEl?.classList.add('field-invalid');
       return;
     }
     nameEl?.classList.remove('field-invalid');
 
-    const weight = readNumberField(`editMealWeight-${idx}`, { label: '重量', min: 1, max: 2000, integer: true });
-    const calories = readNumberField(`editMealCalories-${idx}`, { label: '热量', min: 0, max: 5000, integer: true });
-    const protein = readNumberField(`editMealProtein-${idx}`, { label: '蛋白质', min: 0, max: 300, defaultValue: 0, required: false });
-    const carbs = readNumberField(`editMealCarbs-${idx}`, { label: '碳水', min: 0, max: 500, defaultValue: 0, required: false });
-    const fat = readNumberField(`editMealFat-${idx}`, { label: '脂肪', min: 0, max: 300, defaultValue: 0, required: false });
+    const weight = readNumberField(`editMealWeight-${idx}`, { label: '\u91cd\u91cf', min: 1, max: 2000, integer: true });
+    const calories = readNumberField(`editMealCalories-${idx}`, { label: '\u70ed\u91cf', min: 0, max: 5000, integer: true });
+    const protein = readNumberField(`editMealProtein-${idx}`, { label: '\u86cb\u767d\u8d28', min: 0, max: 300, defaultValue: 0, required: false });
+    const carbs = readNumberField(`editMealCarbs-${idx}`, { label: '\u78b3\u6c34', min: 0, max: 500, defaultValue: 0, required: false });
+    const fat = readNumberField(`editMealFat-${idx}`, { label: '\u8102\u80aa', min: 0, max: 300, defaultValue: 0, required: false });
     for (const result of [weight, calories, protein, carbs, fat]) {
       if (!validOrToast(result)) return;
     }
@@ -2971,8 +3017,8 @@ async function saveEditedMeal() {
     fetchWeeklyReport();
     fetchAISuggestions();
     fetchHistory();
-    showToast('饮食记录已更新', 'success');
-  }, '保存中...');
+    showToast('\u996e\u98df\u8bb0\u5f55\u5df2\u66f4\u65b0', 'success');
+  }, '\u4fdd\u5b58\u4e2d...');
 }
 
 // ===================== VOICE INPUT =====================
@@ -3001,12 +3047,12 @@ function startVoiceInput() {
   m.classList.remove('hidden');
   document.getElementById('voiceListening').classList.remove('hidden');
   document.getElementById('voiceProcessing').classList.add('hidden');
-  document.getElementById('voiceStatusTitle').textContent = '正在聆听';
-  document.getElementById('voiceText').textContent = '请说出你吃了什么...';
+  document.getElementById('voiceStatusTitle').textContent = '\u6b63\u5728\u8046\u542c';
+  document.getElementById('voiceText').textContent = '\u8bf7\u8bf4\u51fa\u4f60\u5403\u4e86\u4ec0\u4e48...';
 
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) {
-    document.getElementById('voiceText').textContent = '您的设备不支持语音录制功能。';
-    showToast('当前设备不支持语音录制，请使用文字或手动补录', 'error');
+    document.getElementById('voiceText').textContent = '\u60a8\u7684\u8bbe\u5907\u4e0d\u652f\u6301\u8bed\u97f3\u5f55\u5236\u529f\u80fd\u3002';
+    showToast('\u5f53\u524d\u8bbe\u5907\u4e0d\u652f\u6301\u8bed\u97f3\u5f55\u5236\uff0c\u8bf7\u4f7f\u7528\u6587\u5b57\u6216\u624b\u52a8\u8865\u5f55', 'error');
     isVoiceRecording = false;
     return;
   }
@@ -3050,7 +3096,7 @@ function startVoiceInput() {
         if (audioBlob.size > 1000) {
           await transcribeAudio(audioBlob, mimeType);
         } else {
-          document.getElementById('voiceText').textContent = '录音过短，请重试';
+          document.getElementById('voiceText').textContent = '\u5f55\u97f3\u8fc7\u77ed\uff0c\u8bf7\u91cd\u8bd5';
           isVoiceRecording = false;
         }
       };
@@ -3070,7 +3116,7 @@ function startVoiceInput() {
           return;
         }
         seconds++;
-        document.getElementById('voiceText').textContent = `正在聆听 (${seconds}s)...`;
+        document.getElementById('voiceText').textContent = `\u6b63\u5728\u8046\u542c (${seconds}s)...`;
         if (seconds >= 20) {
           stopVoiceInput();
         }
@@ -3094,11 +3140,11 @@ function handleVoiceCaptureError(err) {
   }
   mediaRecorder = null;
   const message = err && err.name === 'NotAllowedError'
-    ? '无法获取麦克风权限，请在系统设置中允许麦克风访问。'
-    : '麦克风暂时不可用，请检查设备后重试。';
+    ? '\u65e0\u6cd5\u83b7\u53d6\u9ea6\u514b\u98ce\u6743\u9650\uff0c\u8bf7\u5728\u7cfb\u7edf\u8bbe\u7f6e\u4e2d\u5141\u8bb8\u9ea6\u514b\u98ce\u8bbf\u95ee\u3002'
+    : '\u9ea6\u514b\u98ce\u6682\u65f6\u4e0d\u53ef\u7528\uff0c\u8bf7\u68c0\u67e5\u8bbe\u5907\u540e\u91cd\u8bd5\u3002';
   document.getElementById('voiceListening').classList.remove('hidden');
   document.getElementById('voiceProcessing').classList.add('hidden');
-  document.getElementById('voiceStatusTitle').textContent = '语音录制不可用';
+  document.getElementById('voiceStatusTitle').textContent = '\u8bed\u97f3\u5f55\u5236\u4e0d\u53ef\u7528';
   document.getElementById('voiceText').textContent = message;
   showToast(message, 'error');
   isVoiceRecording = false;
@@ -3117,35 +3163,34 @@ function stopVoiceInput() {
 async function transcribeAudio(blob, mimeType) {
   document.getElementById('voiceListening').classList.add('hidden');
   document.getElementById('voiceProcessing').classList.remove('hidden');
-  document.getElementById('voiceFinalText').textContent = '正在识别并提取食物信息...';
+  document.getElementById('voiceFinalText').textContent = '\u6b63\u5728\u8bc6\u522b\u5e76\u63d0\u53d6\u98df\u7269\u4fe1\u606f...';
 
   const formData = new FormData();
   const filename = mimeType.includes('mp4') ? 'audio.mp4' : 'audio.webm';
   formData.append('audio', blob, filename);
 
   try {
-    const res = await fetch(API_BASE + '/api/speech-to-text', {
+    const json = await safeFetchJSON(API_BASE + '/api/speech-to-text', {
       method: 'POST',
       body: formData
     });
-    const json = await res.json();
-    if (res.ok && json.text) {
+    if (json.text) {
       document.getElementById('voiceFinalText').textContent = '"' + json.text + '"';
       voiceTextForDisplay = json.text;
       setTimeout(() => sendVoiceText(json.text), 1000);
     } else {
-      document.getElementById('voiceFinalText').textContent = '识别失败: ' + (json.error || 'unknown');
+      document.getElementById('voiceFinalText').textContent = '\u8bc6\u522b\u5931\u8d25: ' + (json.error || 'unknown');
       isVoiceRecording = false;
       setTimeout(() => {
         closeVoiceModal();
-        showToast(json.error || '语音转文字失败，请重试', 'error');
+        showToast(json.error || '\u8bed\u97f3\u8f6c\u6587\u5b57\u5931\u8d25\uff0c\u8bf7\u91cd\u8bd5', 'error');
       }, 1500);
     }
   } catch (err) {
     console.error('Speech upload error:', err);
-    document.getElementById('voiceFinalText').textContent = normalizeErrorMessage(err, '语音上传失败，请重试');
+    document.getElementById('voiceFinalText').textContent = normalizeErrorMessage(err, '\u8bed\u97f3\u4e0a\u4f20\u5931\u8d25\uff0c\u8bf7\u91cd\u8bd5');
     isVoiceRecording = false;
-    showToast(normalizeErrorMessage(err, '语音上传失败，请重试'), 'error');
+    showToast(normalizeErrorMessage(err, '\u8bed\u97f3\u4e0a\u4f20\u5931\u8d25\uff0c\u8bf7\u91cd\u8bd5'), 'error');
     setTimeout(closeVoiceModal, 1500);
   }
 }
@@ -3153,27 +3198,26 @@ async function transcribeAudio(blob, mimeType) {
 async function sendVoiceText(text) {
   document.getElementById('voiceListening').classList.add('hidden');
   document.getElementById('voiceProcessing').classList.remove('hidden');
-  document.getElementById('voiceFinalText').textContent = '“' + text + '”';
+  document.getElementById('voiceFinalText').textContent = '\u201c' + text + '\u201d';
   try {
     const payload = { text: text };
     if (isLocalMode()) {
       payload.is_app = true;
     }
-    const res = await fetch(API_BASE + '/api/voice-input', {
+    const json = await safeFetchJSON(API_BASE + '/api/voice-input', {
       method: 'POST',
       headers: getAuthHeaders(),
       body: JSON.stringify(payload)
     });
-    const json = await res.json();
     closeVoiceModal();
-    if (res.ok && json.success) {
+    if (json.success) {
       showResult(json);
     } else {
-      showToast(json.error || '分析食物失败', 'error');
+      showToast(json.error || '\u5206\u6790\u98df\u7269\u5931\u8d25', 'error');
     }
   } catch (err) {
     closeVoiceModal();
-    showToast(normalizeErrorMessage(err, '语音分析请求失败'), 'error');
+    showToast(normalizeErrorMessage(err, '\u8bed\u97f3\u5206\u6790\u8bf7\u6c42\u5931\u8d25'), 'error');
   }
 }
 
@@ -3293,9 +3337,9 @@ function calculateBMRTDEE(gender, age, height, weight, activity_level) {
 
 async function saveBMRProfile() {
   const gender = bmrGenderSelected;
-  const ageResult = readNumberField('bmrAge', { label: '年龄', min: 15, max: 120, integer: true });
-  const heightResult = readNumberField('bmrHeight', { label: '身高', min: 80, max: 250 });
-  const weightResult = readNumberField('bmrWeight', { label: '体重', min: 20, max: 200 });
+  const ageResult = readNumberField('bmrAge', { label: '\u5e74\u9f84', min: 15, max: 120, integer: true });
+  const heightResult = readNumberField('bmrHeight', { label: '\u8eab\u9ad8', min: 80, max: 250 });
+  const weightResult = readNumberField('bmrWeight', { label: '\u4f53\u91cd', min: 20, max: 200 });
   const activity_level = document.getElementById('bmrActivity').value;
   
   for (const result of [ageResult, heightResult, weightResult]) {
@@ -3322,27 +3366,23 @@ async function saveBMRProfile() {
     // If logged in, upload to the server
     if (!isLocalMode() && user !== 'guest' && user !== 'anonymous' && user !== 'local_user') {
       try {
-        const res = await fetch(API_BASE + '/api/profile', {
+        await safeFetchJSON(API_BASE + '/api/profile', {
           method: 'POST',
           headers: getAuthHeaders(),
           body: JSON.stringify(payload)
         });
-        if (!res.ok) {
-          const json = await res.json().catch(() => ({}));
-          throw new Error(json.error || '服务器未保存身体数据');
-        }
         // Sync today's summary since weight change might impact MET calculations
         syncDailySummary(new Date().toISOString().split('T')[0]);
       } catch (err) {
         console.error('Failed to sync profile to server:', err);
-        showToast(normalizeErrorMessage(err, '身体数据已保存到本地，云端同步失败'), 'error');
+        showToast(normalizeErrorMessage(err, '\u8eab\u4f53\u6570\u636e\u5df2\u4fdd\u5b58\u5230\u672c\u5730\uff0c\u4e91\u7aef\u540c\u6b65\u5931\u8d25'), 'error');
       }
     }
 
     // Update bento card immediately (before async updateProfileUI)
     const summary = document.getElementById('bmrSummaryText');
     if (summary) {
-      summary.textContent = `基础代谢 ${calcs.bmr} kcal · TDEE ${calcs.tdee} kcal · 推荐蛋白 ${calcs.protein_target}g`;
+      summary.textContent = `\u57fa\u7840\u4ee3\u8c22 ${calcs.bmr} kcal \u00b7 TDEE ${calcs.tdee} kcal \u00b7 \u63a8\u8350\u86cb\u767d ${calcs.protein_target}g`;
     }
 
     closeBMRSetupModal();
@@ -3350,8 +3390,8 @@ async function saveBMRProfile() {
     fetchTodayData();
     fetchWeeklyReport();
     fetchAISuggestions();
-    showToast('身体数据已更新', 'success');
-  }, '保存中...');
+    showToast('\u8eab\u4f53\u6570\u636e\u5df2\u66f4\u65b0', 'success');
+  }, '\u4fdd\u5b58\u4e2d...');
 }
 
 function showExerciseLogModal() {
@@ -3422,7 +3462,7 @@ function recommendExerciseCalories() {
   const type = document.querySelector('input[name="exType"]:checked')?.value || 'aerobic';
   
   if (duration <= 0) {
-    document.getElementById('exCalories').placeholder = '自动推荐';
+    document.getElementById('exCalories').placeholder = '\u81ea\u52a8\u63a8\u8350';
     return;
   }
   
@@ -3447,29 +3487,29 @@ function recommendExerciseCalories() {
   } else {
     // Basic Aerobic MET estimation
     const text = name.toLowerCase();
-    if (text.includes('跑') || text.includes('run')) {
+    if (text.includes('\u8dd1') || text.includes('run')) {
       met = 8.0; // Running
-    } else if (text.includes('游') || text.includes('swim')) {
+    } else if (text.includes('\u6e38') || text.includes('swim')) {
       met = 6.0; // Swimming
-    } else if (text.includes('骑') || text.includes('bike') || text.includes('单车')) {
+    } else if (text.includes('\u9a91') || text.includes('bike') || text.includes('\u5355\u8f66')) {
       met = 6.0; // Cycling
-    } else if (text.includes('走') || text.includes('walk') || text.includes('散步')) {
+    } else if (text.includes('\u8d70') || text.includes('walk') || text.includes('\u6563\u6b65')) {
       met = 3.0; // Walking
-    } else if (text.includes('跳绳') || text.includes('rope')) {
+    } else if (text.includes('\u8df3\u7ef3') || text.includes('rope')) {
       met = 10.0; // Jump rope
-    } else if (text.includes('球') || text.includes('basketball') || text.includes('football')) {
+    } else if (text.includes('\u7403') || text.includes('basketball') || text.includes('football')) {
       met = 7.0; // General ball sports
     }
   }
   
   const estimatedCals = Math.max(0, Math.round(weight * met * (duration / 60)));
-  document.getElementById('exCalories').placeholder = `推荐: ${estimatedCals} kcal`;
+  document.getElementById('exCalories').placeholder = `\u63a8\u8350: ${estimatedCals} kcal`;
 }
 
 async function saveExerciseLog() {
-  const exercise_name = document.getElementById('exName').value.trim() || '运动';
-  const durationResult = readNumberField('exDuration', { label: '运动时长', min: 1, max: 600, integer: true });
-  const caloriesResult = readNumberField('exCalories', { label: '消耗热量', min: 0, max: 5000, integer: true, required: false, defaultValue: null });
+  const exercise_name = document.getElementById('exName').value.trim() || '\u8fd0\u52a8';
+  const durationResult = readNumberField('exDuration', { label: '\u8fd0\u52a8\u65f6\u957f', min: 1, max: 600, integer: true });
+  const caloriesResult = readNumberField('exCalories', { label: '\u6d88\u8017\u70ed\u91cf', min: 0, max: 5000, integer: true, required: false, defaultValue: null });
   const exercise_type = document.querySelector('input[name="exType"]:checked')?.value || 'aerobic';
   
   if (!validOrToast(durationResult) || !validOrToast(caloriesResult)) return;
@@ -3500,15 +3540,15 @@ async function saveExerciseLog() {
     await fetchTodayData();
     fetchWeeklyReport();
     fetchAISuggestions();
-    showToast('运动记录已保存', 'success');
-  }, '保存中...');
+    showToast('\u8fd0\u52a8\u8bb0\u5f55\u5df2\u4fdd\u5b58', 'success');
+  }, '\u4fdd\u5b58\u4e2d...');
 }
 
 let exerciseToDelete = null;
 
 function deleteExercise(id) {
   exerciseToDelete = id;
-  document.getElementById('deleteMsg').textContent = '确定要删除这条运动记录吗？';
+  document.getElementById('deleteMsg').textContent = '\u786e\u5b9a\u8981\u5220\u9664\u8fd9\u6761\u8fd0\u52a8\u8bb0\u5f55\u5417\uff1f';
   const m = document.getElementById('deleteConfirmModal');
   m.classList.remove('hidden');
   m.style.display = 'flex';
@@ -3583,9 +3623,9 @@ async function fetchTodayData() {
               <span class="material-symbols-outlined text-3xl">restaurant_menu</span>
             </div>
             <div class="flex-1">
-              <h3 class="font-headline-md text-headline-md text-on-background">今天还没有记录饮食</h3>
-              <p class="text-sm text-on-surface-variant mt-2 leading-relaxed">拍一张食物照片，AI 会自动估算热量、蛋白质、碳水和脂肪。</p>
-              <button onclick="switchTab('scan')" class="mt-4 bg-primary text-on-primary rounded-xl px-4 py-3 font-semibold touch-target">开始记录第一餐</button>
+              <h3 class="font-headline-md text-headline-md text-on-background">\u4eca\u5929\u8fd8\u6ca1\u6709\u8bb0\u5f55\u996e\u98df</h3>
+              <p class="text-sm text-on-surface-variant mt-2 leading-relaxed">\u62cd\u4e00\u5f20\u98df\u7269\u7167\u7247\uff0cAI \u4f1a\u81ea\u52a8\u4f30\u7b97\u70ed\u91cf\u3001\u86cb\u767d\u8d28\u3001\u78b3\u6c34\u548c\u8102\u80aa\u3002</p>
+              <button onclick="switchTab('scan')" class="mt-4 bg-primary text-on-primary rounded-xl px-4 py-3 font-semibold touch-target">\u5f00\u59cb\u8bb0\u5f55\u7b2c\u4e00\u9910</button>
             </div>
           </div>
         </div>`;
@@ -3593,11 +3633,10 @@ async function fetchTodayData() {
       const user = getCurrentUser();
       if (!isLocalMode() && user && user !== 'guest' && user !== 'anonymous' && user !== 'local_user') {
         try {
-          const res = await fetch(API_BASE + '/api/daily-summaries', {
+          const listData = await safeFetchJSON(API_BASE + '/api/daily-summaries', {
             headers: getAuthHeaders()
           });
-          const listData = await res.json();
-          if (res.ok && Array.isArray(listData)) {
+          if (Array.isArray(listData)) {
             const summary = listData.find(d => d.date === todayStr);
             if (summary) {
               updateRings(
@@ -3659,12 +3698,12 @@ async function fetchTodayData() {
           const portion = Math.max(0, finiteNumber(m.portion, 1.0));
           const w = Math.round(finiteNumber(m.weight, 100) * portion);
           const c = Math.round(finiteNumber(m.calories, 0) * portion);
-          return `${escapeHTML(m.food_name || '食物')} (${w}g) ${c}kcal`;
+          return `${escapeHTML(m.food_name || '\u98df\u7269')} (${w}g) ${c}kcal`;
         }).join('<br>');
         const deleteSummary = item.items.map(m => {
           const portion = Math.max(0, finiteNumber(m.portion, 1.0));
-          return (m.food_name || '食物') + ' ' + Math.round(finiteNumber(m.calories, 0) * portion) + 'kcal';
-        }).join('、');
+          return (m.food_name || '\u98df\u7269') + ' ' + Math.round(finiteNumber(m.calories, 0) * portion) + 'kcal';
+        }).join('\u3001');
         const safeSessionId = escapeJSString(item.session_id);
         const safeDeleteSummary = escapeJSString(deleteSummary);
         
@@ -3682,8 +3721,8 @@ async function fetchTodayData() {
               </div>
             </div>
             <div class="flex justify-end gap-2 mt-2">
-              <button onclick="openEditMealModal('${safeSessionId}')" class="text-xs text-primary px-3 py-2 rounded-full bg-primary/10 hover:bg-primary/15 transition-colors touch-target">编辑</button>
-              <button onclick="deleteSession('${safeSessionId}', '${safeDeleteSummary}')" class="text-xs text-outline hover:text-error px-3 py-2 rounded-full hover:bg-error-container transition-colors touch-target">删除</button>
+              <button onclick="openEditMealModal('${safeSessionId}')" class="text-xs text-primary px-3 py-2 rounded-full bg-primary/10 hover:bg-primary/15 transition-colors touch-target">\u7f16\u8f91</button>
+              <button onclick="deleteSession('${safeSessionId}', '${safeDeleteSummary}')" class="text-xs text-outline hover:text-error px-3 py-2 rounded-full hover:bg-error-container transition-colors touch-target">\u5220\u9664</button>
             </div>
           </div>`;
       } else if (item.type === 'exercise') {
@@ -3698,16 +3737,16 @@ async function fetchTodayData() {
               </div>
               <div class="flex-1">
                 <div class="font-body-md text-body-md text-on-background leading-relaxed mb-1 font-bold">
-                  ${escapeHTML(item.exercise_name || '运动')} (${Math.round(finiteNumber(item.duration, 0))}分钟)
+                  ${escapeHTML(item.exercise_name || '\u8fd0\u52a8')} (${Math.round(finiteNumber(item.duration, 0))}\u5206\u949f)
                 </div>
                 <div class="text-xs text-on-surface-variant mb-1">
-                  消耗 ${Math.round(finiteNumber(item.calories, 0))} kcal ${item.target_muscles ? `· 训练肌群: ${escapeHTML(item.target_muscles)}` : ''}
+                  \u6d88\u8017 ${Math.round(finiteNumber(item.calories, 0))} kcal ${item.target_muscles ? `\u00b7 \u8bad\u7ec3\u808c\u7fa4: ${escapeHTML(item.target_muscles)}` : ''}
                 </div>
                 <p class="font-label-md text-label-md text-outline">${displayTime}</p>
               </div>
             </div>
             <div class="flex justify-end mt-2">
-              <button onclick="deleteExercise(${item.id})" class="text-xs text-outline hover:text-error px-2 py-1 rounded-full hover:bg-error-container transition-colors">删除</button>
+              <button onclick="deleteExercise(${item.id})" class="text-xs text-outline hover:text-error px-2 py-1 rounded-full hover:bg-error-container transition-colors">\u5220\u9664</button>
             </div>
           </div>`;
       }
@@ -3785,7 +3824,7 @@ function updateRings(cal, pro, carbs, fat, burn = 0) {
       dashRemaining.textContent = remaining.toLocaleString();
       dashRemaining.className = 'font-bold text-primary';
     } else {
-      dashRemaining.textContent = Math.abs(remaining).toLocaleString() + ' (超出)';
+      dashRemaining.textContent = Math.abs(remaining).toLocaleString() + ' (\u8d85\u51fa)';
       dashRemaining.className = 'font-bold text-error';
     }
   }
@@ -3806,9 +3845,9 @@ async function fetchHistory() {
       list.innerHTML = `
         <div class="empty-state text-center">
           <span class="material-symbols-outlined text-4xl text-primary">timeline</span>
-          <h3 class="font-headline-md text-headline-md text-on-background mt-2">还没有饮食时间线</h3>
-          <p class="text-sm text-on-surface-variant mt-1">记录第一餐后，这里会按日期整理你的饮食历史。</p>
-          <button onclick="switchTab('scan')" class="mt-4 bg-primary text-on-primary rounded-xl px-4 py-3 font-semibold touch-target">去记录一餐</button>
+          <h3 class="font-headline-md text-headline-md text-on-background mt-2">\u8fd8\u6ca1\u6709\u996e\u98df\u65f6\u95f4\u7ebf</h3>
+          <p class="text-sm text-on-surface-variant mt-1">\u8bb0\u5f55\u7b2c\u4e00\u9910\u540e\uff0c\u8fd9\u91cc\u4f1a\u6309\u65e5\u671f\u6574\u7406\u4f60\u7684\u996e\u98df\u5386\u53f2\u3002</p>
+          <button onclick="switchTab('scan')" class="mt-4 bg-primary text-on-primary rounded-xl px-4 py-3 font-semibold touch-target">\u53bb\u8bb0\u5f55\u4e00\u9910</button>
         </div>`;
       return;
     }
@@ -3829,10 +3868,10 @@ async function fetchHistory() {
     yesterday.setDate(today.getDate() - 1);
     const dateHeading = (iso) => {
       const d = new Date(iso);
-      if (isNaN(d.getTime())) return '更早';
-      if (d.toDateString() === today.toDateString()) return '今天';
-      if (d.toDateString() === yesterday.toDateString()) return '昨天';
-      return `${d.getMonth() + 1}月${d.getDate()}日`;
+      if (isNaN(d.getTime())) return '\u66f4\u65e9';
+      if (d.toDateString() === today.toDateString()) return '\u4eca\u5929';
+      if (d.toDateString() === yesterday.toDateString()) return '\u6628\u5929';
+      return `${d.getMonth() + 1}\u6708${d.getDate()}\u65e5`;
     };
     Object.values(groups)
       .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
@@ -3842,7 +3881,7 @@ async function fetchHistory() {
         const portion = Math.max(0, finiteNumber(m.portion, 1.0));
         const w = Math.round(finiteNumber(m.weight, 100) * portion);
         const c = Math.round(finiteNumber(m.calories, 0) * portion);
-        return `${escapeHTML(m.food_name || '食物')} (${w}g) ${c}kcal`;
+        return `${escapeHTML(m.food_name || '\u98df\u7269')} (${w}g) ${c}kcal`;
       }).join('<br>');
       const groupCal = g.items.reduce((s, m) => {
         const portion = Math.max(0, finiteNumber(m.portion, 1.0));
@@ -3850,8 +3889,8 @@ async function fetchHistory() {
       }, 0);
       const histSummary = g.items.map(m => {
         const portion = Math.max(0, finiteNumber(m.portion, 1.0));
-        return (m.food_name || '食物') + ' ' + Math.round(finiteNumber(m.calories, 0) * portion) + 'kcal';
-      }).join('、');
+        return (m.food_name || '\u98df\u7269') + ' ' + Math.round(finiteNumber(m.calories, 0) * portion) + 'kcal';
+      }).join('\u3001');
       const safeSessionId = escapeJSString(g.session_id);
       const safeHistSummary = escapeJSString(histSummary);
       
@@ -3876,10 +3915,10 @@ async function fetchHistory() {
               </div>
             </div>
             <div class="flex items-center gap-1">
-              <button onclick="openEditMealModal('${safeSessionId}')" class="text-primary hover:bg-primary/10 p-2 rounded-full touch-target" aria-label="编辑饮食记录">
+              <button onclick="openEditMealModal('${safeSessionId}')" class="text-primary hover:bg-primary/10 p-2 rounded-full touch-target" aria-label="\u7f16\u8f91\u996e\u98df\u8bb0\u5f55">
                 <span class="material-symbols-outlined text-[18px]">edit_note</span>
               </button>
-              <button onclick="deleteSession('${safeSessionId}', '${safeHistSummary}')" class="text-outline hover:text-error hover:bg-error-container p-2 rounded-full touch-target" aria-label="删除饮食记录">
+              <button onclick="deleteSession('${safeSessionId}', '${safeHistSummary}')" class="text-outline hover:text-error hover:bg-error-container p-2 rounded-full touch-target" aria-label="\u5220\u9664\u996e\u98df\u8bb0\u5f55">
                 <span class="material-symbols-outlined text-[18px]">delete</span>
               </button>
             </div>
@@ -3896,8 +3935,8 @@ let sessionToDelete = null;
 function deleteSession(sid, summary) {
   sessionToDelete = sid;
   document.getElementById('deleteMsg').textContent = summary 
-    ? `确定要删除 "${summary}" 吗？`
-    : '确定要永久删除这组饮食记录吗？';
+    ? `\u786e\u5b9a\u8981\u5220\u9664 "${summary}" \u5417\uff1f`
+    : '\u786e\u5b9a\u8981\u6c38\u4e45\u5220\u9664\u8fd9\u7ec4\u996e\u98df\u8bb0\u5f55\u5417\uff1f';
   const m = document.getElementById('deleteConfirmModal');
   m.classList.remove('hidden');
   m.style.display = 'flex';
@@ -3944,15 +3983,10 @@ async function fetchWeeklyReport() {
       report = localReport;
     } else {
       try {
-        const res = await fetch(API_BASE + '/api/report/weekly', {
+        const json = await safeFetchJSON(API_BASE + '/api/report/weekly', {
           headers: getAuthHeaders()
         });
-        if (res.ok) {
-          const json = await res.json();
-          report = json.data || [];
-        } else {
-          throw new Error('Server returned non-ok status');
-        }
+        report = json.data || [];
       } catch (serverErr) {
         console.warn('Failed to fetch server weekly report, falling back to local storage:', serverErr);
         report = MealStorage.getWeeklyReport();
@@ -4003,16 +4037,16 @@ async function fetchWeeklyReport() {
         const trainingDays = report.filter(d => (d.total_burn_calories || 0) > 0).length;
         insightGrid.innerHTML = `
           <div class="metric-card">
-            <span class="font-label-md text-label-md text-on-surface-variant">蛋白质达标</span>
-            <span class="font-headline-md text-headline-md text-primary">${proteinDays} / 7 天</span>
+            <span class="font-label-md text-label-md text-on-surface-variant">\u86cb\u767d\u8d28\u8fbe\u6807</span>
+            <span class="font-headline-md text-headline-md text-primary">${proteinDays} / 7 \u5929</span>
           </div>
           <div class="metric-card">
-            <span class="font-label-md text-label-md text-on-surface-variant">平均热量差</span>
+            <span class="font-label-md text-label-md text-on-surface-variant">\u5e73\u5747\u70ed\u91cf\u5dee</span>
             <span class="font-headline-md text-headline-md ${avgGap <= 0 ? 'text-primary' : 'text-error'}">${avgGap > 0 ? '+' : ''}${avgGap} kcal</span>
           </div>
           <div class="metric-card">
-            <span class="font-label-md text-label-md text-on-surface-variant">训练记录</span>
-            <span class="font-headline-md text-headline-md text-on-background">${trainingDays} 天</span>
+            <span class="font-label-md text-label-md text-on-surface-variant">\u8bad\u7ec3\u8bb0\u5f55</span>
+            <span class="font-headline-md text-headline-md text-on-background">${trainingDays} \u5929</span>
           </div>`;
         insightGrid.classList.remove('hidden');
       } else {
@@ -4032,8 +4066,8 @@ async function fetchWeeklyReport() {
       data: {
         labels: days,
         datasets: [
-          { label: '热量 (kcal)', data: cals, borderColor: '#2d6a4f', backgroundColor: 'rgba(45,106,79,0.1)', fill: true, tension: 0.3, pointRadius: 4, pointBackgroundColor: '#2d6a4f' },
-          { label: '目标', data: Array(7).fill(calTarget), borderColor: '#95d4b3', borderDash: [6,3], borderWidth: 1.5, pointRadius: 0, fill: false }
+          { label: '\u70ed\u91cf (kcal)', data: cals, borderColor: '#2d6a4f', backgroundColor: 'rgba(45,106,79,0.1)', fill: true, tension: 0.3, pointRadius: 4, pointBackgroundColor: '#2d6a4f' },
+          { label: '\u76ee\u6807', data: Array(7).fill(calTarget), borderColor: '#95d4b3', borderDash: [6,3], borderWidth: 1.5, pointRadius: 0, fill: false }
         ]
       },
       options: {
@@ -4061,9 +4095,9 @@ async function fetchWeeklyReport() {
       data: {
         labels: days,
         datasets: [
-          { label: '蛋白质', data: pros, backgroundColor: '#2d6a4f' },
-          { label: '碳水', data: carbs, backgroundColor: '#00687e' },
-          { label: '脂肪', data: fats, backgroundColor: '#95d4b3' }
+          { label: '\u86cb\u767d\u8d28', data: pros, backgroundColor: '#2d6a4f' },
+          { label: '\u78b3\u6c34', data: carbs, backgroundColor: '#00687e' },
+          { label: '\u8102\u80aa', data: fats, backgroundColor: '#95d4b3' }
         ]
       },
       options: {
@@ -4112,8 +4146,8 @@ async function fetchAISuggestions() {
           <div class="flex items-start gap-3">
             <span class="material-symbols-outlined text-3xl text-primary">insights</span>
             <div>
-              <h3 class="font-headline-md text-headline-md text-on-background">记录 3 天后解锁 AI 洞察</h3>
-              <p class="text-sm text-on-surface-variant mt-2 leading-relaxed">你会看到热量趋势、蛋白质达标情况、训练恢复建议和下一餐优化方向。</p>
+              <h3 class="font-headline-md text-headline-md text-on-background">\u8bb0\u5f55 3 \u5929\u540e\u89e3\u9501 AI \u6d1e\u5bdf</h3>
+              <p class="text-sm text-on-surface-variant mt-2 leading-relaxed">\u4f60\u4f1a\u770b\u5230\u70ed\u91cf\u8d8b\u52bf\u3001\u86cb\u767d\u8d28\u8fbe\u6807\u60c5\u51b5\u3001\u8bad\u7ec3\u6062\u590d\u5efa\u8bae\u548c\u4e0b\u4e00\u9910\u4f18\u5316\u65b9\u5411\u3002</p>
             </div>
           </div>
         </div>`;
@@ -4124,7 +4158,7 @@ async function fetchAISuggestions() {
     container.innerHTML = `
       <div class="flex flex-col items-center justify-center py-6 text-outline">
         <div class="animate-spin rounded-full h-6 w-6 border-2 border-primary border-t-transparent mb-2"></div>
-        <p class="text-xs">AI 智能教练正在分析您的饮食与运动...</p>
+        <p class="text-xs">AI \u667a\u80fd\u6559\u7ec3\u6b63\u5728\u5206\u6790\u60a8\u7684\u996e\u98df\u4e0e\u8fd0\u52a8...</p>
       </div>`;
 
     const payload = {
@@ -4138,26 +4172,25 @@ async function fetchAISuggestions() {
     let headers = getAuthHeaders();
     headers['Content-Type'] = 'application/json';
 
-    const res = await fetch(API_BASE + '/api/report/suggestions', {
+    const json = await safeFetchJSON(API_BASE + '/api/report/suggestions', {
       method: 'POST',
       headers: headers,
       body: JSON.stringify(payload)
     });
 
-    const json = await res.json();
-    if (res.ok && json.success) {
+    if (json.success) {
       container.innerHTML = parseMarkdownToHTML(json.suggestions);
     } else {
-      container.innerHTML = `<p class="text-error text-center py-4">无法获取 AI 建议: ${escapeHTML(json.error || '未知错误')}</p>`;
+      container.innerHTML = `<p class="text-error text-center py-4">\u65e0\u6cd5\u83b7\u53d6 AI \u5efa\u8bae: ${escapeHTML(json.error || '\u672a\u77e5\u9519\u8bef')}</p>`;
     }
   } catch (err) {
-    container.innerHTML = `<p class="text-error text-center py-4">${escapeHTML(normalizeErrorMessage(err, '网络请求失败'))}</p>`;
+    container.innerHTML = `<p class="text-error text-center py-4">${escapeHTML(normalizeErrorMessage(err, '\u7f51\u7edc\u8bf7\u6c42\u5931\u8d25'))}</p>`;
   }
 }
 
 // Simple markdown parser helper
 function parseMarkdownToHTML(md) {
-  if (!md) return '暂无建议';
+  if (!md) return '\u6682\u65e0\u5efa\u8bae';
   let html = md;
   // Replace headers (###, ##, #)
   html = html.replace(/^### (.*$)/gim, '<h4 class="text-base font-bold text-primary mt-3 mb-1">$1</h4>');
@@ -4229,21 +4262,20 @@ async function generateCoachResponse(userMsg) {
   
   let reply = '';
   try {
-    const res = await fetch(API_BASE + '/api/coach/chat', {
+    const json = await safeFetchJSON(API_BASE + '/api/coach/chat', {
       method: 'POST',
       headers: getAuthHeaders(),
       body: JSON.stringify(payload)
     });
-    const json = await res.json();
-    if (res.ok && json.success) {
+    if (json.success) {
       reply = json.reply;
       chatHistory.push({ role: 'model', content: reply });
       if (chatHistory.length > 20) chatHistory.shift();
     } else {
-      reply = 'AI 教练暂时无法回答：' + (json.error || '服务器繁忙');
+      reply = 'AI \u6559\u7ec3\u6682\u65f6\u65e0\u6cd5\u56de\u7b54\uff1a' + (json.error || '\u670d\u52a1\u5668\u7e41\u5fd9');
     }
   } catch (err) {
-    reply = '网络错误：无法连接到 AI 教练。';
+    reply = '\u7f51\u7edc\u9519\u8bef\uff1a\u65e0\u6cd5\u8fde\u63a5\u5230 AI \u6559\u7ec3\u3002';
   }
 
   const loading = document.getElementById('coachLoading');
@@ -4267,7 +4299,7 @@ function editTarget(type) {
   const m = document.getElementById('editTargetModal');
   const title = document.getElementById('editTargetTitle');
   const input = document.getElementById('editTargetInput');
-  title.textContent = type === 'cal' ? '每日热量目标 (kcal)' : '每日蛋白质目标 (g)';
+  title.textContent = type === 'cal' ? '\u6bcf\u65e5\u70ed\u91cf\u76ee\u6807 (kcal)' : '\u6bcf\u65e5\u86cb\u767d\u8d28\u76ee\u6807 (g)';
   input.value = type === 'cal' ? calTarget : proTarget;
   input.max = type === 'cal' ? '10000' : '500';
   markFieldInvalid('editTargetInput', false);
@@ -4279,7 +4311,7 @@ function editTarget(type) {
 function saveTarget() {
   const isCal = currentEditType === 'cal';
   const result = readNumberField('editTargetInput', {
-    label: isCal ? '热量目标' : '蛋白质目标',
+    label: isCal ? '\u70ed\u91cf\u76ee\u6807' : '\u86cb\u767d\u8d28\u76ee\u6807',
     min: 1,
     max: isCal ? 10000 : 500,
     integer: true
@@ -4301,7 +4333,7 @@ function saveTarget() {
   fetchWeeklyReport();
   fetchAISuggestions();
   document.getElementById('editTargetModal').style.display = 'none';
-  showToast('目标已更新', 'success');
+  showToast('\u76ee\u6807\u5df2\u66f4\u65b0', 'success');
 }
 
 function applyTargets() {
@@ -4326,9 +4358,9 @@ function applyTargets() {
 function toggleStorageMode() {
   const user = getCurrentUser();
   if (!user || user === 'guest' || user === 'local_user' || user === 'anonymous') {
-    showToast('当前为游客离线模式。注册并登录后会自动同步饮食记录和每日汇总。', 'info');
+    showToast('\u5f53\u524d\u4e3a\u6e38\u5ba2\u79bb\u7ebf\u6a21\u5f0f\u3002\u6ce8\u518c\u5e76\u767b\u5f55\u540e\u4f1a\u81ea\u52a8\u540c\u6b65\u996e\u98df\u8bb0\u5f55\u548c\u6bcf\u65e5\u6c47\u603b\u3002', 'info');
   } else {
-    showToast('云端同步已开启：饮食明细会节流同步，图片仍只保存在本地以节省资源。', 'info');
+    showToast('\u4e91\u7aef\u540c\u6b65\u5df2\u5f00\u542f\uff1a\u996e\u98df\u660e\u7ec6\u4f1a\u8282\u6d41\u540c\u6b65\uff0c\u56fe\u7247\u4ecd\u53ea\u4fdd\u5b58\u5728\u672c\u5730\u4ee5\u8282\u7701\u8d44\u6e90\u3002', 'info');
   }
 }
 
@@ -4336,18 +4368,18 @@ async function updateProfileUI() {
   const user = getCurrentUser() || 'guest';
   const profileUsername = document.getElementById('profileUsername');
   if (profileUsername) {
-    profileUsername.textContent = user === 'local_user' ? '离线体验用户' : user;
+    profileUsername.textContent = user === 'local_user' ? '\u79bb\u7ebf\u4f53\u9a8c\u7528\u6237' : user;
   }
   const profileStorageMode = document.getElementById('profileStorageMode');
   if (profileStorageMode) {
-    profileStorageMode.textContent = isLocalMode() ? '数据存储模式: 本地离线' : '数据存储模式: 饮食与汇总同步';
+    profileStorageMode.textContent = isLocalMode() ? '\u6570\u636e\u5b58\u50a8\u6a21\u5f0f: \u672c\u5730\u79bb\u7ebf' : '\u6570\u636e\u5b58\u50a8\u6a21\u5f0f: \u996e\u98df\u4e0e\u6c47\u603b\u540c\u6b65';
   }
   const storageModeDisplay = document.getElementById('storageModeDisplay');
   if (storageModeDisplay) {
-    storageModeDisplay.textContent = isLocalMode() ? '本地离线' : '已同步';
+    storageModeDisplay.textContent = isLocalMode() ? '\u672c\u5730\u79bb\u7ebf' : '\u5df2\u540c\u6b65';
   }
   const profileModeShort = document.getElementById('profileModeShort');
-  if (profileModeShort) profileModeShort.textContent = isLocalMode() ? '本地离线' : '云端同步';
+  if (profileModeShort) profileModeShort.textContent = isLocalMode() ? '\u672c\u5730\u79bb\u7ebf' : '\u4e91\u7aef\u540c\u6b65';
   const profileTargetSummary = document.getElementById('profileTargetSummary');
   if (profileTargetSummary) profileTargetSummary.textContent = `${calTarget.toLocaleString()} kcal / ${proTarget}g`;
 
@@ -4365,10 +4397,9 @@ async function updateProfileUI() {
     }
   } else {
     try {
-      const res = await fetch(API_BASE + '/api/profile', {
+      const json = await safeFetchJSON(API_BASE + '/api/profile', {
         headers: getAuthHeaders()
       });
-      const json = await res.json();
       hasProfile = json.has_profile;
       profile = json.profile;
       currentBMRProfile = profile;
@@ -4387,11 +4418,11 @@ async function updateProfileUI() {
   }
 
   const actMap = {
-    'sedentary': '久坐极少运动',
-    'lightly_active': '轻度运动 (每周1-3天)',
-    'moderately_active': '中度运动 (每周3-5天)',
-    'very_active': '重度运动 (每周6-7天)',
-    'highly_active': '极重度运动 (双倍训练)'
+    'sedentary': '\u4e45\u5750\u6781\u5c11\u8fd0\u52a8',
+    'lightly_active': '\u8f7b\u5ea6\u8fd0\u52a8 (\u6bcf\u54681-3\u5929)',
+    'moderately_active': '\u4e2d\u5ea6\u8fd0\u52a8 (\u6bcf\u54683-5\u5929)',
+    'very_active': '\u91cd\u5ea6\u8fd0\u52a8 (\u6bcf\u54686-7\u5929)',
+    'highly_active': '\u6781\u91cd\u5ea6\u8fd0\u52a8 (\u53cc\u500d\u8bad\u7ec3)'
   };
 
   if (hasProfile && profile) {
@@ -4399,28 +4430,28 @@ async function updateProfileUI() {
       const el = document.getElementById(id);
       if (el) el.textContent = value;
     };
-    setTextIfExists('profileGender', profile.gender === 'female' ? '女' : '男');
-    setTextIfExists('profileAge', profile.age + ' 岁');
+    setTextIfExists('profileGender', profile.gender === 'female' ? '\u5973' : '\u7537');
+    setTextIfExists('profileAge', profile.age + ' \u5c81');
     setTextIfExists('profileHeight', profile.height + ' cm');
     setTextIfExists('profileWeight', profile.weight + ' kg');
-    setTextIfExists('profileActivity', actMap[profile.activity_level] || '中度运动');
+    setTextIfExists('profileActivity', actMap[profile.activity_level] || '\u4e2d\u5ea6\u8fd0\u52a8');
     setTextIfExists('profileBMR', profile.bmr + ' kcal');
     setTextIfExists('profileTDEE', profile.tdee + ' kcal');
 
     // Update the bento card summary text
     const bmrSummary = document.getElementById('bmrSummaryText');
     if (bmrSummary) {
-      bmrSummary.textContent = `基础代谢 ${profile.bmr} kcal · TDEE ${profile.tdee} kcal · 推荐蛋白 ${profile.protein_target}g`;
+      bmrSummary.textContent = `\u57fa\u7840\u4ee3\u8c22 ${profile.bmr} kcal \u00b7 TDEE ${profile.tdee} kcal \u00b7 \u63a8\u8350\u86cb\u767d ${profile.protein_target}g`;
     }
     const bmrIndicator = document.getElementById('bmrSetupIndicator');
     if (bmrIndicator) {
-      bmrIndicator.textContent = '代谢计算已激活';
+      bmrIndicator.textContent = '\u4ee3\u8c22\u8ba1\u7b97\u5df2\u6fc0\u6d3b';
       bmrIndicator.className = 'status-pill';
     }
     const profileBmrStatus = document.getElementById('profileBmrStatus');
-    if (profileBmrStatus) profileBmrStatus.textContent = '已设置';
+    if (profileBmrStatus) profileBmrStatus.textContent = '\u5df2\u8bbe\u7f6e';
     const bmrSetupCta = document.getElementById('bmrSetupCta');
-    if (bmrSetupCta) bmrSetupCta.textContent = '更新身体数据';
+    if (bmrSetupCta) bmrSetupCta.textContent = '\u66f4\u65b0\u8eab\u4f53\u6570\u636e';
 
     calTarget = profile.tdee;
     proTarget = profile.protein_target;
@@ -4428,17 +4459,17 @@ async function updateProfileUI() {
   } else {
     const bmrSummary = document.getElementById('bmrSummaryText');
     if (bmrSummary) {
-      bmrSummary.textContent = `尚未设置身体数据，当前使用 ${calTarget.toLocaleString()} kcal / ${proTarget}g 作为默认目标。`;
+      bmrSummary.textContent = `\u5c1a\u672a\u8bbe\u7f6e\u8eab\u4f53\u6570\u636e\uff0c\u5f53\u524d\u4f7f\u7528 ${calTarget.toLocaleString()} kcal / ${proTarget}g \u4f5c\u4e3a\u9ed8\u8ba4\u76ee\u6807\u3002`;
     }
     const bmrIndicator = document.getElementById('bmrSetupIndicator');
     if (bmrIndicator) {
-      bmrIndicator.textContent = '使用默认目标';
+      bmrIndicator.textContent = '\u4f7f\u7528\u9ed8\u8ba4\u76ee\u6807';
       bmrIndicator.className = 'status-pill';
     }
     const profileBmrStatus = document.getElementById('profileBmrStatus');
-    if (profileBmrStatus) profileBmrStatus.textContent = '尚未设置';
+    if (profileBmrStatus) profileBmrStatus.textContent = '\u5c1a\u672a\u8bbe\u7f6e';
     const bmrSetupCta = document.getElementById('bmrSetupCta');
-    if (bmrSetupCta) bmrSetupCta.textContent = '设置身体数据，自动计算热量目标';
+    if (bmrSetupCta) bmrSetupCta.textContent = '\u8bbe\u7f6e\u8eab\u4f53\u6570\u636e\uff0c\u81ea\u52a8\u8ba1\u7b97\u70ed\u91cf\u76ee\u6807';
     applyTargets();
   }
   if (profileTargetSummary) profileTargetSummary.textContent = `${calTarget.toLocaleString()} kcal / ${proTarget}g`;
@@ -4485,7 +4516,7 @@ function updateDarkModeUI() {
   }
   const statusLabel = document.getElementById('darkModeStatusLabel');
   if (statusLabel) {
-    statusLabel.textContent = isDark ? '已开启' : '已关闭';
+    statusLabel.textContent = isDark ? '\u5df2\u5f00\u542f' : '\u5df2\u5173\u95ed';
   }
   if (calChart || macroChart) {
     fetchWeeklyReport();
@@ -4499,10 +4530,10 @@ function formatTime(isoStr) {
   if (isNaN(d.getTime())) return isoStr;
   const now = new Date();
   const time = d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
-  if (d.toDateString() === now.toDateString()) return `今天 ${time}`;
+  if (d.toDateString() === now.toDateString()) return `\u4eca\u5929 ${time}`;
   const yesterday = new Date(now); yesterday.setDate(yesterday.getDate()-1);
-  if (d.toDateString() === yesterday.toDateString()) return `昨天 ${time}`;
-  return `${d.getMonth()+1}月${d.getDate()}日 ${time}`;
+  if (d.toDateString() === yesterday.toDateString()) return `\u6628\u5929 ${time}`;
+  return `${d.getMonth()+1}\u6708${d.getDate()}\u65e5 ${time}`;
 }
 
 
@@ -4527,11 +4558,11 @@ function updateOnboardingSlide() {
 
   const btn = document.getElementById('onboardingNextBtn');
   if (onboardingSlideIndex === ONBOARDING_TOTAL - 1) {
-    btn.textContent = '开始使用 🚀';
+    btn.textContent = '\u5f00\u59cb\u4f7f\u7528 \u1f680';
     btn.style.background = '#fff';
     btn.style.color = '#92400e';
   } else {
-    btn.textContent = '下一步';
+    btn.textContent = '\u4e0b\u4e00\u6b65';
     btn.style.background = '#fff';
     btn.style.color = '#0f5238';
   }
@@ -4576,11 +4607,11 @@ function completeOnboarding() {
       const diff = touchStartX - touchEndX;
       if (Math.abs(diff) > 50) {
         if (diff > 0 && onboardingSlideIndex < ONBOARDING_TOTAL - 1) {
-          // Swipe left → next
+          // Swipe left \u2192 next
           onboardingSlideIndex++;
           updateOnboardingSlide();
         } else if (diff < 0 && onboardingSlideIndex > 0) {
-          // Swipe right → prev
+          // Swipe right \u2192 prev
           onboardingSlideIndex--;
           updateOnboardingSlide();
         }

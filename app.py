@@ -67,7 +67,13 @@ def call_llm(prompt_text, image=None, audio=None, mime_type=None, history=None, 
         if history:
             for h in history:
                 role = 'user' if h.get('role') == 'user' else 'assistant'
-                messages.append({"role": role, "content": h.get('content', '')})
+                content = h.get('content', '')
+                # 如果 content 是列表（多模态内容），只提取 text 部分，
+                # 避免 image_url 类型被发送到不支持多模态的模型
+                if isinstance(content, list):
+                    text_parts = [item.get('text', '') for item in content if isinstance(item, dict) and item.get('type') == 'text']
+                    content = ' '.join(text_parts) if text_parts else ''
+                messages.append({"role": role, "content": content})
                 
         user_content = []
         if prompt_text:
@@ -300,6 +306,12 @@ def init_db():
     conn.close()
 
 init_db()
+
+@app.errorhandler(404)
+def not_found(e):
+    if request.path.startswith('/api/'):
+        return jsonify({"error": "API endpoint not found", "path": request.path}), 404
+    return render_template('index.html')
 
 def get_db_connection():
     conn = sqlite3.connect('database.db')
@@ -948,6 +960,7 @@ def delete_session(session_id):
 
 
 @app.route('/api/report/weekly', methods=['GET'])
+@app.route('/api/weekly-report', methods=['GET'])
 def weekly_report():
     username = request.headers.get('X-User-Id') or 'anonymous'
     conn = get_db_connection()
