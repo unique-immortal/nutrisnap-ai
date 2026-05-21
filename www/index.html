@@ -2268,6 +2268,9 @@ function switchTab(tab) {
     fetchWeeklyReport();
     fetchAISuggestions();
   }
+  if (tab === 'profile' && !getCurrentUser()) {
+    showAuthOverlay();
+  }
   window.scrollTo(0, 0);
 }
 
