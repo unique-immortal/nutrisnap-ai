@@ -8,6 +8,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <script>
 tailwind.config = {
   darkMode: "class",
@@ -937,7 +938,7 @@ html.dark .onboarding-slide:nth-child(3) {
 
 <!-- Manual Food Entry Modal -->
 <div id="manualFoodModal" class="fixed inset-0 bg-black/40 z-[100] items-center justify-center hidden" onclick="if(event.target===this)closeManualFoodModal()">
-  <div class="bg-surface-container-lowest rounded-2xl p-6 mx-6 max-w-sm w-full shadow-xl" onclick="event.stopPropagation()">
+  <div class="bg-surface-container-lowest rounded-2xl p-6 mx-6 max-w-sm w-full shadow-xl max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation()">
     <div class="flex items-start justify-between gap-3 mb-4">
       <div>
         <h3 class="font-headline-md text-headline-md text-on-background">手动补录食物</h3>
@@ -946,6 +947,23 @@ html.dark .onboarding-slide:nth-child(3) {
       <button onclick="closeManualFoodModal()" class="text-outline hover:text-on-background p-1">
         <span class="material-symbols-outlined">close</span>
       </button>
+    </div>
+
+    <!-- Food Search -->
+    <div class="mb-4">
+      <div class="flex gap-2">
+        <div class="flex-1 relative">
+          <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline text-[20px]">search</span>
+          <input type="text" id="foodSearchInput" placeholder="搜索食物数据库..." class="w-full bg-surface-container rounded-xl pl-10 pr-4 py-3 font-body-md text-body-md text-on-background border border-outline-variant focus:border-primary focus:outline-none" 
+            onkeydown="if(event.key==='Enter')searchFoodDatabase()" />
+        </div>
+        <button onclick="startBarcodeScan()" class="bg-secondary-container text-on-secondary px-3 py-3 rounded-xl hover:scale-[1.02] active:scale-95 transition-transform" title="扫条形码">
+          <span class="material-symbols-outlined">barcode_scanner</span>
+        </button>
+      </div>
+      <div id="foodSearchResults" class="mt-2 hidden max-h-48 overflow-y-auto rounded-xl bg-surface-container border border-outline-variant"></div>
+      <div id="barcodeScannerContainer" class="mt-2 hidden rounded-xl overflow-hidden"></div>
+      <p id="foodSearchStatus" class="text-xs text-on-surface-variant mt-1 hidden"></p>
     </div>
 
     <div class="flex flex-wrap gap-2 mb-4">
@@ -1094,6 +1112,76 @@ html.dark .onboarding-slide:nth-child(3) {
       <span class="material-symbols-outlined">check_circle</span>
       <span>确认记录</span>
     </button>
+  </div>
+</div>
+
+<!-- ========== PAGE: Weight Tracking ========== -->
+<div class="page" id="page-weight">
+  <header class="flex justify-between items-center px-container-margin py-stack-md sticky top-0 glass-header z-40">
+    <h1 class="font-headline-md text-headline-md text-primary">体重追踪</h1>
+    <button onclick="showWeightRecordModal()" class="bg-primary text-on-primary font-semibold px-4 py-2 rounded-full text-sm hover:scale-[1.02] active:scale-95 transition-transform flex items-center gap-1">
+      <span class="material-symbols-outlined text-[18px]">add</span>
+      记录体重
+    </button>
+  </header>
+
+  <main class="flex flex-col gap-4 px-container-margin py-stack-md">
+    <!-- Weight Chart -->
+    <section class="surface-panel p-4">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="font-body-lg text-body-lg font-semibold text-on-background">体重趋势</h3>
+        <div class="flex gap-1 bg-surface-container rounded-lg p-1">
+          <button onclick="loadWeightData(7)" id="weightBtn7" class="px-3 py-1 rounded-md text-xs font-semibold transition-colors bg-primary text-on-primary">7天</button>
+          <button onclick="loadWeightData(30)" id="weightBtn30" class="px-3 py-1 rounded-md text-xs font-semibold transition-colors text-on-surface-variant">30天</button>
+          <button onclick="loadWeightData(90)" id="weightBtn90" class="px-3 py-1 rounded-md text-xs font-semibold transition-colors text-on-surface-variant">90天</button>
+        </div>
+      </div>
+      <div class="relative" style="height:240px">
+        <canvas id="weightChart"></canvas>
+      </div>
+    </section>
+
+    <!-- Latest Record -->
+    <section class="surface-panel p-4">
+      <h3 class="font-body-lg text-body-lg font-semibold text-on-background mb-3">最新记录</h3>
+      <div id="weightLatest" class="text-center py-4">
+        <p class="text-on-surface-variant text-sm">暂无体重记录</p>
+      </div>
+    </section>
+
+    <!-- History List -->
+    <section class="surface-panel p-4">
+      <h3 class="font-body-lg text-body-lg font-semibold text-on-background mb-3">历史记录</h3>
+      <div id="weightHistoryList" class="flex flex-col gap-2 max-h-64 overflow-y-auto">
+        <p class="text-on-surface-variant text-sm text-center py-4">暂无记录</p>
+      </div>
+    </section>
+  </main>
+</div>
+
+<!-- Weight Record Modal -->
+<div id="weightRecordModal" class="fixed inset-0 bg-black/40 z-[100] items-center justify-center hidden" onclick="if(event.target===this)closeWeightRecordModal()">
+  <div class="bg-surface-container-lowest rounded-2xl p-6 mx-6 max-w-sm w-full shadow-xl" onclick="event.stopPropagation()">
+    <div class="flex items-start justify-between gap-3 mb-4">
+      <h3 class="font-headline-md text-headline-md text-on-background">记录体重</h3>
+      <button onclick="closeWeightRecordModal()" class="text-outline hover:text-on-background p-1">
+        <span class="material-symbols-outlined">close</span>
+      </button>
+    </div>
+    <div class="flex flex-col gap-3">
+      <div>
+        <label class="text-xs text-on-surface-variant mb-1 block">体重 (kg)</label>
+        <input type="number" id="weightRecordValue" step="0.1" min="20" max="300" placeholder="例如: 70.5" class="w-full bg-surface-container rounded-xl px-4 py-3 font-body-md text-body-md text-on-background border border-outline-variant focus:border-primary focus:outline-none" />
+      </div>
+      <div>
+        <label class="text-xs text-on-surface-variant mb-1 block">日期</label>
+        <input type="date" id="weightRecordDate" class="w-full bg-surface-container rounded-xl px-4 py-3 font-body-md text-body-md text-on-background border border-outline-variant focus:border-primary focus:outline-none" />
+      </div>
+    </div>
+    <div class="flex gap-3 mt-5">
+      <button onclick="closeWeightRecordModal()" class="flex-1 bg-surface-container-high text-on-surface font-body-lg text-body-lg py-3 rounded-xl transition-colors">取消</button>
+      <button id="btnWeightSave" onclick="saveWeightRecord()" class="flex-1 bg-primary text-on-primary font-body-lg text-body-lg py-3 rounded-xl hover:scale-[1.02] active:scale-95 transition-transform">保存</button>
+    </div>
   </div>
 </div>
 
@@ -1557,6 +1645,10 @@ html.dark .onboarding-slide:nth-child(3) {
     <span class="material-symbols-outlined mb-0.5 nav-icon">home</span>
     <span class="font-label-md text-label-md text-[11px] nav-label">首页</span>
   </a>
+  <a class="nav-item flex flex-col items-center justify-center p-2 rounded-xl transition-colors cursor-pointer" data-tab="weight" onclick="switchTab('weight')">
+    <span class="material-symbols-outlined mb-0.5 nav-icon">monitor_weight</span>
+    <span class="font-label-md text-label-md text-[11px] nav-label">体重</span>
+  </a>
   <a class="nav-item flex flex-col items-center justify-center p-2 rounded-xl transition-colors cursor-pointer" data-tab="coach" onclick="switchTab('coach')">
     <span class="material-symbols-outlined mb-0.5 nav-icon">psychology</span>
     <span class="font-label-md text-label-md text-[11px] nav-label">教练</span>
@@ -1594,9 +1686,17 @@ html.dark .onboarding-slide:nth-child(3) {
 
 <script>
 // ===================== CONFIG =====================
-const API_BASE = "https://nutrisnap-ai-940406235442.us-central1.run.app";
+const API_BASE = "";
 
 async function safeFetchJSON(url, options = {}) {
+  // 自动附加 JWT token
+  const token = localStorage.getItem('authToken');
+  if (token) {
+    options.headers = options.headers || {};
+    if (!options.headers['Authorization'] && !options.headers['authorization']) {
+      options.headers['Authorization'] = `Bearer ${token}`;
+    }
+  }
   const response = await fetch(url, options);
   if (!response.ok) {
     let errMsg = `HTTP error! status: ${response.status}`;
@@ -2213,6 +2313,9 @@ async function handleAuthSubmit() {
     });
     if (json.success) {
       localStorage.setItem('currentUser', json.username || username);
+      if (json.token) {
+        localStorage.setItem('authToken', json.token);
+      }
       storageMode = 'server';
       localStorage.setItem('storageMode', 'server');
       hideAuthOverlay();
@@ -2271,6 +2374,7 @@ function switchTab(tab) {
   if (tab === 'profile' && !getCurrentUser()) {
     showAuthOverlay();
   }
+  if (tab === 'weight') loadWeightData(currentWeightDays || 90);
   window.scrollTo(0, 0);
 }
 
@@ -4640,6 +4744,307 @@ document.addEventListener('DOMContentLoaded', () => {
     document.documentElement.classList.remove('dark');
   }
   updateDarkModeUI();
+
+  // ==========================================
+  // Food Database Search
+  // ==========================================
+  async function searchFoodDatabase() {
+    const query = document.getElementById('foodSearchInput').value.trim();
+    if (query.length < 2) {
+      document.getElementById('foodSearchStatus').textContent = '请输入至少2个字符';
+      document.getElementById('foodSearchStatus').classList.remove('hidden');
+      return;
+    }
+
+    const statusEl = document.getElementById('foodSearchStatus');
+    const resultsEl = document.getElementById('foodSearchResults');
+    statusEl.textContent = '搜索中...';
+    statusEl.classList.remove('hidden');
+    resultsEl.classList.add('hidden');
+
+    try {
+      const json = await safeFetchJSON(`/api/food/search?q=${encodeURIComponent(query)}`);
+      if (json.success && json.results.length > 0) {
+        renderFoodSearchResults(json.results);
+        statusEl.textContent = `找到 ${json.results.length} 条结果`;
+      } else {
+        resultsEl.classList.add('hidden');
+        statusEl.textContent = '未找到匹配的食物';
+      }
+    } catch (e) {
+      statusEl.textContent = normalizeErrorMessage(e, '搜索失败,请稍后重试');
+    }
+  }
+
+  function renderFoodSearchResults(results) {
+    const container = document.getElementById('foodSearchResults');
+    container.innerHTML = results.map((item, i) => `
+      <div class="food-search-item flex items-center gap-3 px-3 py-2.5 hover:bg-surface-container-high cursor-pointer border-b border-outline-variant/30 last:border-b-0"
+           onclick="selectFoodFromSearch('${escapeHtml(item.product_name)}', ${item.calories}, ${item.protein}, ${item.carbs}, ${item.fat})">
+        <div class="flex-1 min-w-0">
+          <p class="text-sm font-semibold text-on-background truncate">${escapeHtml(item.product_name)}</p>
+          <p class="text-xs text-on-surface-variant">${escapeHtml(item.brands || '')} | ${item.calories}kcal/100g</p>
+        </div>
+        <span class="material-symbols-outlined text-outline text-[18px]">add_circle</span>
+      </div>
+    `).join('');
+    container.classList.remove('hidden');
+  }
+
+  function selectFoodFromSearch(name, cal, pro, carb, fat) {
+    document.getElementById('manualFoodName').value = name;
+    document.getElementById('manualFoodCalories').value = cal;
+    document.getElementById('manualFoodProtein').value = pro;
+    document.getElementById('manualFoodCarbs').value = carb;
+    document.getElementById('manualFoodFat').value = fat;
+    document.getElementById('foodSearchResults').classList.add('hidden');
+    document.getElementById('foodSearchStatus').classList.add('hidden');
+  }
+
+  function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+  }
+
+  // ==========================================
+  // Barcode Scanner
+  // ==========================================
+  let barcodeScanner = null;
+
+  async function startBarcodeScan() {
+    const container = document.getElementById('barcodeScannerContainer');
+    const resultsEl = document.getElementById('foodSearchResults');
+    const statusEl = document.getElementById('foodSearchStatus');
+    resultsEl.classList.add('hidden');
+    statusEl.classList.add('hidden');
+
+    if (barcodeScanner) {
+      await stopBarcodeScan();
+    }
+
+    container.classList.remove('hidden');
+    container.innerHTML = '<div id="barcodeReader" style="width:100%"></div>';
+
+    try {
+      barcodeScanner = new Html5Qrcode("barcodeReader");
+      await barcodeScanner.start(
+        { facingMode: "environment" },
+        { fps: 10, qrbox: { width: 250, height: 150 } },
+        async (decodedText) => {
+          // Barcode detected
+          await onBarcodeDetected(decodedText);
+        },
+        () => {} // ignore scan errors
+      );
+    } catch (err) {
+      statusEl.textContent = '无法启动摄像头,请检查权限';
+      statusEl.classList.remove('hidden');
+      container.classList.add('hidden');
+    }
+  }
+
+  async function stopBarcodeScan() {
+    if (barcodeScanner) {
+      try {
+        await barcodeScanner.stop();
+        barcodeScanner.clear();
+      } catch (e) {}
+      barcodeScanner = null;
+    }
+    document.getElementById('barcodeScannerContainer').classList.add('hidden');
+  }
+
+  async function onBarcodeDetected(barcode) {
+    await stopBarcodeScan();
+
+    const statusEl = document.getElementById('foodSearchStatus');
+    statusEl.textContent = `条形码 ${barcode} 查询中...`;
+    statusEl.classList.remove('hidden');
+
+    try {
+      const json = await safeFetchJSON(`/api/food/barcode/${barcode}`);
+      if (json.success) {
+        document.getElementById('manualFoodName').value = json.product_name;
+        document.getElementById('manualFoodCalories').value = json.calories;
+        document.getElementById('manualFoodProtein').value = json.protein;
+        document.getElementById('manualFoodCarbs').value = json.carbs;
+        document.getElementById('manualFoodFat').value = json.fat;
+        statusEl.textContent = `已识别: ${json.product_name}`;
+      } else {
+        statusEl.textContent = json.error || '未找到该条形码对应的食物';
+      }
+    } catch (e) {
+      statusEl.textContent = normalizeErrorMessage(e, '条形码查询失败');
+    }
+  }
+
+  function closeManualFoodModal() {
+    document.getElementById('manualFoodModal').classList.add('hidden');
+    document.getElementById('manualFoodModal').classList.remove('flex');
+    document.getElementById('foodSearchResults').classList.add('hidden');
+    document.getElementById('foodSearchStatus').classList.add('hidden');
+    document.getElementById('barcodeScannerContainer').classList.add('hidden');
+    stopBarcodeScan();
+  }
+
+  // ==========================================
+  // Weight Tracking
+  // ==========================================
+  let weightChartInstance = null;
+
+  function showWeightRecordModal() {
+    document.getElementById('weightRecordModal').classList.remove('hidden');
+    document.getElementById('weightRecordModal').classList.add('flex');
+    document.getElementById('weightRecordDate').value = new Date().toISOString().split('T')[0];
+  }
+
+  function closeWeightRecordModal() {
+    document.getElementById('weightRecordModal').classList.add('hidden');
+    document.getElementById('weightRecordModal').classList.remove('flex');
+  }
+
+  async function saveWeightRecord() {
+    const weightEl = document.getElementById('weightRecordValue');
+    const dateEl = document.getElementById('weightRecordDate');
+    const weight = parseFloat(weightEl.value);
+    const recorded_at = dateEl.value;
+
+    if (isNaN(weight) || weight < 20 || weight > 300) {
+      alert('请输入有效的体重值 (20-300 kg)');
+      return;
+    }
+
+    const btn = document.getElementById('btnWeightSave');
+    btn.disabled = true;
+    btn.textContent = '保存中...';
+
+    try {
+      const json = await safeFetchJSON('/api/weight', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ weight, recorded_at })
+      });
+      if (json.success) {
+        closeWeightRecordModal();
+        weightEl.value = '';
+        await loadWeightData(currentWeightDays || 90);
+      } else {
+        alert(json.error || '保存失败');
+      }
+    } catch (e) {
+      alert(normalizeErrorMessage(e, '保存失败,请稍后重试'));
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '保存';
+    }
+  }
+
+  let currentWeightDays = 90;
+
+  async function loadWeightData(days) {
+    currentWeightDays = days;
+
+    // Update tab buttons
+    [7, 30, 90].forEach(d => {
+      const btn = document.getElementById(`weightBtn${d}`);
+      if (d === days) {
+        btn.className = 'px-3 py-1 rounded-md text-xs font-semibold transition-colors bg-primary text-on-primary';
+      } else {
+        btn.className = 'px-3 py-1 rounded-md text-xs font-semibold transition-colors text-on-surface-variant';
+      }
+    });
+
+    try {
+      const json = await safeFetchJSON(`/api/weight?days=${days}`);
+      if (!json.success || !json.data || json.data.length === 0) {
+        document.getElementById('weightLatest').innerHTML = '<p class="text-on-surface-variant text-sm">暂无体重记录</p>';
+        document.getElementById('weightHistoryList').innerHTML = '<p class="text-on-surface-variant text-sm text-center py-4">暂无记录</p>';
+        if (weightChartInstance) { weightChartInstance.destroy(); weightChartInstance = null; }
+        return;
+      }
+
+      const data = json.data;
+
+      // Latest record
+      const latest = data[data.length - 1];
+      const deltaText = data.length >= 2
+        ? (latest.weight - data[0].weight).toFixed(1)
+        : null;
+
+      document.getElementById('weightLatest').innerHTML = `
+        <div class="text-4xl font-extrabold text-primary">${latest.weight} <span class="text-lg font-normal text-on-surface-variant">kg</span></div>
+        <div class="text-xs text-on-surface-variant mt-2">${latest.recorded_at}</div>
+        ${deltaText !== null ? `<div class="text-xs mt-1 ${parseFloat(deltaText) > 0 ? 'text-error' : parseFloat(deltaText) < 0 ? 'text-green-500' : 'text-on-surface-variant'}">期间变化: ${parseFloat(deltaText) > 0 ? '+' : ''}${deltaText} kg</div>` : ''}
+      `;
+
+      // History list
+      const reversed = [...data].reverse();
+      document.getElementById('weightHistoryList').innerHTML = reversed.map((r, i) => {
+        const prev = i < reversed.length - 1 ? reversed[i + 1] : null;
+        const diff = prev ? (r.weight - prev.weight).toFixed(1) : null;
+        const diffColor = diff ? (parseFloat(diff) > 0 ? 'text-error' : parseFloat(diff) < 0 ? 'text-green-500' : 'text-on-surface-variant') : '';
+        return `
+          <div class="flex items-center justify-between py-2 px-3 rounded-lg bg-surface-container">
+            <div>
+              <span class="text-sm font-semibold text-on-background">${r.weight} kg</span>
+              ${diff ? `<span class="text-xs ${diffColor} ml-2">${parseFloat(diff) > 0 ? '+' : ''}${diff}</span>` : ''}
+            </div>
+            <span class="text-xs text-on-surface-variant">${r.recorded_at}</span>
+          </div>
+        `;
+      }).join('');
+
+      // Chart
+      renderWeightChart(data);
+    } catch (e) {
+      console.error('Weight data load error:', e);
+    }
+  }
+
+  function renderWeightChart(data) {
+    const ctx = document.getElementById('weightChart').getContext('2d');
+    if (weightChartInstance) weightChartInstance.destroy();
+
+    weightChartInstance = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: data.map(r => r.recorded_at),
+        datasets: [{
+          label: '体重 (kg)',
+          data: data.map(r => r.weight),
+          borderColor: '#4CAF50',
+          backgroundColor: 'rgba(76, 175, 80, 0.1)',
+          borderWidth: 2,
+          pointRadius: 3,
+          pointBackgroundColor: '#4CAF50',
+          fill: true,
+          tension: 0.3
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          y: {
+            min: Math.floor(Math.min(...data.map(r => r.weight)) - 2),
+            max: Math.ceil(Math.max(...data.map(r => r.weight)) + 2),
+            ticks: { callback: v => v + ' kg' }
+          }
+        }
+      }
+    });
+  }
+
+  // ==========================================
+  // Helper: normalize error messages
+  // ==========================================
+  function normalizeErrorMessage(err, fallback) {
+    if (typeof err === 'string') return err;
+    if (err && err.message) return err.message;
+    return fallback || '未知错误';
+  }
 
   // Check if onboarding has been completed
   if (!localStorage.getItem('onboarding_completed')) {

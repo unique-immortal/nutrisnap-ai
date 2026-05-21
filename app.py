@@ -5,11 +5,17 @@ import sqlite3
 import datetime
 import re
 import hashlib
+import jwt
+import functools
+import requests
 from dotenv import load_dotenv
 from flask import Flask, request, jsonify, render_template, send_from_directory
 from flask_cors import CORS
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from google import genai
 from werkzeug.utils import secure_filename
+from werkzeug.security import generate_password_hash, check_password_hash
 import PIL.Image
 
 # 加载 .env 文件（仅本地开发使用，Cloud Run 通过环境变量注入）
@@ -17,6 +23,15 @@ load_dotenv()
 
 app = Flask(__name__)
 CORS(app)
+
+# JWT 密钥（优先从环境变量读取）
+JWT_SECRET_KEY = os.environ.get('JWT_SECRET_KEY', 'nutrisnap-jwt-secret-change-in-production')
+JWT_EXPIRATION_HOURS = int(os.environ.get('JWT_EXPIRATION_HOURS', '72'))
+
+# Flask-Limiter 速率限制
+app.config['RATELIMIT_STORAGE_URI'] = 'memory://'
+app.config['RATELIMIT_DEFAULT'] = '60 per minute'
+limiter = Limiter(key_func=get_remote_address, app=app)
 
 # ==========================================
 # 1. 基础配置
@@ -27,7 +42,6 @@ app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
 import io
 import base64
-import requests
 
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
 OPENROUTER_API_KEY = os.environ.get('OPENROUTER_API_KEY')
@@ -298,6 +312,17 @@ def init_db():
     cursor.execute("UPDATE meals SET username = 'anonymous' WHERE username IS NULL")
     cursor.execute("UPDATE meals SET client_id = 'server_' || id WHERE client_id IS NULL")
     cursor.execute("UPDATE meals SET updated_at = COALESCE(created_at, CURRENT_TIMESTAMP) WHERE updated_at IS NULL")
+
+    # Create weight_logs table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS weight_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT,
+            weight REAL NOT NULL,
+            recorded_at TEXT NOT NULL,
+            FOREIGN KEY (username) REFERENCES users(username)
+        )
+    ''')
     cursor.execute('''
         CREATE UNIQUE INDEX IF NOT EXISTS idx_meals_username_client_id
         ON meals(username, client_id)
@@ -400,7 +425,50 @@ def uploaded_file(filename):
 # ==========================================
 
 def hash_password(password):
-    return hashlib.sha256(password.encode('utf-8')).hexdigest()
+    return generate_password_hash(password, method='pbkdf2:sha256')
+
+def verify_password(password, password_hash):
+    return check_password_hash(password_hash, password)
+
+def create_token(username):
+    """生成 JWT token"""
+    payload = {
+        'username': username,
+        'exp': datetime.datetime.utcnow() + datetime.timedelta(hours=JWT_EXPIRATION_HOURS),
+        'iat': datetime.datetime.utcnow()
+    }
+    return jwt.encode(payload, JWT_SECRET_KEY, algorithm='HS256')
+
+def token_required(f):
+    """JWT 验证装饰器"""
+    @functools.wraps(f)
+    def decorated(*args, **kwargs):
+        token = None
+        auth_header = request.headers.get('Authorization', '')
+        if auth_header.startswith('Bearer '):
+            token = auth_header[7:]
+        
+        if not token:
+            return jsonify({"error": "未提供认证令牌"}), 401
+        
+        try:
+            data = jwt.decode(token, JWT_SECRET_KEY, algorithms=['HS256'])
+            request.current_user = data['username']
+        except jwt.ExpiredSignatureError:
+            return jsonify({"error": "令牌已过期，请重新登录"}), 401
+        except jwt.InvalidTokenError:
+            return jsonify({"error": "无效的认证令牌"}), 401
+        
+        return f(*args, **kwargs)
+    return decorated
+
+def get_current_username():
+    """获取当前请求的用户名"""
+    # 优先从 JWT 获取
+    if hasattr(request, 'current_user'):
+        return request.current_user
+    # 兼容旧的 X-User-Id header
+    return request.headers.get('X-User-Id') or 'anonymous'
 
 def validate_profile_payload(data):
     try:
@@ -522,6 +590,7 @@ def register():
         conn.close()
 
 @app.route('/api/login', methods=['POST'])
+@limiter.limit("5 per minute")
 def login():
     data = request.get_json() or {}
     username = data.get('username', '').strip()
@@ -532,10 +601,23 @@ def login():
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        pw_hash = hash_password(password)
-        cursor.execute("SELECT 1 FROM users WHERE username = ? AND password_hash = ?", (username, pw_hash))
-        if cursor.fetchone():
-            return jsonify({"success": True, "username": username})
+        cursor.execute("SELECT password_hash FROM users WHERE username = ?", (username,))
+        row = cursor.fetchone()
+        if row and row['password_hash']:
+            # 兼容旧 SHA256 密码和新的 werkzeug 密码
+            stored_hash = row['password_hash']
+            if verify_password(password, stored_hash):
+                pass
+            elif stored_hash == hashlib.sha256(password.encode('utf-8')).hexdigest():
+                # 旧密码格式，自动升级为 werkzeug hash
+                new_hash = hash_password(password)
+                cursor.execute("UPDATE users SET password_hash = ? WHERE username = ?", (new_hash, username))
+                conn.commit()
+            else:
+                return jsonify({"error": "用户名或密码错误"}), 400
+            
+            token = create_token(username)
+            return jsonify({"success": True, "username": username, "token": token})
         else:
             return jsonify({"error": "用户名或密码错误"}), 400
     except Exception as e:
@@ -1414,6 +1496,206 @@ def handle_daily_summaries():
         conn.close()
 
         return jsonify({"success": True})
+
+
+# ==========================================
+# 7. 食物数据库 & 条形码 API
+# ==========================================
+
+OFF_SEARCH_URL = "https://world.openfoodfacts.org/api/v2/search"
+OFF_PRODUCT_URL = "https://world.openfoodfacts.org/api/v2/product"
+
+def map_off_nutriments(nutriments):
+    """映射 Open Food Facts nutriments 字段到标准格式"""
+    if not nutriments:
+        return {'calories': 0, 'protein': 0, 'carbs': 0, 'fat': 0}
+    
+    def safe_float(val, default=0):
+        try:
+            return float(val) if val is not None else default
+        except (TypeError, ValueError):
+            return default
+    
+    energy_kcal = (
+        safe_float(nutriments.get('energy-kcal_100g')) or
+        safe_float(nutriments.get('energy-kcal')) or
+        (safe_float(nutriments.get('energy_100g')) / 4.184 if nutriments.get('energy_100g') else 0) or
+        0
+    )
+    
+    return {
+        'calories': round(energy_kcal),
+        'protein': round(safe_float(nutriments.get('proteins_100g'))),
+        'carbs': round(safe_float(nutriments.get('carbohydrates_100g'))),
+        'fat': round(safe_float(nutriments.get('fat_100g')))
+    }
+
+@app.route('/api/food/search', methods=['GET'])
+def food_search():
+    """搜索 Open Food Facts 食物数据库"""
+    query = request.args.get('q', '').strip()
+    if not query or len(query) < 2:
+        return jsonify({"error": "搜索关键词至少2个字符"}), 400
+    
+    page = request.args.get('page', 1, type=int)
+    if page < 1:
+        page = 1
+    
+    try:
+        params = {
+            'search_terms': query,
+            'search_simple': 1,
+            'json': 1,
+            'page': page,
+            'page_size': 20,
+            'fields': 'product_name,nutriments,code,image_url,brands'
+        }
+        resp = requests.get(OFF_SEARCH_URL, params=params, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+        
+        products = data.get('products', [])
+        results = []
+        for p in products:
+            if not p.get('product_name'):
+                continue
+            
+            nutriments = map_off_nutriments(p.get('nutriments'))
+            results.append({
+                'code': p.get('code', ''),
+                'product_name': p.get('product_name', ''),
+                'brands': p.get('brands', ''),
+                'image_url': p.get('image_url', ''),
+                'calories': nutriments['calories'],
+                'protein': nutriments['protein'],
+                'carbs': nutriments['carbs'],
+                'fat': nutriments['fat']
+            })
+        
+        return jsonify({
+            "success": True,
+            "query": query,
+            "page": page,
+            "count": data.get('count', 0),
+            "results": results
+        })
+    except requests.exceptions.Timeout:
+        return jsonify({"error": "食物数据库请求超时，请稍后重试"}), 504
+    except requests.exceptions.RequestException as e:
+        return jsonify({"error": f"食物数据库请求失败: {str(e)}"}), 502
+    except Exception as e:
+        return jsonify({"error": f"搜索失败: {str(e)}"}), 500
+
+@app.route('/api/food/barcode/<barcode>', methods=['GET'])
+def food_barcode(barcode):
+    """通过条形码查询 Open Food Facts 食物信息"""
+    if not barcode or not barcode.isdigit():
+        return jsonify({"error": "无效的条形码"}), 400
+    
+    try:
+        resp = requests.get(f"{OFF_PRODUCT_URL}/{barcode}.json", timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+        
+        if data.get('status') != 1 or not data.get('product'):
+            return jsonify({"error": "未找到该条形码对应的食物"}), 404
+        
+        product = data['product']
+        if not product.get('product_name'):
+            return jsonify({"error": "该条形码对应的食物信息不完整"}), 404
+        
+        nutriments = map_off_nutriments(product.get('nutriments'))
+        
+        return jsonify({
+            "success": True,
+            "code": barcode,
+            "product_name": product.get('product_name', ''),
+            "brands": product.get('brands', ''),
+            "image_url": product.get('image_url', ''),
+            "calories": nutriments['calories'],
+            "protein": nutriments['protein'],
+            "carbs": nutriments['carbs'],
+            "fat": nutriments['fat']
+        })
+    except requests.exceptions.Timeout:
+        return jsonify({"error": "条形码查询超时，请稍后重试"}), 504
+    except requests.exceptions.RequestException as e:
+        return jsonify({"error": f"条形码查询失败: {str(e)}"}), 502
+    except Exception as e:
+        return jsonify({"error": f"条形码查询失败: {str(e)}"}), 500
+
+# ==========================================
+# 8. 体重追踪 API
+# ==========================================
+
+@app.route('/api/weight', methods=['GET'])
+def get_weight_logs():
+    """获取体重历史记录"""
+    username = get_current_username()
+    days = request.args.get('days', 90, type=int)
+    if days not in (7, 30, 90, 180, 365):
+        days = 90
+    
+    since = (datetime.date.today() - datetime.timedelta(days=days)).isoformat()
+    
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    rows = cursor.execute('''
+        SELECT id, weight, recorded_at
+        FROM weight_logs
+        WHERE username = ?
+        AND recorded_at >= ?
+        ORDER BY recorded_at ASC
+    ''', (username, since)).fetchall()
+    conn.close()
+    
+    return jsonify({
+        "success": True,
+        "days": days,
+        "data": [{"id": r['id'], "weight": r['weight'], "recorded_at": r['recorded_at']} for r in rows]
+    })
+
+@app.route('/api/weight', methods=['POST'])
+def record_weight():
+    """记录体重"""
+    username = get_current_username()
+    data = request.get_json() or {}
+    
+    try:
+        weight = float(data.get('weight', 0))
+    except (TypeError, ValueError):
+        return jsonify({"error": "体重必须是有效数字"}), 400
+    
+    if weight < 20 or weight > 300:
+        return jsonify({"error": "体重需在 20-300 kg 之间"}), 400
+    
+    recorded_at = data.get('recorded_at', datetime.date.today().isoformat())
+    
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    # 同一天已有记录则更新
+    cursor.execute('''
+        SELECT id FROM weight_logs
+        WHERE username = ? AND date(recorded_at) = date(?)
+    ''', (username, recorded_at))
+    existing = cursor.fetchone()
+    
+    if existing:
+        cursor.execute('''
+            UPDATE weight_logs SET weight = ?, recorded_at = ?
+            WHERE id = ?
+        ''', (weight, recorded_at, existing['id']))
+    else:
+        cursor.execute('''
+            INSERT INTO weight_logs (username, weight, recorded_at)
+            VALUES (?, ?, ?)
+        ''', (username, weight, recorded_at))
+    
+    conn.commit()
+    conn.close()
+    
+    return jsonify({"success": True, "weight": weight, "recorded_at": recorded_at})
 
 
 if __name__ == '__main__':
