@@ -45,9 +45,9 @@ tailwind.config = {
       fontSize: {
         "body-lg":["18px",{"lineHeight":"30px","fontWeight":"400"}],
         "body-md":["16px",{"lineHeight":"26px","fontWeight":"400"}],
-        "stats-xl":["40px",{"lineHeight":"42px","letterSpacing":"-0.02em","fontWeight":"800"}],
-        "headline-md":["24px",{"lineHeight":"32px","fontWeight":"700"}],
-        "headline-lg-mobile":["28px",{"lineHeight":"36px","letterSpacing":"-0.01em","fontWeight":"700"}],
+        "stats-xl":["clamp(2rem, 8vw, 2.5rem)",{"lineHeight":"1.1","letterSpacing":"-0.02em","fontWeight":"800"}],
+        "headline-md":["clamp(1.25rem, 4vw, 1.5rem)",{"lineHeight":"32px","fontWeight":"700"}],
+        "headline-lg-mobile":["clamp(1.5rem, 5vw, 1.75rem)",{"lineHeight":"36px","letterSpacing":"-0.01em","fontWeight":"700"}],
         "label-md":["14px",{"lineHeight":"20px","letterSpacing":"0.02em","fontWeight":"600"}]
       }
     }
@@ -236,21 +236,29 @@ input[type=range]:focus{outline:none}
 
 /* Glassmorphism Styles */
 .glass-header {
-  background: color-mix(in srgb, var(--background) 85%, transparent) !important;
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
+  background: color-mix(in srgb, var(--background) 88%, transparent) !important;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
   border-bottom: 1px solid var(--outline-variant);
   padding-top: calc(env(safe-area-inset-top, 0px) + 0.75rem) !important;
-  transition: background 0.3s ease, border-color 0.3s ease;
+  transition: background 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+  box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.05);
+}
+html.dark .glass-header {
+  box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.08);
 }
 
 .glass-nav {
   background: color-mix(in srgb, var(--surface-container-lowest) 88%, transparent) !important;
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
   border-top: 1px solid var(--outline-variant);
   padding-bottom: env(safe-area-inset-bottom, 4px) !important;
-  transition: background 0.3s ease, border-color 0.3s ease;
+  transition: background 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+html.dark .glass-nav {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
 .nav-item.active {
@@ -272,8 +280,7 @@ html.dark .nav-item.active {
 
 .muscle-pill { white-space: nowrap !important; }
 
-html.dark .surface-panel { box-shadow: 0 2px 8px rgba(0,0,0,0.35) !important; }
-html.dark .modal-panel { box-shadow: 0 8px 24px rgba(0,0,0,0.4) !important; }
+/* Surface & Modal shadows are configured below */
 
 /* Premium micro-interactions */
 .card-premium {
@@ -288,13 +295,13 @@ html.dark .card-premium:hover {
 }
 
 .btn-premium {
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), background-color 0.2s, filter 0.2s, box-shadow 0.2s;
 }
 .btn-premium:hover {
   filter: brightness(1.08);
 }
 .btn-premium:active {
-  transform: scale(0.97);
+  transform: scale(0.95);
 }
 
 .app-shell{
@@ -305,14 +312,23 @@ html.dark .card-premium:hover {
 }
 
 .surface-panel{
-  background:var(--surface-container-lowest);
-  border:1px solid var(--outline-variant);
-  border-radius:1.5rem;
-  box-shadow:0 4px 16px color-mix(in srgb, var(--primary) 5%, transparent);
+  background: color-mix(in srgb, var(--surface-container-lowest) 88%, transparent) !important;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--outline-variant);
+  border-radius: 1.5rem;
+  box-shadow:
+    0 8px 32px 0 rgba(0, 0, 0, 0.08),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.1);
+  transition: background 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
 }
 
 html.dark .surface-panel{
-  box-shadow:0 4px 16px rgba(0,0,0,.28);
+  background: color-mix(in srgb, var(--surface-container-lowest) 82%, transparent) !important;
+  border: 1px solid rgba(255, 255, 255, 0.05) !important;
+  box-shadow:
+    0 12px 40px 0 rgba(0, 0, 0, 0.25),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.08) !important;
 }
 
 .metric-card{
@@ -324,9 +340,11 @@ html.dark .surface-panel{
   display:flex;
   flex-direction:column;
   justify-content:space-between;
-  transition: transform 0.15s ease, box-shadow 0.2s ease;
+  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.2s, background-color 0.3s, border-color 0.3s;
 }
-.metric-card:active{transform:scale(.98)}
+.metric-card:active{
+  transform: scale(0.96);
+}
 
 .entry-card{
   width:100%;
@@ -339,9 +357,32 @@ html.dark .surface-panel{
   align-items:center;
   gap:.875rem;
   text-align:left;
-  transition: transform 0.15s ease;
+  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.2s, background-color 0.3s, border-color 0.3s;
 }
-.entry-card:active{transform:scale(.98)}
+.entry-card:active{
+  transform: scale(0.96);
+}
+
+/* Skeleton box for premium shimmer */
+.skeleton-box {
+  background: linear-gradient(
+    90deg,
+    var(--surface-container) 25%,
+    var(--surface-container-highest) 37%,
+    var(--surface-container) 63%
+  );
+  background-size: 400% 100%;
+  animation: skeleton-shimmer 1.4s ease infinite;
+}
+
+@keyframes skeleton-shimmer {
+  0% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0 50%;
+  }
+}
 
 .status-pill{
   display:inline-flex;
@@ -530,18 +571,41 @@ html.dark .empty-state{
 }
 
 .modal-panel{
+  background: color-mix(in srgb, var(--surface-container-lowest) 88%, transparent) !important;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--outline-variant);
+  box-shadow:
+    0 16px 48px rgba(0, 0, 0, 0.12),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.1) !important;
   max-height:calc(100dvh - 2rem);
   overflow-y:auto;
   overscroll-behavior:contain;
   -webkit-overflow-scrolling:touch;
+  transition: background 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+html.dark .modal-panel {
+  background: color-mix(in srgb, var(--surface-container-lowest) 82%, transparent) !important;
+  border: 1px solid rgba(255, 255, 255, 0.05) !important;
+  box-shadow:
+    0 24px 64px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.08) !important;
 }
 
 .modal-actions{
   position:sticky;
   bottom:0;
-  background:var(--surface-container-lowest);
+  background: color-mix(in srgb, var(--surface-container-lowest) 88%, transparent) !important;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
   padding-top:.75rem;
   padding-bottom:env(safe-area-inset-bottom, 0);
+  transition: background 0.3s ease;
+}
+
+html.dark .modal-actions {
+  background: color-mix(in srgb, var(--surface-container-lowest) 82%, transparent) !important;
 }
 
 .field-invalid{
@@ -1229,10 +1293,45 @@ html.dark .onboarding-slide:nth-child(3) {
         <span>开始 AI 分析</span>
       </button>
     </section>
-    <div id="analyzeLoading" class="hidden flex flex-col items-center gap-3 py-8">
-      <div class="spinner-ai"></div>
-      <p class="font-body-lg text-body-lg text-primary font-semibold">AI 识别中...</p>
-      <p class="font-label-md text-label-md text-outline">正在分析食物营养成分</p>
+    <div id="analyzeLoading" class="hidden w-full max-w-md mx-auto mt-4 p-5 surface-panel border border-outline-variant/30 rounded-2xl flex flex-col gap-4">
+      <div class="flex items-center gap-3">
+        <!-- Circular/Avatar shimmer -->
+        <div class="w-12 h-12 rounded-full skeleton-box"></div>
+        <div class="flex-1 flex flex-col gap-2">
+          <!-- Text shimmers -->
+          <div class="h-4 w-1/3 rounded-md skeleton-box"></div>
+          <div class="h-3 w-1/2 rounded-md skeleton-box"></div>
+        </div>
+      </div>
+      <div class="h-px bg-outline-variant/20 my-1"></div>
+      <!-- Nutritional breakdown shimmer rows -->
+      <div class="flex flex-col gap-3">
+        <div class="flex items-center justify-between">
+          <div class="h-3 w-1/4 rounded-md skeleton-box"></div>
+          <div class="h-3 w-12 rounded-md skeleton-box"></div>
+        </div>
+        <div class="h-2 w-full rounded-md bg-surface-container overflow-hidden">
+          <div class="h-full w-1/3 rounded-md skeleton-box"></div>
+        </div>
+        <div class="flex items-center justify-between mt-1">
+          <div class="h-3 w-1/5 rounded-md skeleton-box"></div>
+          <div class="h-3 w-8 rounded-md skeleton-box"></div>
+        </div>
+        <div class="h-2 w-full rounded-md bg-surface-container overflow-hidden">
+          <div class="h-full w-1/4 rounded-md skeleton-box"></div>
+        </div>
+        <div class="flex items-center justify-between mt-1">
+          <div class="h-3 w-1/6 rounded-md skeleton-box"></div>
+          <div class="h-3 w-10 rounded-md skeleton-box"></div>
+        </div>
+        <div class="h-2 w-full rounded-md bg-surface-container overflow-hidden">
+          <div class="h-full w-1/5 rounded-md skeleton-box"></div>
+        </div>
+      </div>
+      <div class="flex justify-center items-center gap-2 mt-2 py-1">
+        <div class="spinner-ai !w-5 !h-5"></div>
+        <span class="font-label-md text-label-md text-primary font-semibold animate-pulse">AI 正在深度解析营养成分及健康建议...</span>
+      </div>
     </div>
   </main>
 </div>
@@ -3451,7 +3550,9 @@ function switchTab(tab) {
   if (tab === 'profile' && !getCurrentUser()) {
     showAuthOverlay();
   }
-  if (tab === 'weight') loadWeightData(currentWeightDays || 90);
+  if (tab === 'weight' && typeof window.loadWeightData === 'function') {
+    window.loadWeightData(window.currentWeightDays || 90);
+  }
   window.scrollTo(0, 0);
 }
 
@@ -5255,12 +5356,23 @@ async function fetchWeeklyReport() {
     }
 
     const isDark = document.documentElement.classList.contains('dark');
-    const gridColor = isDark ? '#404943' : '#bfc9c1';
-    const textColor = isDark ? '#bfc9c1' : '#404943';
-    const primaryColor = isDark ? '#86d4a8' : '#2d6a4f';
-    const primaryBg = isDark ? 'rgba(134,212,168,0.12)' : 'rgba(45,106,79,0.1)';
+    const style = getComputedStyle(document.documentElement);
+    const gridColor = style.getPropertyValue('--outline-variant').trim() || (isDark ? '#404943' : '#bfc9c1');
+    const textColor = style.getPropertyValue('--on-surface-variant').trim() || (isDark ? '#bfc9c1' : '#404943');
+    const primaryColor = style.getPropertyValue('--primary').trim() || (isDark ? '#86d4a8' : '#2d6a4f');
+    const secondaryColor = style.getPropertyValue('--tertiary').trim() || (isDark ? '#4db8c7' : '#00687e');
+
+    const parseHexToRgba = (hex, alpha) => {
+      hex = hex.trim().replace('#', '');
+      if (hex.length === 3) hex = hex.split('').map(x => x + x).join('');
+      const r = parseInt(hex.substring(0, 2), 16);
+      const g = parseInt(hex.substring(2, 4), 16);
+      const b = parseInt(hex.substring(4, 6), 16);
+      return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+    };
+
+    const primaryBg = parseHexToRgba(primaryColor, isDark ? 0.12 : 0.1);
     const primaryLight = isDark ? '#5aab7c' : '#95d4b3';
-    const secondaryColor = isDark ? '#4db8c7' : '#00687e';
 
     if (calChart) calChart.destroy();
     const calCtx = document.getElementById('calorieChart').getContext('2d');
@@ -5804,6 +5916,9 @@ function updateDarkModeUI() {
   if (calChart || macroChart) {
     fetchWeeklyReport();
   }
+  if (typeof window.refreshWeightChartTheme === 'function') {
+    window.refreshWeightChartTheme();
+  }
 }
 
 // ===================== HELPERS =====================
@@ -6138,9 +6253,11 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   let currentWeightDays = 90;
+  window.currentWeightDays = currentWeightDays;
 
   async function loadWeightData(days) {
     currentWeightDays = days;
+    window.currentWeightDays = currentWeightDays;
 
     // Update tab buttons
     [7, 30, 90].forEach(d => {
@@ -6203,6 +6320,23 @@ document.addEventListener('DOMContentLoaded', () => {
     const ctx = document.getElementById('weightChart').getContext('2d');
     if (weightChartInstance) weightChartInstance.destroy();
 
+    const isDark = document.documentElement.classList.contains('dark');
+    const style = getComputedStyle(document.documentElement);
+    const gridColor = style.getPropertyValue('--outline-variant').trim() || (isDark ? '#404943' : '#bfc9c1');
+    const textColor = style.getPropertyValue('--on-surface-variant').trim() || (isDark ? '#bfc9c1' : '#404943');
+    const primaryColor = style.getPropertyValue('--primary').trim() || (isDark ? '#86d4a8' : '#2d6a4f');
+
+    const parseHexToRgba = (hex, alpha) => {
+      hex = hex.trim().replace('#', '');
+      if (hex.length === 3) hex = hex.split('').map(x => x + x).join('');
+      const r = parseInt(hex.substring(0, 2), 16);
+      const g = parseInt(hex.substring(2, 4), 16);
+      const b = parseInt(hex.substring(4, 6), 16);
+      return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+    };
+
+    const primaryBg = parseHexToRgba(primaryColor, isDark ? 0.12 : 0.1);
+
     weightChartInstance = new Chart(ctx, {
       type: 'line',
       data: {
@@ -6233,6 +6367,16 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     });
   }
+
+  window.showWeightRecordModal = showWeightRecordModal;
+  window.closeWeightRecordModal = closeWeightRecordModal;
+  window.saveWeightRecord = saveWeightRecord;
+  window.loadWeightData = loadWeightData;
+  window.refreshWeightChartTheme = function() {
+    if (weightChartInstance) {
+      loadWeightData(currentWeightDays || 90);
+    }
+  };
 
   // ==========================================
   // Helper: normalize error messages
