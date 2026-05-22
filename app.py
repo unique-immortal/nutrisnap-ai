@@ -1046,6 +1046,8 @@ def delete_session(session_id):
 def weekly_report():
     username = request.headers.get('X-User-Id') or 'anonymous'
     conn = get_db_connection()
+    
+    # Get daily summaries
     rows = conn.execute('''
         SELECT
             date as day,
@@ -1059,10 +1061,21 @@ def weekly_report():
         WHERE date >= date('now', '-7 days') AND username = ?
         ORDER BY date ASC
     ''', (username,)).fetchall()
+    
+    # Get weight data for the same period
+    weight_rows = conn.execute('''
+        SELECT date(recorded_at) as day, weight
+        FROM weight_logs
+        WHERE username = ? AND date(recorded_at) >= date('now', '-7 days')
+        GROUP BY date(recorded_at)
+        ORDER BY day ASC
+    ''', (username,)).fetchall()
     conn.close()
 
     # Fill missing dates
     data_map = {row['day']: dict(row) for row in rows}
+    weight_map = {row['day']: row['weight'] for row in weight_rows}
+    
     report = []
     today = datetime.date.today()
     for i in range(6, -1, -1):
@@ -1076,7 +1089,8 @@ def weekly_report():
                 'total_carbs': item.get('total_carbs') or 0,
                 'total_fat': item.get('total_fat') or 0,
                 'total_burn_calories': item.get('total_burn_calories') or 0,
-                'total_exercise_duration': item.get('total_exercise_duration') or 0
+                'total_exercise_duration': item.get('total_exercise_duration') or 0,
+                'weight': weight_map.get(d)
             })
         else:
             report.append({
@@ -1086,7 +1100,8 @@ def weekly_report():
                 'total_carbs': 0,
                 'total_fat': 0,
                 'total_burn_calories': 0,
-                'total_exercise_duration': 0
+                'total_exercise_duration': 0,
+                'weight': weight_map.get(d)
             })
     return jsonify({"data": report})
 

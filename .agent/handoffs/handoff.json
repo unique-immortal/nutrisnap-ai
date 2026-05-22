@@ -1,0 +1,60 @@
+{
+  "handoff_version": "1.1",
+  "format": "agent-session-handoff",
+  "status": "ready",
+  "storage": {
+    "markdown": "G:\\我的云端硬盘\\vibe coding\\ai-diet-tracker\\.agent\\handoffs\\2026-05-22-024836-nutrisnap-qa-v511.md",
+    "json_sidecar": "G:\\我的云端硬盘\\vibe coding\\ai-diet-tracker\\.agent\\handoffs\\2026-05-22-024836-nutrisnap-qa-v511.json",
+    "latest_json": "G:\\我的云端硬盘\\vibe coding\\ai-diet-tracker\\.agent\\handoffs\\handoff.json"
+  },
+  "metadata": {
+    "created": "2026-05-22 02:48:36",
+    "project": "G:\\我的云端硬盘\\vibe coding\\ai-diet-tracker",
+    "branch": "main",
+    "markdown_handoff": "G:\\我的云端硬盘\\vibe coding\\ai-diet-tracker\\.agent\\handoffs\\2026-05-22-024836-nutrisnap-qa-v511.md",
+    "machine_readable_sidecar": "G:\\我的云端硬盘\\vibe coding\\ai-diet-tracker\\.agent\\handoffs\\2026-05-22-024836-nutrisnap-qa-v511.json",
+    "latest_handoff_json": "G:\\我的云端硬盘\\vibe coding\\ai-diet-tracker\\.agent\\handoffs\\handoff.json"
+  },
+  "budget": {
+    "triggered_by": "manual",
+    "waterline": null,
+    "remaining_budget_ratio": null,
+    "remaining_tokens": null,
+    "tool_calls_left": null,
+    "time_left_min": null
+  },
+  "progress": {
+    "completed": [
+      "BUG-001: 5 处原始 fetch() 替换为 safeFetchJSON",
+      "BUG-002: showAuthOverlay() 重置 authMode='login' + 更新 UI",
+      "BUG-003: readNumberField() 新增正则校验",
+      "BUG-004: withActionLock 增加 300ms 延迟 + saveManualFood 重构为 async+lock",
+      "BUG-005: .preset-pill / .muscle-pill / 暗色阴影 / iOS safe-area",
+      "www/index.html 同步 + API_BASE 替换",
+      "Git commit + push (3062ef7)",
+      "GitHub Actions 验证（Cloud Run ✅, Android APK 3.3MB ✅）",
+      "Tag v5.1.1 + GitHub Release 发布",
+      "线上 health 验证通过（v5.1.0）"
+    ],
+    "pending": [
+      "手动验证 5 个 Bug 修复效果",
+      "下载新 APK 安装测试",
+      "若有遗留 UI 问题记入新 Issue"
+    ]
+  },
+  "do_not_repeat": [
+    "不要本地 gcloud deploy：已尝试 3 次均卡住，改用 GitHub Actions 自动部署可靠",
+    "不要用 PowerShell curl：Windows 下 curl 是 Invoke-WebRequest 别名，参数不兼容，应用 Python urllib",
+    "不要在 JS 中直接写中文：导致乱码，始终用 \\uXXXX 编码"
+  ],
+  "blockers": [
+    "预设食物仅 4 个（米饭/鸡胸肉/鸡蛋/苹果），是否需要扩展？",
+    "Cloud Run 的 www/ 是否被 .gitignore 正确推送？已 force-add 但应确认 CI 拉取正常"
+  ],
+  "next_actions": [
+    {"priority": 1, "action": "打开线上地址手动验证 5 个 Bug 修复效果"},
+    {"priority": 2, "action": "下载新 APK 安装测试（Actions → Android Build → artifacts）"},
+    {"priority": 3, "action": "若有遗留 UI 问题记入新 Issue"}
+  ],
+  "resume_prompt": "You are taking over an unfinished agent task. Read this handoff completely, then restate the goal and current state in your own words, verify the listed critical files and evidence, and begin with Immediate Next Steps item #1."
+}

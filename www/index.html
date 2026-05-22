@@ -1207,6 +1207,12 @@ html.dark .onboarding-slide:nth-child(3) {
         <div class="font-stats-xl text-stats-xl text-primary" id="avgPro">0</div>
         <span class="font-label-md text-label-md text-outline">g/天</span>
       </div>
+      <!-- Weight Stats Card -->
+      <div class="bg-surface-container-lowest rounded-xl shadow-sm border border-surface-variant p-stack-md">
+        <span class="font-label-md text-label-md text-outline">最新体重</span>
+        <div class="font-stats-xl text-stats-xl text-primary" id="latestWeight">-</div>
+        <span class="font-label-md text-label-md text-outline">kg</span>
+      </div>
       <!-- Weekly Exercise Stats Bento -->
       <div class="bg-surface-container-lowest rounded-xl shadow-sm border border-surface-variant p-stack-md col-span-2 flex flex-col gap-2 relative overflow-hidden">
         <div class="absolute left-0 top-0 bottom-0 w-1.5 bg-gradient-to-b from-[#d97706] to-[#0f5238]"></div>
@@ -1263,6 +1269,17 @@ html.dark .onboarding-slide:nth-child(3) {
         <span><i class="legend-dot" style="background:var(--carb)"></i>碳水</span>
         <span><i class="legend-dot" style="background:var(--fat)"></i>脂肪</span>
       </div>
+    </section>
+    <!-- Weight Trend Mini Chart -->
+    <section class="bg-surface-container-lowest rounded-xl shadow-sm border border-surface-variant p-stack-md">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="font-headline-md text-headline-md text-on-background">体重趋势</h2>
+        <span class="text-xs text-on-surface-variant" id="weightTrendLabel"></span>
+      </div>
+      <div class="relative w-full" style="height:180px">
+        <canvas id="reportWeightChart"></canvas>
+      </div>
+      <div class="text-xs text-on-surface-variant mt-2" id="weightTrendSummary"></div>
     </section>
     <!-- AI Training Suggestions Card -->
     <section class="bg-surface-container-lowest rounded-xl shadow-sm border border-surface-variant p-stack-md flex flex-col gap-3">
@@ -1727,6 +1744,7 @@ let calTarget = 2000;
 let proTarget = 120;
 let calChart = null;
 let macroChart = null;
+let reportWeightChart = null;
 let chatHistory = [];
 let pendingResult = { foods: [], exercises: [], source: '', session_id: '' };
 let isVoiceInputFlow = false;
@@ -4223,6 +4241,82 @@ async function fetchWeeklyReport() {
         }
       }
     });
+
+    // --- Weight Trend in Report ---
+    const weightData = report
+      .filter(d => d.weight != null)
+      .map(d => ({ day: d.day, weight: d.weight }));
+    
+    const latestWeightEl = document.getElementById('latestWeight');
+    if (weightData.length > 0) {
+      const latestW = weightData[weightData.length - 1];
+      const oldestW = weightData[0];
+      latestWeightEl.textContent = latestW.weight.toFixed(1);
+      
+      // Weight trend label
+      const trendLabel = document.getElementById('weightTrendLabel');
+      const delta = (latestW.weight - oldestW.weight).toFixed(1);
+      if (weightData.length >= 2 && delta !== '0.0') {
+        const sign = parseFloat(delta) > 0 ? '+' : '';
+        trendLabel.textContent = `7日变化 ${sign}${delta} kg`;
+        trendLabel.className = `text-xs ${parseFloat(delta) > 0 ? 'text-error' : 'text-green-500'}`;
+      } else {
+        trendLabel.textContent = '7日趋势';
+        trendLabel.className = 'text-xs text-on-surface-variant';
+      }
+
+      // Render weight chart
+      const wtDays = weightData.map(d => d.day.slice(5));
+      const wtValues = weightData.map(d => d.weight);
+      
+      if (reportWeightChart) reportWeightChart.destroy();
+      const wtCtx = document.getElementById('reportWeightChart').getContext('2d');
+      reportWeightChart = new Chart(wtCtx, {
+        type: 'line',
+        data: {
+          labels: wtDays,
+          datasets: [{
+            label: '体重 (kg)',
+            data: wtValues,
+            borderColor: '#4CAF50',
+            backgroundColor: 'rgba(76, 175, 80, 0.1)',
+            borderWidth: 2,
+            pointRadius: 4,
+            pointBackgroundColor: '#4CAF50',
+            fill: true,
+            tension: 0.3
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            y: {
+              min: Math.floor(Math.min(...wtValues) - 2),
+              max: Math.ceil(Math.max(...wtValues) + 2),
+              grid: { color: gridColor },
+              ticks: { color: textColor, callback: v => v + ' kg' }
+            },
+            x: {
+              grid: { display: false },
+              ticks: { color: textColor }
+            }
+          }
+        }
+      });
+      
+      document.getElementById('weightTrendSummary').textContent = 
+        weightData.length >= 2
+          ? `起始: ${oldestW.weight.toFixed(1)} kg → 最新: ${latestW.weight.toFixed(1)} kg`
+          : `最新记录: ${latestW.weight.toFixed(1)} kg (${latestW.day})`;
+    } else {
+      latestWeightEl.textContent = '-';
+      const trendLabel = document.getElementById('weightTrendLabel');
+      if (trendLabel) { trendLabel.textContent = ''; trendLabel.className = 'text-xs text-on-surface-variant'; }
+      document.getElementById('weightTrendSummary').textContent = '暂无体重记录，请在「体重」页面添加';
+      if (reportWeightChart) { reportWeightChart.destroy(); reportWeightChart = null; }
+    }
   } catch(e) { console.error('Report error:', e); }
 }
 
