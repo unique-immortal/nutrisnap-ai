@@ -703,6 +703,163 @@ html.dark .onboarding-slide:nth-child(3) {
 .ob-particle-2 { width: 120px; height: 120px; bottom: 80px; left: -40px; }
 .ob-particle-3 { width: 80px; height: 80px; top: 30%; left: 15%; background: rgba(255,255,255,.04); }
 
+/* Water Wave Animations and UI styling */
+.water-wave-container {
+  position: relative;
+  width: 140px;
+  height: 140px;
+  border-radius: 50%;
+  background: var(--surface-container-highest);
+  border: 4px solid var(--primary-container);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1;
+}
+
+.water-wave-wrapper {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  left: 0;
+  bottom: 0;
+  background: linear-gradient(180deg, #64b5f6 0%, #1e88e5 100%);
+  transform: translateY(100%);
+  transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.water-wave {
+  position: absolute;
+  width: 280px;
+  height: 280px;
+  background: rgba(255, 255, 255, 0.25);
+  border-radius: 40% 43% 42% 44%;
+  bottom: 95%;
+  left: -70px;
+  animation: wave-rotate 8s infinite linear;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.water-wave-back {
+  position: absolute;
+  width: 290px;
+  height: 290px;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 42% 40% 44% 43%;
+  bottom: 97%;
+  left: -75px;
+  animation: wave-rotate 12s infinite linear;
+  z-index: 1;
+  pointer-events: none;
+}
+
+@keyframes wave-rotate {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.water-text-overlay {
+  position: relative;
+  z-index: 10;
+  text-align: center;
+  pointer-events: none;
+  font-family: inherit;
+}
+
+.badge-card {
+  position: relative;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: hidden;
+}
+
+.badge-card.unlocked {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--primary) 6%, transparent) 0%, color-mix(in srgb, #ffa500 10%, transparent) 100%);
+  border-color: rgba(255, 215, 0, 0.4);
+}
+
+.badge-card.unlocked:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.05);
+}
+
+.badge-icon-container {
+  position: relative;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-container-high);
+  color: var(--on-surface-variant);
+  transition: all 0.3s ease;
+}
+
+.badge-card.unlocked .badge-icon-container {
+  background: linear-gradient(135deg, #ffd700 0%, #ffa500 100%);
+  color: #fff;
+  box-shadow: 0 4px 10px rgba(255, 215, 0, 0.4);
+}
+
+.badge-card.locked .badge-icon-container {
+  filter: grayscale(100%);
+  opacity: 0.6;
+}
+
+.badge-lock {
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
+  background: var(--surface-container-highest);
+  color: var(--on-surface-variant);
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--outline-variant);
+}
+
+/* Floating Unlock Toast Notification */
+.achievement-toast {
+  position: fixed;
+  top: -100px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  background: var(--surface-container-lowest);
+  border: 1px solid rgba(255, 215, 0, 0.5);
+  box-shadow: 0 16px 32px rgba(255, 165, 0, 0.15);
+  padding: 1rem 1.25rem;
+  border-radius: 1.25rem;
+  width: calc(100% - 32px);
+  max-width: 400px;
+  transition: all 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.achievement-toast.show {
+  top: 24px;
+}
+
+.achievement-toast-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #ffd700 0%, #ffa500 100%);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 8px rgba(255, 165, 0, 0.3);
+}
+
 </style>
 </head>
 <body class="bg-background text-on-background font-body-md min-h-screen pb-28">
@@ -833,6 +990,11 @@ html.dark .onboarding-slide:nth-child(3) {
       </div>
     </div>
     <div class="flex items-center gap-2">
+      <!-- Streak Pill -->
+      <div id="headerStreakPill" class="flex items-center bg-surface-container-high rounded-full px-3 py-1 border border-outline-variant cursor-pointer hover:bg-surface-container-highest transition-all" style="display: none;" onclick="showAchievementsModal()">
+        <span class="material-symbols-outlined text-amber-500 text-sm mr-1" style="font-variation-settings:'FILL' 1">local_fire_department</span>
+        <span class="font-label-md text-label-md text-amber-500 font-bold" id="headerStreakCount">0天</span>
+      </div>
       <div class="flex items-center bg-surface-container-high rounded-full px-3 py-1 border border-outline-variant">
         <span class="material-symbols-outlined text-primary text-sm mr-1">local_fire_department</span>
         <span class="font-label-md text-label-md text-primary" id="headerCalBadge">0 kcal</span>
@@ -929,6 +1091,65 @@ html.dark .onboarding-slide:nth-child(3) {
         </div>
       </div>
     </section>
+    
+    <!-- Water Tracking Section -->
+    <section class="surface-panel p-5 flex flex-col gap-4">
+      <div class="flex justify-between items-center">
+        <div>
+          <p class="font-label-md text-label-md text-primary">HYDRATION</p>
+          <h2 class="font-headline-lg-mobile text-headline-lg-mobile text-on-background">今日饮水</h2>
+        </div>
+        <div class="flex items-center gap-1.5 text-xs text-on-surface-variant bg-surface-container px-2.5 py-1 rounded-full border border-outline-variant">
+          <span class="material-symbols-outlined text-sm text-primary">local_drink</span>
+          <span>目标: <span id="waterTargetLabel">2000</span> ml</span>
+        </div>
+      </div>
+      
+      <div class="flex flex-col md:flex-row items-center gap-6 md:gap-8 py-2">
+        <!-- Liquid wave circle -->
+        <div class="water-wave-container flex-shrink-0">
+          <div class="water-wave-wrapper" id="waterWaveWrapper">
+            <div class="water-wave"></div>
+            <div class="water-wave-back"></div>
+          </div>
+          <div class="water-text-overlay">
+            <div class="text-3xl font-black text-on-background drop-shadow-sm" id="waterTodayVolume">0</div>
+            <div class="text-[11px] text-on-surface-variant font-medium tracking-wide">/ 2,000 ml</div>
+            <div class="text-[10px] text-primary font-bold mt-1" id="waterPercentText">0%</div>
+          </div>
+        </div>
+        
+        <!-- Add Water Controls -->
+        <div class="flex-1 flex flex-col gap-3 w-full">
+          <div class="grid grid-cols-3 gap-2">
+            <button onclick="addWaterVolume(250)" class="flex flex-col items-center justify-center py-2 px-3 bg-surface-container hover:bg-surface-container-high active:scale-95 border border-outline-variant rounded-xl transition-all touch-target">
+              <span class="material-symbols-outlined text-primary mb-1 text-lg">local_drink</span>
+              <span class="text-xs font-semibold text-on-background">250 ml</span>
+              <span class="text-[9px] text-outline font-normal">普通水杯</span>
+            </button>
+            <button onclick="addWaterVolume(500)" class="flex flex-col items-center justify-center py-2 px-3 bg-surface-container hover:bg-surface-container-high active:scale-95 border border-outline-variant rounded-xl transition-all touch-target">
+              <span class="material-symbols-outlined text-primary mb-1 text-lg">water_bottle</span>
+              <span class="text-xs font-semibold text-on-background">500 ml</span>
+              <span class="text-[9px] text-outline font-normal">瓶装水</span>
+            </button>
+            <button onclick="showCustomWaterModal()" class="flex flex-col items-center justify-center py-2 px-3 bg-primary/5 hover:bg-primary/10 active:scale-95 border border-primary/20 rounded-xl transition-all touch-target">
+              <span class="material-symbols-outlined text-primary mb-1 text-lg">add</span>
+              <span class="text-xs font-semibold text-primary">自定义</span>
+              <span class="text-[9px] text-primary/70 font-normal">任意容量</span>
+            </button>
+          </div>
+          
+          <div class="flex items-center justify-between mt-1 px-1">
+            <span class="text-xs text-on-surface-variant" id="waterLogsCountText">暂无饮水记录</span>
+            <button id="undoWaterBtn" onclick="undoLastWaterLog()" class="text-xs text-outline hover:text-primary flex items-center gap-1 opacity-50 pointer-events-none transition-all touch-target">
+              <span class="material-symbols-outlined text-sm">undo</span>
+              <span>撤销</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <section class="flex flex-col gap-stack-md">
       <div class="flex justify-between items-center border-b border-surface-variant pb-stack-sm mb-1">
         <h2 class="font-headline-lg-mobile text-headline-lg-mobile text-on-background">今日记录</h2>
@@ -1809,6 +2030,63 @@ html.dark .onboarding-slide:nth-child(3) {
   </div>
 </div>
 
+<!-- Custom Water Modal -->
+<div id="waterRecordModal" class="modal-backdrop fixed inset-0 bg-black/40 z-[100] items-center justify-center hidden" onclick="if(event.target===this)closeCustomWaterModal()">
+  <div class="modal-panel bg-surface-container-lowest rounded-2xl p-6 mx-0 max-w-sm w-full shadow-xl" onclick="event.stopPropagation()">
+    <div class="flex justify-between items-center mb-4">
+      <h3 class="font-headline-md text-headline-md text-on-background">记录饮水</h3>
+      <button onclick="closeCustomWaterModal()" class="w-8 h-8 rounded-full bg-surface-container-high text-outline hover:text-on-background flex items-center justify-center transition-colors">
+        <span class="material-symbols-outlined text-sm">close</span>
+      </button>
+    </div>
+    
+    <div class="flex flex-col gap-4 mb-6">
+      <div class="flex flex-col gap-1.5">
+        <label for="customWaterAmount" class="font-label-md text-label-md text-on-surface-variant">饮水量 (ml)</label>
+        <div class="flex items-center gap-2">
+          <input type="number" id="customWaterAmount" class="flex-1 rounded-xl border border-outline px-4 py-3 bg-surface text-on-background focus:outline-none focus:border-primary text-lg font-bold" min="10" max="5000" placeholder="例如: 350">
+          <span class="text-on-surface font-semibold">ml</span>
+        </div>
+        <p class="text-[11px] text-outline">输入 10ml 到 5000ml 之间的水量</p>
+      </div>
+    </div>
+    
+    <div class="modal-actions flex gap-3">
+      <button onclick="closeCustomWaterModal()" class="flex-1 bg-surface-container-high text-on-surface font-body-lg text-body-lg py-3 rounded-xl transition-colors">取消</button>
+      <button onclick="submitCustomWater()" class="flex-1 bg-primary text-on-primary font-body-lg text-body-lg py-3 rounded-xl hover:scale-[1.02] active:scale-95 transition-transform">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- Achievements Modal -->
+<div id="achievementsModal" class="modal-backdrop fixed inset-0 bg-black/40 z-[100] items-center justify-center hidden" onclick="if(event.target===this)closeAchievementsModal()">
+  <div class="modal-panel bg-surface-container-lowest rounded-2xl p-6 mx-4 max-w-md w-full max-h-[80vh] overflow-y-auto shadow-xl" onclick="event.stopPropagation()">
+    <div class="flex justify-between items-center mb-4">
+      <h3 class="font-headline-md text-headline-md text-on-background">我的成就徽章</h3>
+      <button onclick="closeAchievementsModal()" class="w-8 h-8 rounded-full bg-surface-container-high text-outline hover:text-on-background flex items-center justify-center transition-colors">
+        <span class="material-symbols-outlined text-sm">close</span>
+      </button>
+    </div>
+    
+    <!-- Streak Info -->
+    <div class="flex items-center gap-4 bg-gradient-to-r from-amber-500/10 to-orange-500/10 border border-orange-500/20 rounded-2xl p-4 mb-5">
+      <div class="w-12 h-12 rounded-full bg-gradient-to-br from-amber-500 to-orange-500 flex items-center justify-center text-white shadow-lg shadow-orange-500/20">
+        <span class="material-symbols-outlined text-2xl" style="font-variation-settings:'FILL' 1">local_fire_department</span>
+      </div>
+      <div>
+        <div class="text-xs text-orange-500 font-bold uppercase tracking-wider">Streak Days</div>
+        <div class="font-black text-on-background text-xl"><span id="achieveStreakCount">0</span> 天连续记录</div>
+        <div class="text-[11px] text-on-surface-variant mt-0.5 font-normal leading-relaxed">今天或昨天记录餐食、运动或水分均可维持 Streak！</div>
+      </div>
+    </div>
+    
+    <!-- Badges Grid -->
+    <div class="flex flex-col gap-3" id="badgesContainer">
+      <!-- Dynamic badge rows will be injected here -->
+    </div>
+  </div>
+</div>
+
 <!-- ========== Bottom Navigation ========== -->
 <nav class="fixed bottom-0 inset-x-0 glass-nav z-50 px-2 py-1.5" id="bottomNav">
   <div class="flex justify-around items-center max-w-lg mx-auto">
@@ -1858,7 +2136,7 @@ html.dark .onboarding-slide:nth-child(3) {
 
 <script>
 // ===================== CONFIG =====================
-const API_BASE = "";
+const API_BASE = "https://nutrisnap-ai-940406235442.us-central1.run.app";
 
 async function safeFetchJSON(url, options = {}) {
   // 自动附加 JWT token
@@ -2392,6 +2670,8 @@ function buildDailySummaryPayload(dateStr) {
     }
   });
 
+  const total_water = typeof WaterStorage !== 'undefined' ? WaterStorage.getDayTotal(dateStr) : 0;
+
   return {
     date: dateStr,
     total_calories,
@@ -2399,7 +2679,8 @@ function buildDailySummaryPayload(dateStr) {
     total_carbs,
     total_fat,
     total_burn_calories,
-    total_exercise_duration
+    total_exercise_duration,
+    total_water
   };
 }
 
@@ -2608,6 +2889,428 @@ const ExerciseStorage = {
     };
   }
 };
+
+// ===================== WATER STORAGE (LOCAL FIRST) =====================
+const WaterStorage = {
+  getLogs() {
+    const user = getCurrentUser() || 'anonymous';
+    const data = localStorage.getItem('water_logs_' + user);
+    return data ? JSON.parse(data) : [];
+  },
+  saveLogs(logs) {
+    const user = getCurrentUser() || 'anonymous';
+    localStorage.setItem('water_logs_' + user, JSON.stringify(logs));
+  },
+  addLog(amount) {
+    const logs = this.getLogs();
+    const newLog = {
+      id: Date.now() + Math.random(),
+      amount: parseInt(amount),
+      created_at: new Date().toISOString()
+    };
+    logs.unshift(newLog);
+    this.saveLogs(logs);
+    
+    const dateStr = newLog.created_at.split('T')[0];
+    syncDailySummary(dateStr);
+    
+    if (typeof AchievementsManager !== 'undefined') {
+      AchievementsManager.checkAndNotify();
+    }
+    
+    return newLog;
+  },
+  deleteLog(id) {
+    let logs = this.getLogs();
+    const target = logs.find(log => log.id == id);
+    if (!target) return null;
+    const dateStr = target.created_at.split('T')[0];
+    
+    logs = logs.filter(log => log.id != id);
+    this.saveLogs(logs);
+    
+    syncDailySummary(dateStr);
+    
+    if (typeof AchievementsManager !== 'undefined') {
+      AchievementsManager.checkAndNotify();
+    }
+    
+    return target;
+  },
+  getTodayTotal() {
+    const todayStr = new Date().toISOString().split('T')[0];
+    return this.getDayTotal(todayStr);
+  },
+  getDayTotal(dateStr) {
+    const logs = this.getLogs();
+    return logs
+      .filter(log => log.created_at.startsWith(dateStr))
+      .reduce((sum, log) => sum + (log.amount || 0), 0);
+  }
+};
+
+// ===================== STREAK MANAGER =====================
+const StreakManager = {
+  calculateStreak() {
+    const meals = typeof MealStorage !== 'undefined' ? MealStorage.getMeals() : [];
+    const exerciseLogs = typeof ExerciseStorage !== 'undefined' ? ExerciseStorage.getExercises() : [];
+    const waterLogs = typeof WaterStorage !== 'undefined' ? WaterStorage.getLogs() : [];
+    
+    const datesSet = new Set();
+    
+    meals.forEach(m => {
+      if (m.created_at) {
+        const d = m.created_at.split('T')[0];
+        if (d) datesSet.add(d);
+      }
+    });
+    
+    exerciseLogs.forEach(ex => {
+      if (ex.created_at) {
+        const d = ex.created_at.split('T')[0];
+        if (d) datesSet.add(d);
+      }
+    });
+    
+    waterLogs.forEach(w => {
+      if (w.created_at) {
+        const d = w.created_at.split('T')[0];
+        if (d) datesSet.add(d);
+      }
+    });
+    
+    const activeDates = Array.from(datesSet).sort((a, b) => new Date(b) - new Date(a));
+    if (activeDates.length === 0) return 0;
+    
+    const today = new Date();
+    const todayStr = today.toISOString().split('T')[0];
+    
+    const yesterday = new Date();
+    yesterday.setDate(today.getDate() - 1);
+    const yesterdayStr = yesterday.toISOString().split('T')[0];
+    
+    const mostRecentDate = activeDates[0];
+    if (mostRecentDate !== todayStr && mostRecentDate !== yesterdayStr) {
+      return 0;
+    }
+    
+    let streak = 1;
+    let currentDate = new Date(mostRecentDate);
+    
+    for (let i = 1; i < activeDates.length; i++) {
+      const nextDate = new Date(activeDates[i]);
+      const diffTime = Math.abs(currentDate - nextDate);
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      
+      if (diffDays === 1) {
+        streak++;
+        currentDate = nextDate;
+      } else if (diffDays > 1) {
+        break;
+      }
+    }
+    
+    return streak;
+  }
+};
+
+// ===================== ACHIEVEMENTS MANAGER =====================
+const AchievementsManager = {
+  getUnlocked() {
+    const user = getCurrentUser() || 'anonymous';
+    const data = localStorage.getItem('achievements_' + user);
+    return data ? JSON.parse(data) : [];
+  },
+  saveUnlocked(list) {
+    const user = getCurrentUser() || 'anonymous';
+    localStorage.setItem('achievements_' + user, JSON.stringify(list));
+  },
+  getBadges() {
+    const meals = typeof MealStorage !== 'undefined' ? MealStorage.getMeals() : [];
+    const waterLogs = typeof WaterStorage !== 'undefined' ? WaterStorage.getLogs() : [];
+    const exercises = typeof ExerciseStorage !== 'undefined' ? ExerciseStorage.getExercises() : [];
+    const streak = typeof StreakManager !== 'undefined' ? StreakManager.calculateStreak() : 0;
+    
+    const todayStr = new Date().toISOString().split('T')[0];
+    const todayMeals = meals.filter(m => m.created_at && m.created_at.startsWith(todayStr));
+    
+    const waterDaysMap = {};
+    waterLogs.forEach(w => {
+      if (w.created_at) {
+        const d = w.created_at.split('T')[0];
+        waterDaysMap[d] = (waterDaysMap[d] || 0) + (w.amount || 0);
+      }
+    });
+    const maxWaterSingleDay = Math.max(0, ...Object.values(waterDaysMap), 0);
+
+    return [
+      {
+        id: 'first_water',
+        title: '\u521d\u6b65\u8865\u6c34',
+        desc: '\u8bb0\u5f55\u7b2c\u4e00\u6b21\u996e\u6c34',
+        icon: 'local_drink',
+        current: waterLogs.length,
+        target: 1,
+        unit: '\u6b21',
+        isUnlocked: waterLogs.length >= 1
+      },
+      {
+        id: 'water_2000',
+        title: '\u8865\u6c34\u8fbe\u4eba',
+        desc: '\u5355\u65e5\u996e\u6c34\u91cf\u8fbe\u5230 2000 \u6beb\u5347',
+        icon: 'water_drop',
+        current: maxWaterSingleDay,
+        target: 2000,
+        unit: 'ml',
+        isUnlocked: maxWaterSingleDay >= 2000
+      },
+      {
+        id: 'streak_3',
+        title: '\u521d\u663e\u6210\u6548',
+        desc: '\u8fde\u7eed\u8bb0\u5f55 3 \u5929',
+        icon: 'local_fire_department',
+        current: streak,
+        target: 3,
+        unit: '\u5929',
+        isUnlocked: streak >= 3
+      },
+      {
+        id: 'streak_7',
+        title: '\u81ea\u5f8b\u8fbe\u4eba',
+        desc: '\u8fde\u7eed\u8bb0\u5f55 7 \u5929',
+        icon: 'workspace_premium',
+        current: streak,
+        target: 7,
+        unit: '\u5929',
+        isUnlocked: streak >= 7
+      },
+      {
+        id: 'first_meal',
+        title: '\u81b3\u98df\u7ba1\u5bb6',
+        desc: '\u8bb0\u5f55\u4eca\u65e5\u7b2c\u4e00\u9910\u996e\u98df',
+        icon: 'restaurant',
+        current: todayMeals.length,
+        target: 1,
+        unit: '\u6b21',
+        isUnlocked: todayMeals.length >= 1
+      }
+    ];
+  },
+  checkAndNotify() {
+    const badges = this.getBadges();
+    const unlocked = this.getUnlocked();
+    const newUnlocked = [];
+    
+    badges.forEach(badge => {
+      if (badge.isUnlocked && !unlocked.includes(badge.id)) {
+        unlocked.push(badge.id);
+        newUnlocked.push(badge);
+      }
+    });
+    
+    if (newUnlocked.length > 0) {
+      this.saveUnlocked(unlocked);
+      newUnlocked.forEach(badge => {
+        this.showUnlockToast(badge);
+      });
+    }
+  },
+  showUnlockToast(badge) {
+    let toast = document.getElementById('achievementToast');
+    if (!toast) {
+      toast = document.createElement('div');
+      toast.id = 'achievementToast';
+      toast.className = 'achievement-toast';
+      document.body.appendChild(toast);
+    }
+    
+    toast.innerHTML = `
+      <div class="achievement-toast-icon">
+        <span class="material-symbols-outlined text-xl">${badge.icon}</span>
+      </div>
+      <div>
+        <div class="text-[10px] text-primary font-bold uppercase tracking-wider">\u89e3\u9501\u65b0\u6210\u5c31\uff01</div>
+        <div class="font-bold text-sm text-on-background">${badge.title}</div>
+        <div class="text-xs text-on-surface-variant mt-0.5">${badge.desc}</div>
+      </div>
+    `;
+    
+    toast.classList.add('show');
+    
+    setTimeout(() => {
+      toast.classList.remove('show');
+    }, 4000);
+  }
+};
+
+// ===================== WATER UI ACTIONS =====================
+function showCustomWaterModal() {
+  const m = document.getElementById('waterRecordModal');
+  if (m) {
+    m.classList.remove('hidden');
+    m.style.display = 'flex';
+    document.getElementById('customWaterAmount').value = '';
+    setTimeout(() => document.getElementById('customWaterAmount').focus(), 100);
+  }
+}
+
+function closeCustomWaterModal() {
+  const m = document.getElementById('waterRecordModal');
+  if (m) {
+    m.classList.add('hidden');
+    m.style.display = 'none';
+  }
+}
+
+function submitCustomWater() {
+  const input = document.getElementById('customWaterAmount');
+  const amount = parseInt(input.value);
+  if (isNaN(amount) || amount < 10 || amount > 5000) {
+    showToast('\u8bf7\u8f93\u5165 10 \u5230 5000 \u4e4b\u95f4\u7684\u996e\u6c34\u91cf', 'error');
+    return;
+  }
+  WaterStorage.addLog(amount);
+  closeCustomWaterModal();
+  updateWaterAndStreakUI();
+  showToast('\u6210\u529f\u8bb0\u5f55\u996e\u6c34', 'success');
+}
+
+function addWaterVolume(amount) {
+  WaterStorage.addLog(amount);
+  updateWaterAndStreakUI();
+  showToast('\u6210\u529f\u8bb0\u5f55\u996e\u6c34', 'success');
+}
+
+function undoLastWaterLog() {
+  const logs = WaterStorage.getLogs();
+  const todayStr = new Date().toISOString().split('T')[0];
+  const todayLogs = logs.filter(log => log.created_at.startsWith(todayStr));
+  if (todayLogs.length === 0) return;
+  
+  // Delete the most recent log
+  const lastLog = todayLogs[0];
+  WaterStorage.deleteLog(lastLog.id);
+  updateWaterAndStreakUI();
+  showToast('\u5df2\u64a4\u9500\u4e0a\u6b21\u996e\u6c34\u8bb0\u5f55', 'info');
+}
+
+// ===================== ACHIEVEMENTS UI ACTIONS =====================
+function showAchievementsModal() {
+  const modal = document.getElementById('achievementsModal');
+  if (!modal) return;
+  
+  const streak = StreakManager.calculateStreak();
+  const achieveStreakCount = document.getElementById('achieveStreakCount');
+  if (achieveStreakCount) achieveStreakCount.textContent = streak;
+  
+  const badges = AchievementsManager.getBadges();
+  const container = document.getElementById('badgesContainer');
+  if (container) {
+    container.innerHTML = badges.map(badge => {
+      const pct = Math.min(Math.round((badge.current / badge.target) * 100), 100);
+      const unlockedClass = badge.isUnlocked ? 'unlocked border-primary/20 bg-surface-container-high' : 'opacity-60 border-outline-variant bg-surface-container-low';
+      const iconBg = badge.isUnlocked ? 'bg-gradient-to-br from-amber-500 to-orange-500 text-white shadow-md' : 'bg-surface-container-highest text-outline';
+      const statusText = badge.isUnlocked ? '\u5df2\u89e3\u9501' : '\u672a\u89e3\u9501';
+      const statusColor = badge.isUnlocked ? 'text-primary font-bold' : 'text-outline';
+      
+      return `
+        <div class="badge-card flex items-center gap-4 p-4 rounded-2xl border transition-all ${unlockedClass}">
+          <div class="w-12 h-12 rounded-full flex items-center justify-center flex-shrink-0 ${iconBg}">
+            <span class="material-symbols-outlined text-2xl">${badge.icon}</span>
+          </div>
+          <div class="flex-1 min-w-0">
+            <div class="flex justify-between items-baseline mb-1">
+              <h4 class="font-bold text-on-background text-sm truncate">${badge.title}</h4>
+              <span class="text-[10px] ${statusColor}">${statusText}</span>
+            </div>
+            <p class="text-xs text-on-surface-variant mb-2 leading-tight">${badge.desc}</p>
+            <div class="flex items-center gap-2">
+              <div class="flex-1 h-1.5 bg-surface-container-highest rounded-full overflow-hidden">
+                <div class="h-full bg-primary rounded-full transition-all duration-500" style="width: ${pct}%"></div>
+              </div>
+              <span class="text-[10px] text-outline font-semibold whitespace-nowrap">${badge.current} / ${badge.target}${badge.unit}</span>
+            </div>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+  
+  modal.classList.remove('hidden');
+  modal.style.display = 'flex';
+}
+
+function closeAchievementsModal() {
+  const modal = document.getElementById('achievementsModal');
+  if (modal) {
+    modal.classList.add('hidden');
+    modal.style.display = 'none';
+  }
+}
+
+// ===================== WATER & STREAK UI SYNC =====================
+function updateWaterAndStreakUI() {
+  try {
+    const todayTotal = WaterStorage.getTodayTotal();
+    const target = 2000;
+    const percent = Math.min(Math.round((todayTotal / target) * 100), 100);
+    
+    const waterTodayVolume = document.getElementById('waterTodayVolume');
+    if (waterTodayVolume) waterTodayVolume.textContent = todayTotal;
+    
+    const waterPercentText = document.getElementById('waterPercentText');
+    if (waterPercentText) waterPercentText.textContent = percent + '%';
+    
+    const waterWaveWrapper = document.getElementById('waterWaveWrapper');
+    if (waterWaveWrapper) {
+      const translateY = 100 - percent;
+      waterWaveWrapper.style.transform = `translateY(${translateY}%)`;
+    }
+    
+    const logs = WaterStorage.getLogs();
+    const todayLogs = logs.filter(log => log.created_at.startsWith(new Date().toISOString().split('T')[0]));
+    const waterLogsCountText = document.getElementById('waterLogsCountText');
+    if (waterLogsCountText) {
+      if (todayLogs.length === 0) {
+        waterLogsCountText.textContent = '\u6682\u65e0\u996e\u6c34\u8bb0\u5f55';
+      } else {
+        waterLogsCountText.textContent = `\u4eca\u65e5 ${todayLogs.length} \u6b21\u8bb0\u5f55`;
+      }
+    }
+    
+    const undoWaterBtn = document.getElementById('undoWaterBtn');
+    if (undoWaterBtn) {
+      if (todayLogs.length > 0) {
+        undoWaterBtn.classList.remove('opacity-50', 'pointer-events-none');
+      } else {
+        undoWaterBtn.classList.add('opacity-50', 'pointer-events-none');
+      }
+    }
+    
+    const currentStreak = StreakManager.calculateStreak();
+    const headerStreakCount = document.getElementById('headerStreakCount');
+    if (headerStreakCount) {
+      headerStreakCount.textContent = currentStreak + ' \u5929';
+    }
+    
+    const headerStreakPill = document.getElementById('headerStreakPill');
+    if (headerStreakPill) {
+      if (currentStreak > 0) {
+        headerStreakPill.classList.remove('hidden');
+        headerStreakPill.style.display = 'flex';
+      } else {
+        headerStreakPill.classList.add('hidden');
+        headerStreakPill.style.display = 'none';
+      }
+    }
+
+    if (typeof AchievementsManager !== 'undefined') {
+      AchievementsManager.checkAndNotify();
+    }
+  } catch (err) {
+    console.error('Error updating water and streak UI:', err);
+  }
+}
 
 // ===================== AUTH FLOW =====================
 let authMode = 'login';
@@ -4052,6 +4755,9 @@ async function fetchMeals() {
 }
 
 async function fetchTodayData() {
+  if (typeof updateWaterAndStreakUI === 'function') {
+    updateWaterAndStreakUI();
+  }
   try {
     const meals = MealStorage.getMeals();
     const exercises = ExerciseStorage.getExercises();
