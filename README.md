@@ -6,7 +6,7 @@ AI 智能饮食记录应用 — 拍照识别食物营养成分，支持多食物
 **线上地址**: https://nutrisnap-ai-940406235442.us-central1.run.app  
 **技术栈**: Python Flask + SQLite + Gemini API + Tailwind CSS + Chart.js  
 **部署**: Google Cloud Run (us-central1)  
-**当前版本**: v5.3.0
+**当前版本**: v5.4.0
 
 ---
 
@@ -27,7 +27,7 @@ requirements.txt            ← Python 依赖
 | 端点 | 方法 | 说明 |
 |------|------|------|
 | `/` | GET | 前端页面 |
-| `/api/health` | GET | 版本检查（当前 v5.3.0） |
+| `/api/health` | GET | 版本检查（当前 v5.4.0） |
 | `/api/analyze` | POST | 拍照识别（multipart image → 多食物 JSON） |
 | `/api/voice-input` | POST | 语音输入（text → 食物 JSON） |
 | `/api/meals` | GET | 获取饮食记录（支持 portion 倍率） |

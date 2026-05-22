@@ -166,15 +166,25 @@ ai-diet-tracker/
 
 ---
 
-## 6. 最近变更记录 (v5.2.0) / Recent Changes
+## 6. 最近变更记录 / Recent Changes
 
-- Open Food Facts API 集成，实现食物搜索和条形码扫描
-- 体重追踪功能完整实现，数据集成到报告页面
-- 体重数据已整合进周报，底部导航移除了独立的体重入口
-- 底部导航从 6 项简化为 5 项：首页 / 教练 / + / 报告 / 个人
-- 深浅色自适应图标（Web favicon + Android 原生图标均为 AS + 绿叶设计）
-- 安全加固（输入验证等）
-- GitHub Release 内容改为中英双语格式
+### v5.4.0 (当前开发)
+- **饮水追踪**: 首页和报告页高颜值饮水打卡与水量追踪组件，采用双层动态 SVG 波浪动画圈。
+- **连续打卡 (Streak)**: 火焰图标记录用户连续记录天数，当用户当天或昨天有记录餐食、运动或饮水时，Streak 会自动递增或保持，逾期未记录重置。
+- **成就系统 (Achievements)**: 新增成就徽章系统，提供初步补水、补水达人、初显成效、自律达人、膳食管家 5 个精美徽章及解锁进度。
+- **全局解锁通知 (Achievements Toast)**: 实时解锁成就时，会在页面顶部滑出悬浮提示。
+- **GitHub Release 自动更新**: 增加了 `update_release.py` 脚本，在部署时可同时更新 GitHub 发布页。
+
+### v5.3.0 (最新发布)
+- **离线支持 (Offline Support)**: 采用 Service Worker 离线缓存，无网络时仍可查看历史记录和报告。
+- **本地推送通知 (Push Notifications)**: 本地推送通知，用餐时间提醒（无需服务器）。
+- **UI 全面重设计**: Material Design 3 设计令牌系统重构，药丸式现代底部导航，Chart.js 深色模式适配。
+- **降级链机制**: AI 接口适配多模型自动降级链。
+
+### v5.2.0
+- Open Food Facts API 集成，实现食物搜索和条形码扫描。
+- 体重追踪功能完整实现，数据集成到报告页面，底部导航从 6 项简化为 5 项。
+- GitHub Release 内容改为中英双语格式。
 
 ---
 
@@ -184,7 +194,7 @@ ai-diet-tracker/
 |------|-----|
 | 仓库 | `unique-immortal/nutrisnap-ai` |
 | Token | `ghp_************************************` |
-| 最新 Release | v5.2.0 (ID: 327680782) |
+| 最新 Release | v5.4.0 (当前发布中) |
 | 线上地址 | https://nutrisnap-ai-940406235442.us-central1.run.app |
 
 ---
@@ -217,11 +227,10 @@ ai-diet-tracker/
 ```
 
 ### 更新 GitHub Release / Update GitHub Release
-```python
-import json, urllib.request
-# 使用 GitHub API PATCH /repos/unique-immortal/nutrisnap-ai/releases/{id}
-# 注意：中文内容需 ensure_ascii=False
-data = json.dumps({"body": "中英双语内容..."}, ensure_ascii=False).encode("utf-8")
+推荐直接运行 `update_release.py` 自动化脚本，该脚本会自动读取 `app.py` 中的当前版本及对应的 `RELEASE_NOTES_v<version>.md` 日志文件，并在 GitHub API 检索并创建或 PATCH 对应的 Release 发布页。
+```bash
+# 需在环境变量或 .env 中设置 GITHUB_TOKEN
+python update_release.py
 ```
 
 ---
