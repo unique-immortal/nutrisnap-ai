@@ -268,6 +268,12 @@ html.dark .glass-nav {
 html.dark .nav-item.active {
   background: color-mix(in srgb, var(--primary) 14%, transparent);
 }
+.nav-item {
+  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), background-color 0.2s, color 0.2s;
+}
+.nav-item:active {
+  transform: scale(0.93);
+}
 .nav-item.active .nav-active-dot { opacity: 1 !important; }
 .nav-item:not(.active) { color: var(--on-surface-variant); }
 
@@ -1288,7 +1294,7 @@ html.dark .onboarding-slide:nth-child(3) {
         </div>
         <img id="imgPreview" class="hidden absolute inset-0 w-full h-full object-cover"/>
       </div>
-      <button id="analyzeBtn" disabled class="w-full bg-primary hover:bg-primary-container text-on-primary font-headline-md text-headline-md py-4 rounded-xl transition-colors shadow-lg flex items-center justify-center gap-2 disabled-cta" onclick="doAnalyze()">
+      <button id="analyzeBtn" disabled class="w-full bg-primary hover:bg-primary-container text-on-primary font-headline-md text-headline-md py-4 rounded-xl shadow-lg flex items-center justify-center gap-2 disabled-cta btn-premium" onclick="doAnalyze()">
         <span class="material-symbols-outlined" style="font-variation-settings:'FILL' 1">search_insights</span>
         <span>开始 AI 分析</span>
       </button>
@@ -1338,7 +1344,7 @@ html.dark .onboarding-slide:nth-child(3) {
 
 <!-- Manual Food Entry Modal -->
 <div id="manualFoodModal" class="fixed inset-0 bg-black/40 z-[100] items-center justify-center hidden" onclick="if(event.target===this)closeManualFoodModal()">
-  <div class="bg-surface-container-lowest rounded-2xl p-6 mx-6 max-w-sm w-full shadow-xl max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation()">
+  <div class="modal-panel rounded-2xl p-6 mx-6 max-w-sm w-full max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation()">
     <div class="flex items-start justify-between gap-3 mb-4">
       <div>
         <h3 class="font-headline-md text-headline-md text-on-background">手动补录食物</h3>
@@ -1388,14 +1394,14 @@ html.dark .onboarding-slide:nth-child(3) {
 
     <div class="flex gap-3 mt-5">
       <button onclick="closeManualFoodModal()" class="flex-1 bg-surface-container-high text-on-surface font-body-lg text-body-lg py-3 rounded-xl transition-colors">取消</button>
-      <button id="btnManualFoodSave" onclick="saveManualFood()" class="flex-1 bg-primary text-on-primary font-body-lg text-body-lg py-3 rounded-xl hover:scale-[1.02] active:scale-95 transition-transform">保存</button>
+      <button id="btnManualFoodSave" onclick="saveManualFood()" class="flex-1 bg-primary text-on-primary font-body-lg text-body-lg py-3 rounded-xl btn-premium">保存</button>
     </div>
   </div>
 </div>
 
 <!-- Voice Input Modal -->
 <div id="voiceModal" class="fixed inset-0 bg-background/80 backdrop-blur-xl z-[999] flex items-center justify-center p-6 transition-all duration-300 hidden" style="display:none">
-  <div class="bg-surface-container-lowest border border-surface-variant w-full max-w-sm rounded-3xl p-8 shadow-2xl flex flex-col gap-6 animate-slide-up relative overflow-hidden text-center">
+  <div class="modal-panel w-full max-w-sm rounded-3xl p-8 flex flex-col gap-6 animate-slide-up relative overflow-hidden text-center">
     <!-- Background glows -->
     <div class="absolute -right-16 -top-16 w-36 h-36 rounded-full bg-primary/10 blur-2xl"></div>
     <div class="absolute -left-16 -bottom-16 w-36 h-36 rounded-full bg-tertiary/10 blur-2xl"></div>
@@ -1508,7 +1514,7 @@ html.dark .onboarding-slide:nth-child(3) {
     <div id="resultFoods" class="flex flex-col gap-stack-md"></div>
   </main>
   <div class="fixed bottom-0 left-0 w-full bg-surface-container-lowest border-t border-outline-variant p-container-margin shadow-md z-40">
-    <button id="confirmResultBtn" class="w-full bg-primary hover:bg-primary/90 text-on-primary font-headline-md text-headline-md py-4 rounded-xl shadow-md transition-all duration-300 flex items-center justify-center gap-2 active:scale-[0.98] btn-premium" onclick="confirmResult()">
+    <button id="confirmResultBtn" class="w-full bg-primary text-on-primary font-headline-md text-headline-md py-4 rounded-xl shadow-md flex items-center justify-center gap-2 btn-premium" onclick="confirmResult()">
       <span class="material-symbols-outlined">check_circle</span>
       <span>确认记录</span>
     </button>
@@ -1561,7 +1567,7 @@ html.dark .onboarding-slide:nth-child(3) {
 
 <!-- Weight Record Modal -->
 <div id="weightRecordModal" class="fixed inset-0 bg-black/40 z-[100] items-center justify-center hidden" onclick="if(event.target===this)closeWeightRecordModal()">
-  <div class="bg-surface-container-lowest rounded-2xl p-6 mx-6 max-w-sm w-full shadow-xl" onclick="event.stopPropagation()">
+  <div class="modal-panel rounded-2xl p-6 mx-6 max-w-sm w-full" onclick="event.stopPropagation()">
     <div class="flex items-start justify-between gap-3 mb-4">
       <h3 class="font-headline-md text-headline-md text-on-background">记录体重</h3>
       <button onclick="closeWeightRecordModal()" class="text-outline hover:text-on-background p-1">
@@ -1580,7 +1586,7 @@ html.dark .onboarding-slide:nth-child(3) {
     </div>
     <div class="flex gap-3 mt-5">
       <button onclick="closeWeightRecordModal()" class="flex-1 bg-surface-container-high text-on-surface font-body-lg text-body-lg py-3 rounded-xl transition-colors">取消</button>
-      <button id="btnWeightSave" onclick="saveWeightRecord()" class="flex-1 bg-primary text-on-primary font-body-lg text-body-lg py-3 rounded-xl hover:scale-[1.02] active:scale-95 transition-transform">保存</button>
+      <button id="btnWeightSave" onclick="saveWeightRecord()" class="flex-1 bg-primary text-on-primary font-body-lg text-body-lg py-3 rounded-xl btn-premium">保存</button>
     </div>
   </div>
 </div>
@@ -1826,7 +1832,7 @@ html.dark .onboarding-slide:nth-child(3) {
           <div class="text-xs text-on-surface-variant mt-2" id="bmrSummaryText">
             未设置身体数据，点击此处初始化以自动计算每日代谢目标。
           </div>
-          <button id="bmrSetupCta" class="w-full bg-primary text-on-primary rounded-xl py-3 font-semibold touch-target">设置身体数据，自动计算热量目标</button>
+          <button id="bmrSetupCta" class="w-full bg-primary text-on-primary rounded-xl py-3 font-semibold touch-target btn-premium">设置身体数据，自动计算热量目标</button>
         </div>
       </div>
     </section>
@@ -1946,7 +1952,7 @@ html.dark .onboarding-slide:nth-child(3) {
 
 <!-- About Modal -->
 <div id="aboutModal" class="fixed inset-0 bg-black/40 z-[100] items-center justify-center hidden" onclick="if(event.target===this)this.style.display='none'">
-  <div class="bg-surface-container-lowest rounded-2xl p-6 mx-6 max-w-sm w-full shadow-xl">
+  <div class="modal-panel rounded-2xl p-6 mx-6 max-w-sm w-full">
     <div class="flex items-center gap-3 mb-4">
       <div class="w-12 h-12 rounded-full bg-primary flex items-center justify-center">
         <span class="material-symbols-outlined text-on-primary" style="font-variation-settings:'FILL' 1">restaurant</span>
@@ -1963,7 +1969,7 @@ html.dark .onboarding-slide:nth-child(3) {
 
 <!-- Edit Target Modal -->
 <div id="editTargetModal" class="fixed inset-0 bg-black/40 z-[100] items-center justify-center hidden" onclick="if(event.target===this)this.style.display='none'">
-  <div class="bg-surface-container-lowest rounded-2xl p-6 mx-6 max-w-sm w-full shadow-xl">
+  <div class="modal-panel rounded-2xl p-6 mx-6 max-w-sm w-full">
     <h3 class="font-headline-md text-headline-md text-on-background mb-4" id="editTargetTitle">编辑目标</h3>
     <input type="number" id="editTargetInput" min="1" max="10000" inputmode="numeric" class="w-full bg-surface-container rounded-xl px-4 py-3 font-body-md text-body-md text-on-background border border-outline-variant focus:border-primary focus:outline-none mb-6" />
     <div class="flex gap-3">
@@ -1975,7 +1981,7 @@ html.dark .onboarding-slide:nth-child(3) {
 
 <!-- Edit Recorded Meal Modal -->
 <div id="editMealModal" class="modal-backdrop fixed inset-0 bg-black/40 z-[100] items-center justify-center hidden" onclick="if(event.target===this)closeEditMealModal()">
-  <div class="modal-panel bg-surface-container-lowest rounded-2xl p-6 mx-0 max-w-xl w-full shadow-xl" onclick="event.stopPropagation()">
+  <div class="modal-panel rounded-2xl p-6 mx-0 max-w-xl w-full" onclick="event.stopPropagation()">
     <div class="flex items-start justify-between gap-4 mb-4">
       <div>
         <h3 class="font-headline-md text-headline-md text-on-background" id="editMealTitle">编辑饮食记录</h3>
@@ -1995,7 +2001,7 @@ html.dark .onboarding-slide:nth-child(3) {
 
 <!-- Delete Confirm Modal -->
 <div id="deleteConfirmModal" class="fixed inset-0 bg-black/40 z-[100] items-end justify-center hidden" onclick="if(event.target===this)this.style.display='none'">
-  <div class="bg-surface-container-lowest rounded-t-3xl p-6 w-full shadow-2xl animate-slide-up" style="padding-bottom: env(safe-area-inset-bottom, 24px);">
+  <div class="modal-panel rounded-t-3xl p-6 w-full animate-slide-up" style="padding-bottom: env(safe-area-inset-bottom, 24px);">
     <div class="w-12 h-1.5 bg-outline-variant rounded-full mx-auto mb-6"></div>
     <div class="flex items-center gap-4 mb-8">
       <div class="w-14 h-14 rounded-full bg-error-container flex items-center justify-center flex-shrink-0">
@@ -2015,7 +2021,7 @@ html.dark .onboarding-slide:nth-child(3) {
 
 <!-- BMR / Physical Data Setup Modal -->
 <div id="bmrSetupModal" class="modal-backdrop fixed inset-0 bg-black/40 z-[100] items-center justify-center hidden" onclick="if(event.target===this)closeBMRSetupModal()">
-  <div class="modal-panel bg-surface-container-lowest rounded-2xl p-6 mx-0 max-w-sm w-full shadow-xl" onclick="event.stopPropagation()">
+  <div class="modal-panel rounded-2xl p-6 mx-0 max-w-sm w-full" onclick="event.stopPropagation()">
     <h3 class="font-headline-md text-headline-md text-on-background mb-4" id="bmrSetupTitle">基础代谢 (BMR) 设置</h3>
     
     <div class="flex flex-col gap-3 mb-6">
@@ -2065,14 +2071,14 @@ html.dark .onboarding-slide:nth-child(3) {
     
     <div class="modal-actions flex gap-3">
       <button onclick="closeBMRSetupModal()" id="btnBMRCancel" class="flex-1 bg-surface-container-high text-on-surface font-body-lg text-body-lg py-3 rounded-xl transition-colors">取消</button>
-      <button id="btnBMRSave" onclick="saveBMRProfile()" class="flex-1 bg-primary text-on-primary font-body-lg text-body-lg py-3 rounded-xl hover:scale-[1.02] active:scale-95 transition-transform">确认</button>
+      <button id="btnBMRSave" onclick="saveBMRProfile()" class="flex-1 bg-primary text-on-primary font-body-lg text-body-lg py-3 rounded-xl btn-premium">确认</button>
     </div>
   </div>
 </div>
 
 <!-- Exercise Log Modal -->
 <div id="exerciseLogModal" class="modal-backdrop fixed inset-0 bg-black/40 z-[100] items-center justify-center hidden" onclick="if(event.target===this)closeExerciseLogModal()">
-  <div class="modal-panel bg-surface-container-lowest rounded-2xl p-6 mx-0 max-w-sm w-full shadow-xl" onclick="event.stopPropagation()">
+  <div class="modal-panel rounded-2xl p-6 mx-0 max-w-sm w-full" onclick="event.stopPropagation()">
     <h3 class="font-headline-md text-headline-md text-on-background mb-4">记录运动</h3>
     
     <div class="flex flex-col gap-3 mb-6">
@@ -2125,14 +2131,14 @@ html.dark .onboarding-slide:nth-child(3) {
     
     <div class="modal-actions flex gap-3">
       <button onclick="closeExerciseLogModal()" class="flex-1 bg-surface-container-high text-on-surface font-body-lg text-body-lg py-3 rounded-xl transition-colors">取消</button>
-      <button id="btnExerciseSave" onclick="saveExerciseLog()" class="flex-1 bg-primary text-on-primary font-body-lg text-body-lg py-3 rounded-xl hover:scale-[1.02] active:scale-95 transition-transform">保存</button>
+      <button id="btnExerciseSave" onclick="saveExerciseLog()" class="flex-1 bg-primary text-on-primary font-body-lg text-body-lg py-3 rounded-xl btn-premium">保存</button>
     </div>
   </div>
 </div>
 
 <!-- Custom Water Modal -->
 <div id="waterRecordModal" class="modal-backdrop fixed inset-0 bg-black/40 z-[100] items-center justify-center hidden" onclick="if(event.target===this)closeCustomWaterModal()">
-  <div class="modal-panel bg-surface-container-lowest rounded-2xl p-6 mx-0 max-w-sm w-full shadow-xl" onclick="event.stopPropagation()">
+  <div class="modal-panel rounded-2xl p-6 mx-0 max-w-sm w-full" onclick="event.stopPropagation()">
     <div class="flex justify-between items-center mb-4">
       <h3 class="font-headline-md text-headline-md text-on-background">记录饮水</h3>
       <button onclick="closeCustomWaterModal()" class="w-8 h-8 rounded-full bg-surface-container-high text-outline hover:text-on-background flex items-center justify-center transition-colors">
@@ -2160,7 +2166,7 @@ html.dark .onboarding-slide:nth-child(3) {
 
 <!-- Achievements Modal -->
 <div id="achievementsModal" class="modal-backdrop fixed inset-0 bg-black/40 z-[100] items-center justify-center hidden" onclick="if(event.target===this)closeAchievementsModal()">
-  <div class="modal-panel bg-surface-container-lowest rounded-2xl p-6 mx-4 max-w-md w-full max-h-[80vh] overflow-y-auto shadow-xl" onclick="event.stopPropagation()">
+  <div class="modal-panel rounded-2xl p-6 mx-4 max-w-md w-full max-h-[80vh] overflow-y-auto" onclick="event.stopPropagation()">
     <div class="flex justify-between items-center mb-4">
       <h3 class="font-headline-md text-headline-md text-on-background">我的成就徽章</h3>
       <button onclick="closeAchievementsModal()" class="w-8 h-8 rounded-full bg-surface-container-high text-outline hover:text-on-background flex items-center justify-center transition-colors">
@@ -5903,6 +5909,68 @@ function toggleDarkMode() {
   updateDarkModeUI();
 }
 
+function updateChartTheme(chartInstance, isDark, style) {
+  if (!chartInstance) return;
+  const gridColor = style.getPropertyValue('--outline-variant').trim() || (isDark ? '#404943' : '#bfc9c1');
+  const textColor = style.getPropertyValue('--on-surface-variant').trim() || (isDark ? '#bfc9c1' : '#404943');
+  const primaryColor = style.getPropertyValue('--primary').trim() || (isDark ? '#86d4a8' : '#2d6a4f');
+  const secondaryColor = style.getPropertyValue('--tertiary').trim() || (isDark ? '#4db8c7' : '#00687e');
+  const primaryLight = isDark ? '#5aab7c' : '#95d4b3';
+
+  if (chartInstance.options && chartInstance.options.scales) {
+    for (const key in chartInstance.options.scales) {
+      const scale = chartInstance.options.scales[key];
+      if (scale) {
+        if (!scale.grid) scale.grid = {};
+        if (scale.grid.display !== false) {
+          scale.grid.color = gridColor;
+        }
+        if (!scale.ticks) scale.ticks = {};
+        scale.ticks.color = textColor;
+      }
+    }
+  }
+
+  if (chartInstance.data && chartInstance.data.datasets) {
+    const parseHexToRgba = (hex, alpha) => {
+      hex = hex.trim().replace('#', '');
+      if (hex.length === 3) hex = hex.split('').map(x => x + x).join('');
+      const r = parseInt(hex.substring(0, 2), 16);
+      const g = parseInt(hex.substring(2, 4), 16);
+      const b = parseInt(hex.substring(4, 6), 16);
+      return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+    };
+    const primaryBg = parseHexToRgba(primaryColor, isDark ? 0.12 : 0.1);
+
+    chartInstance.data.datasets.forEach(dataset => {
+      const canvasId = chartInstance.canvas ? chartInstance.canvas.id : '';
+      if (canvasId === 'calorieChart') {
+        if (dataset.label && dataset.label.includes('热量')) {
+          dataset.borderColor = primaryColor;
+          dataset.backgroundColor = primaryBg;
+          dataset.pointBackgroundColor = primaryColor;
+        } else if (dataset.label && dataset.label.includes('目标')) {
+          dataset.borderColor = primaryLight;
+        }
+      } else if (canvasId === 'macroChart') {
+        if (dataset.label && dataset.label.includes('蛋白质')) {
+          dataset.backgroundColor = primaryColor;
+        } else if (dataset.label && dataset.label.includes('碳水')) {
+          dataset.backgroundColor = secondaryColor;
+        } else if (dataset.label && dataset.label.includes('脂肪')) {
+          dataset.backgroundColor = primaryLight;
+        }
+      } else if (canvasId === 'reportWeightChart' || canvasId === 'weightChart') {
+        dataset.borderColor = primaryColor;
+        dataset.backgroundColor = primaryBg;
+        dataset.pointBackgroundColor = primaryColor;
+      }
+    });
+  }
+
+  chartInstance.update('none');
+}
+
 function updateDarkModeUI() {
   const isDark = document.documentElement.classList.contains('dark');
   const headerIcon = document.getElementById('headerDarkModeIcon');
@@ -5913,12 +5981,11 @@ function updateDarkModeUI() {
   if (statusLabel) {
     statusLabel.textContent = isDark ? '\u5df2\u5f00\u542f' : '\u5df2\u5173\u95ed';
   }
-  if (calChart || macroChart) {
-    fetchWeeklyReport();
-  }
-  if (typeof window.refreshWeightChartTheme === 'function') {
-    window.refreshWeightChartTheme();
-  }
+  const style = getComputedStyle(document.documentElement);
+  if (calChart) updateChartTheme(calChart, isDark, style);
+  if (macroChart) updateChartTheme(macroChart, isDark, style);
+  if (reportWeightChart) updateChartTheme(reportWeightChart, isDark, style);
+  if (weightChartInstance) updateChartTheme(weightChartInstance, isDark, style);
 }
 
 // ===================== HELPERS =====================
@@ -6358,10 +6425,15 @@ document.addEventListener('DOMContentLoaded', () => {
         maintainAspectRatio: false,
         plugins: { legend: { display: false } },
         scales: {
+          x: {
+            grid: { color: gridColor },
+            ticks: { color: textColor }
+          },
           y: {
             min: Math.floor(Math.min(...data.map(r => r.weight)) - 2),
             max: Math.ceil(Math.max(...data.map(r => r.weight)) + 2),
-            ticks: { callback: v => v + ' kg' }
+            grid: { color: gridColor },
+            ticks: { color: textColor, callback: v => v + ' kg' }
           }
         }
       }
