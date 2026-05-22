@@ -4550,6 +4550,10 @@ async function fetchWeeklyReport() {
     const isDark = document.documentElement.classList.contains('dark');
     const gridColor = isDark ? '#404943' : '#bfc9c1';
     const textColor = isDark ? '#bfc9c1' : '#404943';
+    const primaryColor = isDark ? '#86d4a8' : '#2d6a4f';
+    const primaryBg = isDark ? 'rgba(134,212,168,0.12)' : 'rgba(45,106,79,0.1)';
+    const primaryLight = isDark ? '#5aab7c' : '#95d4b3';
+    const secondaryColor = isDark ? '#4db8c7' : '#00687e';
 
     if (calChart) calChart.destroy();
     const calCtx = document.getElementById('calorieChart').getContext('2d');
@@ -4558,8 +4562,8 @@ async function fetchWeeklyReport() {
       data: {
         labels: days,
         datasets: [
-          { label: '\u70ed\u91cf (kcal)', data: cals, borderColor: '#2d6a4f', backgroundColor: 'rgba(45,106,79,0.1)', fill: true, tension: 0.3, pointRadius: 4, pointBackgroundColor: '#2d6a4f' },
-          { label: '\u76ee\u6807', data: Array(7).fill(calTarget), borderColor: '#95d4b3', borderDash: [6,3], borderWidth: 1.5, pointRadius: 0, fill: false }
+          { label: '\u70ed\u91cf (kcal)', data: cals, borderColor: primaryColor, backgroundColor: primaryBg, fill: true, tension: 0.3, pointRadius: 4, pointBackgroundColor: primaryColor },
+          { label: '\u76ee\u6807', data: Array(7).fill(calTarget), borderColor: primaryLight, borderDash: [6,3], borderWidth: 1.5, pointRadius: 0, fill: false }
         ]
       },
       options: {
@@ -4587,9 +4591,9 @@ async function fetchWeeklyReport() {
       data: {
         labels: days,
         datasets: [
-          { label: '\u86cb\u767d\u8d28', data: pros, backgroundColor: '#2d6a4f' },
-          { label: '\u78b3\u6c34', data: carbs, backgroundColor: '#00687e' },
-          { label: '\u8102\u80aa', data: fats, backgroundColor: '#95d4b3' }
+          { label: '\u86cb\u767d\u8d28', data: pros, backgroundColor: primaryColor },
+          { label: '\u78b3\u6c34', data: carbs, backgroundColor: secondaryColor },
+          { label: '\u8102\u80aa', data: fats, backgroundColor: primaryLight }
         ]
       },
       options: {
@@ -4645,11 +4649,11 @@ async function fetchWeeklyReport() {
           datasets: [{
             label: '体重 (kg)',
             data: wtValues,
-            borderColor: '#4CAF50',
-            backgroundColor: 'rgba(76, 175, 80, 0.1)',
+            borderColor: primaryColor,
+            backgroundColor: primaryBg,
             borderWidth: 2,
             pointRadius: 4,
-            pointBackgroundColor: '#4CAF50',
+            pointBackgroundColor: primaryColor,
             fill: true,
             tension: 0.3
           }]
@@ -5499,11 +5503,11 @@ document.addEventListener('DOMContentLoaded', () => {
         datasets: [{
           label: '体重 (kg)',
           data: data.map(r => r.weight),
-          borderColor: '#4CAF50',
-          backgroundColor: 'rgba(76, 175, 80, 0.1)',
+          borderColor: primaryColor,
+          backgroundColor: primaryBg,
           borderWidth: 2,
           pointRadius: 3,
-          pointBackgroundColor: '#4CAF50',
+          pointBackgroundColor: primaryColor,
           fill: true,
           tension: 0.3
         }]

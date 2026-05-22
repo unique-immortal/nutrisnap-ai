@@ -4649,11 +4649,11 @@ async function fetchWeeklyReport() {
           datasets: [{
             label: '体重 (kg)',
             data: wtValues,
-            borderColor: '#4CAF50',
-            backgroundColor: 'rgba(76, 175, 80, 0.1)',
+            borderColor: primaryColor,
+            backgroundColor: primaryBg,
             borderWidth: 2,
             pointRadius: 4,
-            pointBackgroundColor: '#4CAF50',
+            pointBackgroundColor: primaryColor,
             fill: true,
             tension: 0.3
           }]
@@ -5503,11 +5503,11 @@ document.addEventListener('DOMContentLoaded', () => {
         datasets: [{
           label: '体重 (kg)',
           data: data.map(r => r.weight),
-          borderColor: '#4CAF50',
-          backgroundColor: 'rgba(76, 175, 80, 0.1)',
+          borderColor: primaryColor,
+          backgroundColor: primaryBg,
           borderWidth: 2,
           pointRadius: 3,
-          pointBackgroundColor: '#4CAF50',
+          pointBackgroundColor: primaryColor,
           fill: true,
           tension: 0.3
         }]
