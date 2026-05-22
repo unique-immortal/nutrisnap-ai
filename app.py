@@ -350,7 +350,7 @@ def get_db_connection():
 @app.route('/api/health')
 def health():
     return jsonify({
-        "version": "v5.1.0",
+        "version": "v5.2.0",
         "architecture": "local-first + throttled-meal-sync + server-daily-summaries + OpenRouter",
         "models": [
             'gemini-3.5-flash',
