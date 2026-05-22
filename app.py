@@ -9,7 +9,7 @@ import jwt
 import functools
 import requests
 from dotenv import load_dotenv
-from flask import Flask, request, jsonify, render_template, send_from_directory
+from flask import Flask, request, jsonify, render_template, send_from_directory, make_response
 from flask_cors import CORS
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
@@ -415,6 +415,14 @@ def parse_ai_multi_result(raw_text):
 @app.route('/')
 def index():
     return render_template('index.html')
+
+@app.route('/sw.js')
+def serve_sw():
+    response = make_response(send_from_directory('static', 'sw.js'))
+    response.headers['Content-Type'] = 'application/javascript'
+    response.headers['Service-Worker-Allowed'] = '/'
+    response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    return response
 
 @app.route('/uploads/<filename>')
 def uploaded_file(filename):

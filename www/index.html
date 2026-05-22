@@ -2,7 +2,12 @@
 <html class="light" lang="zh">
 <head>
 <meta charset="utf-8"/>
-<meta content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover" name="viewport"/>
+<meta content="width=device-width, initial-scale=1.0, user-scalable=yes, maximum-scale=5, viewport-fit=cover" name="viewport"/>
+<link rel="preconnect" href="https://cdn.tailwindcss.com"/>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link rel="preconnect" href="https://cdn.jsdelivr.net"/>
+<link rel="preconnect" href="https://unpkg.com"/>
 <title>NutriSnap AI</title>
 <link rel="icon" type="image/x-icon" href="/static/favicon.ico"/>
 <link rel="icon" type="image/png" href="/static/icon-light.png" media="(prefers-color-scheme: light)"/>
@@ -10,9 +15,9 @@
 <link rel="apple-touch-icon" href="/static/apple-touch-icon.png"/>
 <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet"/>
-<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
-<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet" media="print" onload="this.media='all'"/>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js" defer></script>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js" defer></script>
 <script>
 tailwind.config = {
   darkMode: "class",
@@ -36,14 +41,14 @@ tailwind.config = {
         "error": "var(--error)", "error-container": "var(--error-container)",
       },
       spacing: { "base":"8px","gutter":"16px","stack-lg":"24px","stack-md":"12px","section-gap":"40px","container-margin":"24px","stack-sm":"4px" },
-      fontFamily: { "body-lg":["Inter"],"body-md":["Inter"],"stats-xl":["Inter"],"headline-md":["Inter"],"headline-lg-mobile":["Inter"],"label-md":["JetBrains Mono"] },
+      fontFamily: { "body-lg":["Inter"],"body-md":["Inter"],"stats-xl":["Inter"],"headline-md":["Inter"],"headline-lg-mobile":["Inter"],"label-md":["Inter"] },
       fontSize: {
-        "body-lg":["18px",{"lineHeight":"28px","fontWeight":"400"}],
-        "body-md":["16px",{"lineHeight":"24px","fontWeight":"400"}],
-        "stats-xl":["40px",{"lineHeight":"40px","letterSpacing":"0","fontWeight":"800"}],
-        "headline-md":["24px",{"lineHeight":"32px","fontWeight":"600"}],
-        "headline-lg-mobile":["28px",{"lineHeight":"36px","letterSpacing":"0","fontWeight":"700"}],
-        "label-md":["14px",{"lineHeight":"20px","letterSpacing":"0","fontWeight":"500"}]
+        "body-lg":["18px",{"lineHeight":"30px","fontWeight":"400"}],
+        "body-md":["16px",{"lineHeight":"26px","fontWeight":"400"}],
+        "stats-xl":["40px",{"lineHeight":"42px","letterSpacing":"-0.02em","fontWeight":"800"}],
+        "headline-md":["24px",{"lineHeight":"32px","fontWeight":"700"}],
+        "headline-lg-mobile":["28px",{"lineHeight":"36px","letterSpacing":"-0.01em","fontWeight":"700"}],
+        "label-md":["14px",{"lineHeight":"20px","letterSpacing":"0.02em","fontWeight":"600"}]
       }
     }
   }
@@ -120,19 +125,19 @@ html.dark {
 
 html,body{
   overscroll-behavior:none;
-  -webkit-tap-highlight-color:transparent;
+  -webkit-tap-highlight-color:color-mix(in srgb, var(--primary) 12%, transparent);
   transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease;
 }
 
 body{
   background:
-    linear-gradient(180deg, rgba(177,240,206,.28), rgba(248,250,246,0) 280px),
+    linear-gradient(180deg, color-mix(in srgb, var(--primary-fixed) 28%, transparent), var(--background) 320px),
     var(--background);
 }
 
 html.dark body{
   background:
-    linear-gradient(180deg, rgba(45,106,79,.22), rgba(17,20,18,0) 280px),
+    linear-gradient(180deg, color-mix(in srgb, var(--primary-container) 22%, transparent), var(--background) 320px),
     var(--background);
 }
 
@@ -170,29 +175,92 @@ input[type=range]:focus{outline:none}
 .animate-ping-slow { animation: ping-slow 2s cubic-bezier(0.16, 1, 0.3, 1) infinite; }
 .animate-ping-medium { animation: ping-medium 2s cubic-bezier(0.16, 1, 0.3, 1) infinite 0.5s; }
 
+/* Custom Toggle Switch */
+.switch-input:checked + .switch-slider {
+  background-color: var(--primary);
+}
+.switch-input:checked + .switch-slider::after {
+  transform: translateX(20px);
+  background-color: var(--on-primary);
+  border-color: var(--on-primary);
+}
+.switch-slider {
+  width: 44px;
+  height: 24px;
+  background-color: var(--surface-container);
+  border-radius: 999px;
+  position: relative;
+  transition: background-color 0.2s ease;
+  cursor: pointer;
+}
+.switch-slider::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  background-color: var(--outline-variant);
+  border-radius: 50%;
+  transition: transform 0.2s ease, background-color 0.2s ease;
+}
+
+.switch-slider-sm {
+  width: 36px;
+  height: 20px;
+  background-color: var(--surface-container);
+  border-radius: 999px;
+  position: relative;
+  transition: background-color 0.2s ease;
+  cursor: pointer;
+}
+.switch-slider-sm::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  background-color: var(--outline-variant);
+  border-radius: 50%;
+  transition: transform 0.2s ease, background-color 0.2s ease;
+}
+.switch-input:checked + .switch-slider-sm {
+  background-color: var(--primary);
+}
+.switch-input:checked + .switch-slider-sm::after {
+  transform: translateX(16px);
+  background-color: var(--on-primary);
+  border-color: var(--on-primary);
+}
+
 /* Glassmorphism Styles */
 .glass-header {
-  background: rgba(248, 250, 246, 0.8) !important;
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background: color-mix(in srgb, var(--background) 85%, transparent) !important;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
   border-bottom: 1px solid var(--outline-variant);
   transition: background 0.3s ease, border-color 0.3s ease;
 }
-html.dark .glass-header {
-  background: rgba(17, 20, 18, 0.8) !important;
-}
 
 .glass-nav {
-  background: rgba(255, 255, 255, 0.8) !important;
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  background: color-mix(in srgb, var(--surface-container-lowest) 88%, transparent) !important;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
   border-top: 1px solid var(--outline-variant);
+  padding-bottom: env(safe-area-inset-bottom, 4px) !important;
   transition: background 0.3s ease, border-color 0.3s ease;
 }
-html.dark .glass-nav {
-  background: rgba(12, 15, 13, 0.8) !important;
-  padding-bottom: calc(4px + env(safe-area-inset-bottom)) !important;
+
+.nav-item.active {
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 10%, transparent);
 }
+html.dark .nav-item.active {
+  background: color-mix(in srgb, var(--primary) 14%, transparent);
+}
+.nav-item.active .nav-active-dot { opacity: 1 !important; }
+.nav-item:not(.active) { color: var(--on-surface-variant); }
 
 .preset-pill {
   max-width: 120px;
@@ -203,8 +271,8 @@ html.dark .glass-nav {
 
 .muscle-pill { white-space: nowrap !important; }
 
-html.dark .surface-panel { box-shadow: 0 2px 8px rgba(0,0,0,0.6) !important; }
-html.dark .modal-panel { box-shadow: 0 8px 24px rgba(0,0,0,0.6) !important; }
+html.dark .surface-panel { box-shadow: 0 2px 8px rgba(0,0,0,0.35) !important; }
+html.dark .modal-panel { box-shadow: 0 8px 24px rgba(0,0,0,0.4) !important; }
 
 /* Premium micro-interactions */
 .card-premium {
@@ -238,66 +306,66 @@ html.dark .card-premium:hover {
 .surface-panel{
   background:var(--surface-container-lowest);
   border:1px solid var(--outline-variant);
-  border-radius:1.25rem;
-  box-shadow:0 12px 30px rgba(15,82,56,.06);
+  border-radius:1.5rem;
+  box-shadow:0 4px 16px color-mix(in srgb, var(--primary) 5%, transparent);
 }
 
 html.dark .surface-panel{
-  box-shadow:0 12px 30px rgba(0,0,0,.22);
+  box-shadow:0 4px 16px rgba(0,0,0,.28);
 }
 
 .metric-card{
   background:var(--surface-container-lowest);
   border:1px solid var(--outline-variant);
-  border-radius:1rem;
+  border-radius:1.25rem;
   padding:1rem;
   min-height:5.75rem;
   display:flex;
   flex-direction:column;
   justify-content:space-between;
+  transition: transform 0.15s ease, box-shadow 0.2s ease;
 }
+.metric-card:active{transform:scale(.98)}
 
 .entry-card{
   width:100%;
   border:1px solid var(--outline-variant);
   background:var(--surface-container-lowest);
-  border-radius:1rem;
+  border-radius:1.25rem;
   padding:1rem;
   min-height:5.5rem;
   display:flex;
   align-items:center;
   gap:.875rem;
   text-align:left;
+  transition: transform 0.15s ease;
 }
-
-.entry-card:active,.metric-card:active{
-  transform:scale(.99);
-}
+.entry-card:active{transform:scale(.98)}
 
 .status-pill{
   display:inline-flex;
   align-items:center;
-  gap:.25rem;
+  gap:.3rem;
   border-radius:999px;
-  border:1px solid color-mix(in srgb, var(--primary) 18%, transparent);
-  background:color-mix(in srgb, var(--primary) 9%, transparent);
+  border:1px solid color-mix(in srgb, var(--primary) 15%, transparent);
+  background:color-mix(in srgb, var(--primary) 8%, transparent);
   color:var(--primary);
   min-height:1.75rem;
-  padding:.25rem .625rem;
-  font-size:.72rem;
-  font-weight:700;
+  padding:.3rem .75rem;
+  font-size:.75rem;
+  font-weight:600;
   white-space:nowrap;
 }
 
 .empty-state{
-  border:1px dashed var(--outline-variant);
-  background:color-mix(in srgb, var(--surface-container-lowest) 82%, var(--primary-fixed) 18%);
-  border-radius:1.25rem;
-  padding:1.25rem;
+  border:1.5px dashed var(--outline-variant);
+  background:color-mix(in srgb, var(--surface-container-lowest) 80%, var(--primary-fixed) 20%);
+  border-radius:1.5rem;
+  padding:1.5rem;
 }
 
 html.dark .empty-state{
-  background:color-mix(in srgb, var(--surface-container-lowest) 86%, var(--primary-container) 14%);
+  background:color-mix(in srgb, var(--surface-container-lowest) 84%, var(--primary-container) 16%);
 }
 
 .touch-target{
@@ -361,9 +429,9 @@ html.dark .empty-state{
 .icon-badge{
   width:2.75rem;
   height:2.75rem;
-  border-radius:.875rem;
-  background:color-mix(in srgb, var(--primary) 10%, transparent);
-  border:1px solid color-mix(in srgb, var(--primary) 18%, transparent);
+  border-radius:1rem;
+  background:color-mix(in srgb, var(--primary) 9%, transparent);
+  border:1px solid color-mix(in srgb, var(--primary) 15%, transparent);
   color:var(--primary);
   display:inline-flex;
   align-items:center;
@@ -374,21 +442,26 @@ html.dark .empty-state{
 .soft-action{
   min-height:44px;
   border-radius:999px;
-  background:color-mix(in srgb, var(--primary) 9%, transparent);
+  background:color-mix(in srgb, var(--primary) 8%, transparent);
   color:var(--primary);
-  border:1px solid color-mix(in srgb, var(--primary) 18%, transparent);
-  font-weight:700;
+  border:1px solid color-mix(in srgb, var(--primary) 15%, transparent);
+  font-weight:600;
+  transition: background 0.15s ease;
+}
+.soft-action:hover{
+  background:color-mix(in srgb, var(--primary) 14%, transparent);
 }
 
 .quiet-danger{
   color:var(--error);
-  background: color-mix(in srgb, var(--error) 8%, transparent);
-  border:1px solid color-mix(in srgb, var(--error) 15%, transparent);
+  background: color-mix(in srgb, var(--error) 6%, transparent);
+  border:1px solid color-mix(in srgb, var(--error) 12%, transparent);
   font-weight:600;
+  transition: background 0.15s ease;
 }
 .quiet-danger:hover {
-  background: color-mix(in srgb, var(--error) 15%, transparent);
-  border-color: color-mix(in srgb, var(--error) 25%, transparent);
+  background: color-mix(in srgb, var(--error) 12%, transparent);
+  border-color: color-mix(in srgb, var(--error) 22%, transparent);
 }
 
 .chat-container {
@@ -402,24 +475,21 @@ html.dark .empty-state{
   background: var(--surface-container-high);
   border: 1px solid var(--outline-variant);
   border-radius: 1.25rem;
-  border-top-left-radius: 0;
+  border-top-left-radius: 0.375rem;
   padding: 0.875rem 1.125rem;
   max-width: 84%;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.02);
+  box-shadow: 0 1px 4px color-mix(in srgb, var(--on-surface) 3%, transparent);
   transition: background-color 0.3s ease, border-color 0.3s ease;
-}
-html.dark .coach-ai-bubble {
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
 }
 
 .coach-user-bubble {
   background: var(--primary);
   color: var(--on-primary);
   border-radius: 1.25rem;
-  border-top-right-radius: 0;
+  border-top-right-radius: 0.375rem;
   padding: 0.875rem 1.125rem;
   max-width: 80%;
-  box-shadow: 0 4px 12px color-mix(in srgb, var(--primary) 15%, transparent);
+  box-shadow: 0 2px 10px color-mix(in srgb, var(--primary) 18%, transparent);
 }
 
 .empty-illustration{
@@ -636,6 +706,11 @@ html.dark .onboarding-slide:nth-child(3) {
 </style>
 </head>
 <body class="bg-background text-on-background font-body-md min-h-screen pb-28">
+<!-- Offline Banner -->
+<div id="offlineBanner" class="hidden bg-error text-error-container text-center py-2.5 px-4 text-sm font-semibold flex items-center justify-center gap-2 transition-all">
+  <span class="material-symbols-outlined text-[18px]">wifi_off</span>
+  <span>当前处于离线状态，部分功能可能受限</span>
+</div>
 <div id="appToast" class="toast" role="status" aria-live="polite"></div>
 <!-- ========== Onboarding Overlay ========== -->
 <div id="onboardingOverlay" class="onboarding-overlay hidden">
@@ -1435,6 +1510,80 @@ html.dark .onboarding-slide:nth-child(3) {
       </div>
     </section>
 
+    <!-- Notification Reminders -->
+    <section class="flex flex-col gap-stack-md">
+      <h2 class="font-headline-lg-mobile text-headline-lg-mobile text-on-background border-b border-surface-variant pb-stack-sm mb-1">消息提醒</h2>
+      
+      <!-- Master Toggle Card -->
+      <div class="bg-surface-container-lowest rounded-xl shadow-sm border border-surface-variant p-stack-md flex justify-between items-center">
+        <div class="flex items-center gap-3">
+          <span class="material-symbols-outlined text-primary">notifications</span>
+          <span class="font-body-lg text-body-lg text-on-background">启用日常提醒</span>
+        </div>
+        <label class="relative inline-flex items-center cursor-pointer">
+          <input type="checkbox" id="notificationMasterToggle" onchange="NotificationManager.toggleMaster(this.checked)" class="sr-only switch-input">
+          <span class="switch-slider"></span>
+        </label>
+      </div>
+
+      <!-- Sub Toggles -->
+      <div id="notificationSubList" class="flex flex-col gap-3 pl-2 transition-all">
+        <!-- Breakfast -->
+        <div class="bg-surface-container-lowest rounded-xl border border-surface-variant p-3 flex justify-between items-center">
+          <div class="flex flex-col">
+            <span class="font-body-md text-body-md text-on-background">早餐提醒 (08:30)</span>
+            <span class="text-xs text-on-surface-variant">提醒记录早餐，开启健康一天</span>
+          </div>
+          <label class="relative inline-flex items-center cursor-pointer">
+            <input type="checkbox" id="reminderBreakfast" onchange="NotificationManager.toggleSub('breakfast', this.checked)" class="sr-only switch-input">
+            <span class="switch-slider-sm"></span>
+          </label>
+        </div>
+
+        <!-- Lunch -->
+        <div class="bg-surface-container-lowest rounded-xl border border-surface-variant p-3 flex justify-between items-center">
+          <div class="flex flex-col">
+            <span class="font-body-md text-body-md text-on-background">午餐提醒 (12:30)</span>
+            <span class="text-xs text-on-surface-variant">提醒记录午餐，能量持续充电</span>
+          </div>
+          <label class="relative inline-flex items-center cursor-pointer">
+            <input type="checkbox" id="reminderLunch" onchange="NotificationManager.toggleSub('lunch', this.checked)" class="sr-only switch-input">
+            <span class="switch-slider-sm"></span>
+          </label>
+        </div>
+
+        <!-- Dinner -->
+        <div class="bg-surface-container-lowest rounded-xl border border-surface-variant p-3 flex justify-between items-center">
+          <div class="flex flex-col">
+            <span class="font-body-md text-body-md text-on-background">晚餐提醒 (18:30)</span>
+            <span class="text-xs text-on-surface-variant">提醒记录晚餐，回顾今日膳食</span>
+          </div>
+          <label class="relative inline-flex items-center cursor-pointer">
+            <input type="checkbox" id="reminderDinner" onchange="NotificationManager.toggleSub('dinner', this.checked)" class="sr-only switch-input">
+            <span class="switch-slider-sm"></span>
+          </label>
+        </div>
+
+        <!-- Weight -->
+        <div class="bg-surface-container-lowest rounded-xl border border-surface-variant p-3 flex justify-between items-center">
+          <div class="flex flex-col">
+            <span class="font-body-md text-body-md text-on-background">体重打卡 (09:00)</span>
+            <span class="text-xs text-on-surface-variant">提醒记录今日体重，记录改变</span>
+          </div>
+          <label class="relative inline-flex items-center cursor-pointer">
+            <input type="checkbox" id="reminderWeight" onchange="NotificationManager.toggleSub('weight', this.checked)" class="sr-only switch-input">
+            <span class="switch-slider-sm"></span>
+          </label>
+        </div>
+        
+        <!-- Send Test Notification Button -->
+        <button onclick="NotificationManager.sendTestNotification()" class="soft-action w-full mt-2 font-medium flex items-center justify-center gap-2 py-2 px-4 rounded-xl text-sm border border-outline-variant hover:bg-surface-container transition-colors">
+          <span class="material-symbols-outlined text-[18px]">send</span>
+          <span>发送测试提醒</span>
+        </button>
+      </div>
+    </section>
+
     <!-- System Settings -->
     <section class="flex flex-col gap-stack-md">
       <h2 class="font-headline-lg-mobile text-headline-lg-mobile text-on-background border-b border-surface-variant pb-stack-sm mb-1">系统设置</h2>
@@ -1661,17 +1810,20 @@ html.dark .onboarding-slide:nth-child(3) {
 </div>
 
 <!-- ========== Bottom Navigation ========== -->
-<nav class="fixed bottom-0 w-full glass-nav shadow-[0_-4px_10px_rgba(0,0,0,.08)] z-50 flex justify-around items-center px-gutter py-stack-sm" id="bottomNav">
-  <a class="nav-item flex flex-col items-center justify-center p-2 rounded-xl transition-colors cursor-pointer" data-tab="home" onclick="switchTab('home')">
-    <span class="material-symbols-outlined mb-0.5 nav-icon">home</span>
-    <span class="font-label-md text-label-md text-[11px] nav-label">首页</span>
+<nav class="fixed bottom-0 inset-x-0 glass-nav z-50 px-2 py-1.5" id="bottomNav">
+  <div class="flex justify-around items-center max-w-lg mx-auto">
+  <a class="nav-item flex flex-col items-center justify-center min-w-0 p-1.5 rounded-2xl transition-all duration-200 cursor-pointer relative" data-tab="home" onclick="switchTab('home')">
+    <span class="material-symbols-outlined nav-icon text-[22px] leading-none">home</span>
+    <span class="text-[10px] font-semibold mt-0.5 nav-label">首页</span>
+    <span class="nav-active-dot absolute -bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-primary opacity-0 transition-opacity duration-200"></span>
   </a>
-  <a class="nav-item flex flex-col items-center justify-center p-2 rounded-xl transition-colors cursor-pointer" data-tab="coach" onclick="switchTab('coach')">
-    <span class="material-symbols-outlined mb-0.5 nav-icon">psychology</span>
-    <span class="font-label-md text-label-md text-[11px] nav-label">教练</span>
+  <a class="nav-item flex flex-col items-center justify-center min-w-0 p-1.5 rounded-2xl transition-all duration-200 cursor-pointer relative" data-tab="coach" onclick="switchTab('coach')">
+    <span class="material-symbols-outlined nav-icon text-[22px] leading-none">psychology</span>
+    <span class="text-[10px] font-semibold mt-0.5 nav-label">教练</span>
+    <span class="nav-active-dot absolute -bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-primary opacity-0 transition-opacity duration-200"></span>
   </a>
   <!-- FAB Menu Popup -->
-  <div id="fabMenu" class="fixed left-1/2 bottom-24 z-[60] w-[min(20rem,calc(100vw-2rem))] -translate-x-1/2 flex-col gap-2 hidden" style="display:none">
+  <div id="fabMenu" class="fixed left-1/2 bottom-20 z-[60] w-[min(20rem,calc(100vw-2rem))] -translate-x-1/2 flex-col gap-2 hidden" style="display:none">
     <div class="bg-surface-container-lowest rounded-2xl shadow-2xl border border-outline-variant overflow-hidden animate-slide-up">
       <div onclick="switchTab('scan'); closeFabMenu()" class="flex items-center gap-3 px-5 py-3.5 hover:bg-surface-container active:bg-surface-variant transition-colors cursor-pointer">
         <span class="material-symbols-outlined text-primary" style="font-variation-settings:'FILL' 1">photo_camera</span>
@@ -1688,17 +1840,20 @@ html.dark .onboarding-slide:nth-child(3) {
   <!-- Backdrop for FAB menu -->
   <div id="fabBackdrop" class="fixed inset-0 z-[55] hidden bg-black/5" onclick="closeFabMenu()" style="display:none"></div>
 
-  <a class="flex items-center justify-center bg-primary text-on-primary rounded-full w-14 h-14 -mt-6 shadow-lg border-4 border-surface-container-lowest relative z-10 hover:scale-105 active:scale-95 transition-transform cursor-pointer" onclick="toggleFabMenu()">
+  <a class="flex items-center justify-center bg-primary text-on-primary rounded-full w-[54px] h-[54px] -mt-4 shadow-[0_4px_16px_color-mix(in_srgb,var(--primary)_30%,transparent)] border-[3px] border-surface-container-lowest relative z-10 hover:scale-105 active:scale-95 transition-transform duration-200 cursor-pointer" onclick="toggleFabMenu()">
     <span class="material-symbols-outlined text-[28px]" id="fabIcon" style="font-variation-settings:'FILL' 1">add</span>
   </a>
-  <a class="nav-item flex flex-col items-center justify-center p-2 rounded-xl transition-colors cursor-pointer" data-tab="report" onclick="switchTab('report')">
-    <span class="material-symbols-outlined mb-0.5 nav-icon">bar_chart</span>
-    <span class="font-label-md text-label-md text-[11px] nav-label">报告</span>
+  <a class="nav-item flex flex-col items-center justify-center min-w-0 p-1.5 rounded-2xl transition-all duration-200 cursor-pointer relative" data-tab="report" onclick="switchTab('report')">
+    <span class="material-symbols-outlined nav-icon text-[22px] leading-none">bar_chart</span>
+    <span class="text-[10px] font-semibold mt-0.5 nav-label">报告</span>
+    <span class="nav-active-dot absolute -bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-primary opacity-0 transition-opacity duration-200"></span>
   </a>
-  <a class="nav-item flex flex-col items-center justify-center p-2 rounded-xl transition-colors cursor-pointer" data-tab="profile" onclick="switchTab('profile')">
-    <span class="material-symbols-outlined mb-0.5 nav-icon">person</span>
-    <span class="font-label-md text-label-md text-[11px] nav-label">个人</span>
+  <a class="nav-item flex flex-col items-center justify-center min-w-0 p-1.5 rounded-2xl transition-all duration-200 cursor-pointer relative" data-tab="profile" onclick="switchTab('profile')">
+    <span class="material-symbols-outlined nav-icon text-[22px] leading-none">person</span>
+    <span class="text-[10px] font-semibold mt-0.5 nav-label">个人</span>
+    <span class="nav-active-dot absolute -bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-primary opacity-0 transition-opacity duration-200"></span>
   </a>
+  </div>
 </nav>
 
 <script>
@@ -1785,8 +1940,205 @@ window.addEventListener('unhandledrejection', event => {
   event.preventDefault();
 });
 
-window.addEventListener('offline', () => showToast('\u5f53\u524d\u5df2\u79bb\u7ebf\uff0cAI \u5206\u6790\u548c\u540c\u6b65\u4f1a\u6682\u65f6\u4e0d\u53ef\u7528', 'error'));
-window.addEventListener('online', () => showToast('\u7f51\u7edc\u5df2\u6062\u590d', 'success'));
+const NotificationManager = {
+  KEYS: {
+    master: 'notif_master',
+    breakfast: 'notif_breakfast',
+    lunch: 'notif_lunch',
+    dinner: 'notif_dinner',
+    weight: 'notif_weight'
+  },
+  browserTimers: {},
+  init() {
+    this.loadUI();
+    this.rescheduleAll();
+  },
+  loadUI() {
+    const masterVal = localStorage.getItem(this.KEYS.master) !== 'false';
+    const bfVal = localStorage.getItem(this.KEYS.breakfast) !== 'false';
+    const lunchVal = localStorage.getItem(this.KEYS.lunch) !== 'false';
+    const dinnerVal = localStorage.getItem(this.KEYS.dinner) !== 'false';
+    const weightVal = localStorage.getItem(this.KEYS.weight) !== 'false';
+
+    const masterEl = document.getElementById('notificationMasterToggle');
+    const bfEl = document.getElementById('reminderBreakfast');
+    const lunchEl = document.getElementById('reminderLunch');
+    const dinnerEl = document.getElementById('reminderDinner');
+    const weightEl = document.getElementById('reminderWeight');
+
+    if (masterEl) masterEl.checked = masterVal;
+    if (bfEl) bfEl.checked = bfVal;
+    if (lunchEl) lunchEl.checked = lunchVal;
+    if (dinnerEl) dinnerEl.checked = dinnerVal;
+    if (weightEl) weightEl.checked = weightVal;
+
+    this.updateUIState(masterVal);
+  },
+  updateUIState(masterEnabled) {
+    const subList = document.getElementById('notificationSubList');
+    if (!subList) return;
+    const inputs = subList.querySelectorAll('input');
+    inputs.forEach(input => {
+      input.disabled = !masterEnabled;
+      const slider = input.nextElementSibling;
+      if (slider) {
+        if (!masterEnabled) {
+          slider.style.opacity = '0.5';
+          slider.style.cursor = 'not-allowed';
+        } else {
+          slider.style.opacity = '1';
+          slider.style.cursor = 'pointer';
+        }
+      }
+    });
+  },
+  async toggleMaster(checked) {
+    localStorage.setItem(this.KEYS.master, checked ? 'true' : 'false');
+    this.updateUIState(checked);
+    if (checked) {
+      const permitted = await this.requestPermission();
+      if (!permitted) {
+        showToast('\u672a\u83b7\u5f97\u901a\u77e5\u6743\u9650\uff0c\u8bf7\u5728\u7cfb\u7edf\u8bbe\u7f6e\u4e2d\u542f\u7528', 'error');
+      }
+    }
+    this.rescheduleAll();
+  },
+  toggleSub(key, checked) {
+    localStorage.setItem(this.KEYS[key], checked ? 'true' : 'false');
+    this.rescheduleAll();
+  },
+  async requestPermission() {
+    const LocalNotifications = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.LocalNotifications;
+    if (LocalNotifications) {
+      try {
+        const perm = await LocalNotifications.checkPermissions();
+        if (perm.display === 'granted') return true;
+        const req = await LocalNotifications.requestPermissions();
+        return req.display === 'granted';
+      } catch (e) {
+        console.error('Capacitor permissions error:', e);
+        return false;
+      }
+    } else if ('Notification' in window) {
+      if (Notification.permission === 'granted') return true;
+      const perm = await Notification.requestPermission();
+      return perm === 'granted';
+    }
+    return false;
+  },
+  rescheduleAll() {
+    this.clearAll();
+    const masterVal = localStorage.getItem(this.KEYS.master) !== 'false';
+    if (!masterVal) return;
+
+    const reminders = [
+      { id: 1, key: 'breakfast', hour: 8, minute: 30, title: '\u65e9\u9910\u63d0\u9192', body: '\u5f00\u59cb\u65b0\u7684\u4e00\u5929\uff0c\u522b\u5fd8\u4e86\u8bb0\u5f55\u60a8\u7684\u65e9\u9910\u54e6\uff01' },
+      { id: 2, key: 'weight', hour: 9, minute: 0, title: '\u4f53\u91cd\u6253\u5361\u63d0\u9192', body: '\u8bb0\u5f55\u4eca\u65e5\u4f53\u91cd\uff0c\u66f4\u597d\u5730\u8fdb\u884c\u5065\u5eb7\u7ba1\u7406\uff01' },
+      { id: 3, key: 'lunch', hour: 12, minute: 30, title: '\u5348\u9910\u63d0\u9192', body: '\u5145\u7535\u65f6\u95f4\u5230\u5566\uff0c\u5feb\u6765\u8bb0\u5f55\u60a8\u7684\u5348\u9910\u54e6\uff01' },
+      { id: 4, key: 'dinner', hour: 18, minute: 30, title: '\u665a\u9910\u63d0\u9192', body: '\u7f3a\u5c11\u8bb0\u5f55\u53ef\u4e0d\u884c\uff0c\u522b\u5fd8\u4e86\u8bb0\u5f55\u60a8\u7684\u665a\u9910\u54e6\uff01' }
+    ];
+
+    reminders.forEach(r => {
+      const enabled = localStorage.getItem(this.KEYS[r.key]) !== 'false';
+      if (enabled) {
+        this.scheduleSingle(r.id, r.hour, r.minute, r.title, r.body);
+      }
+    });
+  },
+  clearAll() {
+    Object.keys(this.browserTimers).forEach(id => {
+      clearTimeout(this.browserTimers[id]);
+      delete this.browserTimers[id];
+    });
+    const LocalNotifications = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.LocalNotifications;
+    if (LocalNotifications) {
+      LocalNotifications.cancel({ notifications: [{ id: 1 }, { id: 2 }, { id: 3 }, { id: 4 }] })
+        .catch(err => console.error('Failed to cancel Capacitor notifications:', err));
+    }
+  },
+  scheduleSingle(id, hour, minute, title, body) {
+    const LocalNotifications = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.LocalNotifications;
+    if (LocalNotifications) {
+      LocalNotifications.schedule({
+        notifications: [{
+          id,
+          title,
+          body,
+          schedule: {
+            on: { hour, minute },
+            repeats: true,
+            allowWhileIdle: true
+          }
+        }]
+      }).catch(err => console.error('Failed to schedule Capacitor notification:', err));
+    } else {
+      const scheduleTimer = () => {
+        const ms = this.getMsUntilTime(hour, minute);
+        this.browserTimers[id] = setTimeout(() => {
+          this.triggerBrowserNotification(title, body);
+          scheduleTimer();
+        }, ms);
+      };
+      scheduleTimer();
+    }
+  },
+  getMsUntilTime(hour, minute) {
+    const now = new Date();
+    const target = new Date();
+    target.setHours(hour, minute, 0, 0);
+    if (target <= now) {
+      target.setDate(target.getDate() + 1);
+    }
+    return target.getTime() - now.getTime();
+  },
+  triggerBrowserNotification(title, body) {
+    if ('Notification' in window && Notification.permission === 'granted') {
+      new Notification(title, { body, icon: '/static/icon-light.png' });
+    }
+  },
+  async sendTestNotification() {
+    const permitted = await this.requestPermission();
+    if (!permitted) {
+      showToast('\u672a\u83b7\u5f97\u901a\u77e5\u6743\u9650\uff0c\u8bf7\u5728\u7cfb\u7edf\u8bbe\u7f6e\u4e2d\u542f\u7528', 'error');
+      return;
+    }
+    const title = '\u6d4b\u8bd5\u63d0\u9192';
+    const body = '\u8fd9\u662f\u4e00\u6761\u6765\u81ea\u0020\u004e\u0075t\u0072\u0069\u0053\u006e\u0061\u0070\u0020\u0041\u0049\u0020\u7684\u6d4b\u8bd5\u63d0\u9192\uff0c\u8bc1\u660e\u6d88息\u63d0\u9192\u529f\u80fd\u6b63常\uff01';
+
+    const LocalNotifications = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.LocalNotifications;
+    if (LocalNotifications) {
+      LocalNotifications.schedule({
+        notifications: [{
+          id: 99,
+          title,
+          body,
+          schedule: { at: new Date(Date.now() + 2000) }
+        }]
+      }).then(() => {
+        showToast('\u6d4b\u8bd5\u63d0\u9192\u5df2\u53d1\u9001\uff0c\u5c06\u5728 2 \u79d2\u540e出现', 'success');
+      }).catch(err => {
+        console.error('Failed to schedule test notification:', err);
+      });
+    } else {
+      this.triggerBrowserNotification(title, body);
+      showToast('\u6d4b\u8bd5\u63d0\u9192\u5df2\u53d1\u9001', 'success');
+    }
+  }
+};
+
+window.addEventListener('offline', () => {
+  showToast('\u5f53\u524d\u5df2\u79bb\u7ebf\uff0cAI \u5206\u6790\u548c\u540c\u6b65\u4f1a\u6682\u65f6\u4e0d\u53ef\u7528', 'error');
+  const banner = document.getElementById('offlineBanner');
+  if (banner) banner.classList.remove('hidden');
+});
+window.addEventListener('online', () => {
+  showToast('\u7f51\u7edc\u5df2\u6062\u590d', 'success');
+  const banner = document.getElementById('offlineBanner');
+  if (banner) banner.classList.add('hidden');
+  if (pendingMealUpserts.size || pendingMealDeletes.size || pendingMealSummaryDates.size) {
+    queueMealSync({}, true);
+  }
+});
 
 async function withActionLock(key, buttonOrId, work, loadingText = '\u5904\u7406\u4e2d...') {
   if (actionLocks.has(key)) return null;
@@ -2054,8 +2406,11 @@ function buildDailySummaryPayload(dateStr) {
 async function syncDailySummary(dateStr) {
   const user = getCurrentUser();
   if (!user || user === 'guest' || user === 'anonymous' || user === 'local_user' || isLocalMode()) return;
+  if (!navigator.onLine) {
+    queueMealSync({ dates: [dateStr] });
+    return;
+  }
   const payload = buildDailySummaryPayload(dateStr);
-
   try {
     await safeFetchJSON(API_BASE + '/api/daily-summaries', {
       method: 'POST',
@@ -2065,6 +2420,7 @@ async function syncDailySummary(dateStr) {
     console.log('Daily summary synced:', dateStr, payload);
   } catch (err) {
     console.error('Failed to sync daily summary:', err);
+    queueMealSync({ dates: [dateStr] });
   }
 }
 
@@ -2377,8 +2733,7 @@ function switchTab(tab) {
     const isActive = n.dataset.tab === tab;
     const icon = n.querySelector('.nav-icon');
     if (icon) icon.style.fontVariationSettings = isActive ? "'FILL' 1" : "'FILL' 0";
-    n.classList.toggle('text-primary', isActive);
-    n.classList.toggle('text-on-surface-variant', !isActive);
+    n.classList.toggle('active', isActive);
   });
 
   document.getElementById('bottomNav').style.display = (tab === 'result') ? 'none' : '';
@@ -2430,6 +2785,10 @@ function handleFile(e) {
 
 // ===================== ANALYZE =====================
 async function doAnalyze() {
+  if (!navigator.onLine) {
+    showToast('\u79bb\u7ebf\u72b6\u6001\u4e0b\u65e0\u6cd5\u4f7f\u7528\u0020\u0041\u0049\u0020\u5206\u6790\u529f\u80fd\uff0c\u8bf7\u68c0\u67e5\u7f51\u7edc\u8fde\u63a5', 'error');
+    return;
+  }
   isVoiceInputFlow = false;
   if (!selectedFile) return;
   if (actionLocks.has('analyze-food')) return;
@@ -2498,6 +2857,7 @@ async function flushMealSyncQueue() {
     mealSyncTimer = null;
   }
   if (!canSyncUserData()) return;
+  if (!navigator.onLine) return;
   if (mealSyncInFlight) {
     mealSyncTimer = setTimeout(flushMealSyncQueue, 1200);
     return;
@@ -2527,7 +2887,10 @@ async function flushMealSyncQueue() {
   } finally {
     mealSyncInFlight = false;
     if (pendingMealUpserts.size || pendingMealDeletes.size || pendingMealSummaryDates.size) {
-      mealSyncTimer = setTimeout(flushMealSyncQueue, 1200);
+      const retryDelay = navigator.onLine ? 5000 : 1200;
+      if (navigator.onLine) {
+        mealSyncTimer = setTimeout(flushMealSyncQueue, retryDelay);
+      }
     }
   }
 }
@@ -3156,6 +3519,10 @@ let voiceTextForDisplay = "";
 let currentRecordingSession = 0;
 
 function startVoiceInput() {
+  if (!navigator.onLine) {
+    showToast('\u79bb\u7ebf\u72b6\u6001\u4e0b\u65e0\u6cd5\u4f7f\u7528\u8bed\u97f3\u8f6c\u8bd1\u529f\u80fd\uff0c\u8bf7\u68c0\u67e5\u7f51\u7edc\u8fde\u63a5', 'error');
+    return;
+  }
   if (isVoiceRecording) return;
   isVoiceRecording = true;
   isVoiceInputFlow = true;
@@ -4417,6 +4784,10 @@ function handleCoachInputKeydown(event) {
 }
 
 function sendCoachMsg(quickMsg) {
+  if (!navigator.onLine) {
+    showToast('\u79bb\u7ebf\u72b6\u6001\u4e0b\u65e0\u6cd5\u4f7f\u7528\u0020\u0041\u0049\u0020\u6559练\u529f\u80fd\uff0c\u8bf7\u68c0\u67e5\u7f51\u7edc\u8fde\u63a5', 'error');
+    return;
+  }
   const input = document.getElementById('coachInput');
   const msg = quickMsg || input.value.trim();
   if (!msg) return;
@@ -4823,6 +5194,23 @@ function completeOnboarding() {
 
 // ===================== INIT =====================
 document.addEventListener('DOMContentLoaded', () => {
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js')
+      .then(reg => console.log('[Service Worker] Registered:', reg.scope))
+      .catch(err => console.error('[Service Worker] Registration failed:', err));
+  }
+  const banner = document.getElementById('offlineBanner');
+  if (banner) {
+    if (navigator.onLine) {
+      banner.classList.add('hidden');
+    } else {
+      banner.classList.remove('hidden');
+    }
+  }
+  if (typeof NotificationManager !== 'undefined') {
+    NotificationManager.init();
+  }
+
   hydrateIcons();
   const iconObserver = new MutationObserver(mutations => {
     mutations.forEach(m => {
@@ -4907,6 +5295,10 @@ document.addEventListener('DOMContentLoaded', () => {
   let barcodeScanner = null;
 
   async function startBarcodeScan() {
+    if (!navigator.onLine) {
+      showToast('\u79bb\u7ebf\u72b6\u6001\u4e0b\u65e0\u6cd5\u4f7f\u7528\u6761\u7801\u626b\u63cf\u529f\u80fd\uff0c\u8bf7\u68c0\u67e5\u7f51\u7edc\u8fde\u63a5', 'error');
+      return;
+    }
     const container = document.getElementById('barcodeScannerContainer');
     const resultsEl = document.getElementById('foodSearchResults');
     const statusEl = document.getElementById('foodSearchStatus');

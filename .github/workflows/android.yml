@@ -25,14 +25,11 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          npm install @capacitor/core @capacitor/android
-          npm install -D @capacitor/cli
+          npm install
 
       - name: Build Web Assets
         run: |
-          mkdir -p www
-          cp templates/index.html www/index.html
-          cp -r static www/static || true
+          npm run build
           # Inject Cloud Run API URL
           sed -i 's|const API_BASE = "";|const API_BASE = "https://nutrisnap-ai-940406235442.us-central1.run.app";|g' www/index.html
 
