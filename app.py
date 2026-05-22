@@ -119,13 +119,29 @@ def call_llm(prompt_text, image=None, audio=None, mime_type=None, history=None, 
         if user_content:
             messages.append({"role": "user", "content": user_content})
             
-        # Model candidates for OpenRouter
-        models_to_try = [
-            'google/gemini-2.5-flash',
-            'google/gemini-2.5-flash-lite',
-            'google/gemini-2.0-flash',
-            'google/gemini-1.5-flash',
-        ]
+        # Model candidates for OpenRouter (Prioritizing free models)
+        is_multimodal = (image is not None) or (audio is not None)
+        if is_multimodal:
+            models_to_try = [
+                'google/gemma-4-31b-it:free',
+                'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',
+                'nvidia/nemotron-nano-12b-v2-vl:free',
+                'google/gemini-2.5-flash',
+                'google/gemini-2.5-flash-lite',
+                'google/gemini-2.0-flash',
+                'google/gemini-1.5-flash',
+            ]
+        else:
+            models_to_try = [
+                'meta-llama/llama-3.3-70b-instruct:free',
+                'google/gemma-4-26b-a4b-it:free',
+                'z-ai/glm-4.5-air:free',
+                'openrouter/free',
+                'google/gemini-2.5-flash',
+                'google/gemini-2.5-flash-lite',
+                'google/gemini-2.0-flash',
+                'google/gemini-1.5-flash',
+            ]
         
         last_error = None
         for model in models_to_try:
@@ -356,7 +372,7 @@ def get_db_connection():
 @app.route('/api/health')
 def health():
     return jsonify({
-        "version": "v5.4.0",
+        "version": "v5.5.0",
         "architecture": "local-first + throttled-meal-sync + server-daily-summaries + OpenRouter",
         "models": [
             'gemini-3.5-flash',

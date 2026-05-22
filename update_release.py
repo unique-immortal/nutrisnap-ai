@@ -28,7 +28,7 @@ def get_version():
     if len(sys.argv) > 1:
         return sys.argv[1]
     
-    print("Error: Could not determine version. Please pass it as an argument, e.g. python update_release.py v5.4.0")
+    print("Error: Could not determine version. Please pass it as an argument, e.g. python update_release.py v5.5.0")
     sys.exit(1)
 
 def get_github_token():

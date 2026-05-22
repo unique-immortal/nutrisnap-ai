@@ -240,6 +240,7 @@ input[type=range]:focus{outline:none}
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
   border-bottom: 1px solid var(--outline-variant);
+  padding-top: calc(env(safe-area-inset-top, 0px) + 0.75rem) !important;
   transition: background 0.3s ease, border-color 0.3s ease;
 }
 
@@ -2136,7 +2137,7 @@ html.dark .onboarding-slide:nth-child(3) {
 
 <script>
 // ===================== CONFIG =====================
-const API_BASE = "https://nutrisnap-ai-940406235442.us-central1.run.app";
+const API_BASE = "";
 
 async function safeFetchJSON(url, options = {}) {
   // 自动附加 JWT token

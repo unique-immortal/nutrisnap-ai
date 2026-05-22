@@ -168,7 +168,11 @@ ai-diet-tracker/
 
 ## 6. 最近变更记录 / Recent Changes
 
-### v5.4.0 (当前开发)
+### v5.5.0 (当前开发)
+- **iOS 适配**: 调整 Capacitor iOS 配置，在 `capacitor.config.json` 中配置 `"iosScheme": "https"`，并优化了 `.glass-header` 的 `padding-top` 样式，加入顶部安全区以适配有刘海或状态栏的 iOS 设备。
+- **OpenRouter 免费模型调优**: 在 `call_llm` 中优化了 OpenRouter 降级链，将多模态请求与纯文本请求进行分流，分别优先调用最佳的高性能免费模型（如 Llama 3.3 70B 及 Gemma 4 31B 视觉版），显著节省 API 运行成本。
+
+### v5.4.0 (最新发布)
 - **饮水追踪**: 首页和报告页高颜值饮水打卡与水量追踪组件，采用双层动态 SVG 波浪动画圈。
 - **连续打卡 (Streak)**: 火焰图标记录用户连续记录天数，当用户当天或昨天有记录餐食、运动或饮水时，Streak 会自动递增或保持，逾期未记录重置。
 - **成就系统 (Achievements)**: 新增成就徽章系统，提供初步补水、补水达人、初显成效、自律达人、膳食管家 5 个精美徽章及解锁进度。
@@ -194,7 +198,7 @@ ai-diet-tracker/
 |------|-----|
 | 仓库 | `unique-immortal/nutrisnap-ai` |
 | Token | `ghp_************************************` |
-| 最新 Release | v5.4.0 (当前发布中) |
+| 最新 Release | v5.5.0 (当前发布中) |
 | 线上地址 | https://nutrisnap-ai-940406235442.us-central1.run.app |
 
 ---
