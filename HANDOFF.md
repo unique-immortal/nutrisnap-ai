@@ -1,300 +1,239 @@
-# NutriSnap AI 项目交接文档
-
-> **版本**：v5.0.0 (本地优先架构)
-> **文档生成日期**：2026-05-20
-> **GitHub 仓库**：[unique-immortal/nutrisnap-ai](https://github.com/unique-immortal/nutrisnap-ai)
-> **线上地址**：[https://nutrisnap-ai-940406235442.us-central1.run.app](https://nutrisnap-ai-940406235442.us-central1.run.app)
+# NutriSnap AI 项目交接文档 (Handoff Document)
 
 ---
 
-## 一、项目概况
+## 1. 项目概述 / Project Overview
 
-NutriSnap AI 是一款基于 AI 视觉识别的智能饮食记录应用。用户通过**拍照**或**语音输入**记录每日饮食与运动，系统使用 Google Gemini 多模态模型自动识别食物营养成分，并提供 AI 营养教练对话、每周营养报告、BMR/TDEE 计算等一站式健康管理功能。
+**NutriSnap AI** 是一个基于 Flask + Capacitor 的混合应用，核心功能包括：
 
-**核心差异化优势**：AI 拍照识别 + 语音输入 + AI 营养教练，这些功能主流竞品（MyFitnessPal、Lose It、YAZIO 等）均未覆盖。
+- AI 饮食追踪：通过自然语言描述或拍照记录每日饮食
+- 食物识别与营养分析：对接 Open Food Facts API，获取食物营养数据
+- 体重追踪：记录和可视化体重变化趋势
+- AI 教练对话：基于大语言模型提供个性化饮食建议
+
+**技术栈 / Tech Stack：**
+
+| 层面 | 技术 |
+|------|------|
+| 后端 | Python Flask |
+| 前端 | 原生 JavaScript / HTML / CSS |
+| 移动端打包 | Capacitor (Android APK) |
+| 部署 | Google Cloud Run |
+| CI/CD | GitHub Actions |
 
 ---
 
-## 二、项目结构
+## 2. 项目目录结构 / Directory Structure
 
 ```
 ai-diet-tracker/
-├── app.py                          # Flask 后端主文件 (1145 行)
-├── templates/
-│   └── index.html                  # 前端单页面 (2926 行, HTML+CSS+内联JS)
-├── requirements.txt                # Python 依赖
-├── Dockerfile                      # Cloud Run 生产镜像
-├── cloudbuild.yaml                 # Cloud Build 构建配置
-├── capacitor.config.json           # Capacitor Android 打包配置
-├── package.json                    # Node.js 配置 (Capacitor 依赖)
-├── patch_manifest.py               # Android Manifest 权限修补脚本
-├── .env.example                    # 环境变量模板
-├── .env                            # 本地环境变量 (gitignore)
-├── .gitignore
+├── app.py                      # Flask 主应用（后端 API + 路由）
+├── requirements.txt            # Python 依赖
+├── Dockerfile                  # Cloud Run 容器化配置
 ├── .dockerignore
-├── database.db                     # SQLite 数据库 (gitignore)
-├── README.md                       # 项目说明
-├── RELEASE_NOTES_v5.md             # v5 发布说明
-├── www/                            # Capacitor Web 资源构建输出
-│   └── index.html                  # 生产版 (API_BASE = Cloud Run URL)
-└── .github/
-    └── workflows/
-        ├── deploy.yml              # Cloud Run 自动部署流水线
-        └── android.yml             # Android APK 构建流水线
-
-vibe coding/
-└── .trae/documents/
-    ├── nutrisnap-ai-13-fixes-plan.md      # 13 项修复计划
-    ├── nutrisnap-ai-gap-analysis.md       # 竞品差距分析
-    ├── nutrisnap-ai-bug-fix-plan.md       # 早期 Bug 修复计划
-    └── nutrisnap-ai-roadmap.md            # 路线图
+├── Procfile                    # （遗留，Cloud Run 不使用）
+├── HANDOFF.md                  # 本文档
+├── README.md
+│
+├── templates/                  # 前端 HTML（开发版）
+│   └── index.html              # 开发版前端，API_BASE = ""
+│
+├── www/                        # 前端 HTML（生产版，CI 自动生成）
+│   ├── index.html              # 生产版前端，API_BASE 由 CI 注入
+│   └── static/                 # 静态资源（CI 构建时从根 static/ 复制）
+│
+├── static/                     # 静态资源根目录
+│   └── (图标、样式、JS 等)
+│
+├── android-icons/              # Android 原生图标素材
+│   ├── mipmap-mdpi/
+│   │   ├── ic_launcher.png
+│   │   └── ic_launcher_round.png
+│   ├── mipmap-hdpi/
+│   ├── mipmap-xhdpi/
+│   ├── mipmap-xxhdpi/
+│   └── mipmap-xxxhdpi/
+│
+├── .github/workflows/
+│   ├── android.yml             # Android APK 构建流水线
+│   └── deploy.yml              # Cloud Run 自动部署流水线
+│
+└── android/                    # Capacitor Android 项目（由 CI 生成）
 ```
 
 ---
 
-## 三、架构设计
+## 3. 双文件前端架构（关键） / Dual Frontend Architecture (Critical!)
 
-### 3.1 总体架构
+项目使用**双文件前端架构**，这是最容易出错的地方：
 
+| 文件 | 用途 | API_BASE |
+|------|------|----------|
+| `templates/index.html` | **开发版**，本地开发时使用 | `""` (空字符串) |
+| `www/index.html` | **生产版**，由 CI 自动生成 | Cloud Run URL（CI 注入） |
+
+### 工作流 / Workflow：
+
+1. **开发修改**：只改 `templates/index.html`
+2. **提交代码**：`git commit + push`
+3. **CI 自动处理**：
+   - 复制 `templates/index.html` → `www/index.html`
+   - 用 `sed` 将 `www/index.html` 中的 `API_BASE` 替换为 Cloud Run URL
+   - 复制 `static/` → `www/static/`
+4. **Cloud Run 部署**：使用 `www/index.html` 作为前端入口
+
+### 重要规则 / Important Rules：
+
+- 修改前端时，**两个文件必须保持同步**（实际上只改 templates，CI 会自动同步到 www）
+- 不要手动编辑 `www/index.html`，它会被 CI 覆盖
+- `static/` 目录是静态资源的唯一来源，CI 构建时会复制到 `www/static/`
+
+---
+
+## 4. 后端 API 端点 / Backend API Endpoints
+
+所有 API 端点定义在 `app.py` 中，前缀为 `/api`。
+
+### 食物搜索 / Food Search
+
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| `/api/food/search` | GET | 食物关键词搜索（Open Food Facts API） |
+| `/api/food/barcode/<barcode>` | GET | 条形码查询食物信息 |
+
+### 体重追踪 / Weight Tracking
+
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| `/api/weight` | GET | 获取体重历史记录 |
+| `/api/weight` | POST | 添加体重记录 |
+
+### 报告 / Reports
+
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| `/api/report/daily` | GET | 生成日报（当日饮食汇总） |
+| `/api/report/weekly` | GET | 生成周报（含体重趋势数据） |
+
+### AI 对话 / AI Chat
+
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| `/api/chat` | POST | AI 教练对话 |
+| `/api/analyze` | POST | 食物图片分析 |
+
+### 认证 / Auth
+
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| `/api/auth/login` | POST | 用户登录 |
+| `/api/auth/register` | POST | 用户注册 |
+
+---
+
+## 5. CI/CD 流水线 / CI/CD Pipelines
+
+### 5.1 Android 构建 (`.github/workflows/android.yml`)
+
+**触发条件**：push 到 `main` 或 `master` 分支
+
+**步骤**：
+1. Checkout 代码
+2. 安装 Node.js + Java
+3. `npm install` 安装依赖
+4. **Build Web Assets**：
+   - 复制 `templates/index.html` → `www/index.html`
+   - 用 `sed` 注入 Cloud Run URL 到 `www/index.html`
+   - 复制 `static/` → `www/static/`
+5. `npx cap add android`（如果 android 目录不存在）
+6. **Replace App Icon**：从 `android-icons/` 复制各分辨率的图标文件到对应的 Android mipmap 目录
+7. Patch AndroidManifest.xml
+8. `gradle assembleDebug` 构建 APK
+9. Upload APK as artifact
+
+**图标文件**：`android-icons/` 下按密度分目录存放：
+- `mipmap-mdpi/ic_launcher.png` + `ic_launcher_round.png`
+- `mipmap-hdpi/`
+- `mipmap-xhdpi/`
+- `mipmap-xxhdpi/`
+- `mipmap-xxxhdpi/`
+
+### 5.2 Cloud Run 部署 (`.github/workflows/deploy.yml`)
+
+**线上地址**：`https://nutrisnap-ai-940406235442.us-central1.run.app`
+
+自动部署流程：push 后自动构建 Docker 镜像并部署到 Cloud Run。
+
+---
+
+## 6. 最近变更记录 (v5.2.0) / Recent Changes
+
+- Open Food Facts API 集成，实现食物搜索和条形码扫描
+- 体重追踪功能完整实现，数据集成到报告页面
+- 体重数据已整合进周报，底部导航移除了独立的体重入口
+- 底部导航从 6 项简化为 5 项：首页 / 教练 / + / 报告 / 个人
+- 深浅色自适应图标（Web favicon + Android 原生图标均为 AS + 绿叶设计）
+- 安全加固（输入验证等）
+- GitHub Release 内容改为中英双语格式
+
+---
+
+## 7. GitHub 信息 / GitHub Repository Info
+
+| 项目 | 值 |
+|------|-----|
+| 仓库 | `unique-immortal/nutrisnap-ai` |
+| Token | `ghp_************************************` |
+| 最新 Release | v5.2.0 (ID: 327680782) |
+| 线上地址 | https://nutrisnap-ai-940406235442.us-central1.run.app |
+
+---
+
+## 8. 当前状态与待办 / Current Status & TODO
+
+- Android APK 图标已通过 CI 替换为新 AS + 绿叶设计，需手动下载 artifact 安装
+- 体重功能已完整集成在报告页（周报）
+- 底部导航已简化为 5 项（首页 / 教练 / + / 报告 / 个人）
+- 待优化：离线支持、推送通知、iOS 适配
+
+---
+
+## 9. 常见操作指南 / Common Operations
+
+### 修改前端 / Modify Frontend
 ```
-客户端 (Browser / APK)
-  index.html (单页 SPA)
-    ├── localStorage: 食物记录 / 运动记录 / 聊天记录
-    ├── Tailwind CSS + Chart.js: UI / 图表
-    └── Capacitor: Android 原生封装
-         │ HTTPS
-         ▼
-Google Cloud Run (us-central1)
-  app.py (Flask + gunicorn)
-    ├── Gemini API 调用 (google-genai SDK)
-    ├── SQLite 本地数据库
-    └── 图片上传/临时存储
+改 templates/index.html → git commit + push → 等 CI 自动部署
 ```
+> 不要直接改 www/index.html，它会被 CI 覆盖。
 
-### 3.2 v5 本地优先架构 (Local-First)
-
-| 数据 | 存储位置 | 说明 |
-|------|----------|------|
-| 🍔 食物记录 | 本地 localStorage | 单条记录不经服务器 |
-| 🏃 运动记录 | 本地 localStorage | 单条记录不经服务器 |
-| 💬 聊天记录 | 本地 localStorage | AI 教练对话上下文 |
-| 📊 每日汇总 | 服务器 SQLite | 跨设备同步 |
-| 🧬 BMR 身体数据 | 服务器 SQLite | 跨设备同步 |
-| 🔐 账号密码 | 服务器 SQLite | SHA-256 哈希存储 |
-
-### 3.3 AI 模型降级链
-
-所有 AI 端点均使用同一降级策略：
-
+### 修改后端 / Modify Backend
 ```
-gemini-3.5-flash → gemini-2.5-flash → gemini-2.5-flash-lite
-→ gemini-2.0-flash → gemini-3.1-flash-lite
-```
-
-- 每个模型试 1 次，遇到 429 (RESOURCE_EXHAUSTED) 跳过
-- 全部失败则返回 500
-
-### 3.4 技术栈
-
-| 层级 | 技术 |
-|------|------|
-| 后端框架 | Python Flask 3.1.3 |
-| 生产服务器 | gunicorn 23.0.0 |
-| AI 模型 | Google Gemini (google-genai SDK 2.4.0) |
-| 数据库 | SQLite3 |
-| 前端 | 原生 HTML/JS + Tailwind CSS + Chart.js (CDN) |
-| 移动端 | Capacitor 6.x |
-| 部署 | Google Cloud Run + Cloud Build |
-| CI/CD | GitHub Actions + Workload Identity Federation |
-
----
-
-## 四、API 端点
-
-### 4.1 核心 AI 功能
-
-| 端点 | 方法 | 输入 | 说明 |
-|------|------|------|------|
-| `/api/analyze` | POST | multipart `image` | 拍照识别食物 (多食物 JSON) |
-| `/api/voice-input` | POST | JSON `{"text":"..."}` | 语音/文本 → 解析食物+运动 |
-| `/api/speech-to-text` | POST | multipart `audio` | 语音文件转文字 |
-| `/api/coach/chat` | POST | JSON `{"message":"...", "meals":[], "exercises":[]}` | AI 营养教练 |
-
-### 4.2 用户与数据
-
-| 端点 | 说明 |
-|------|------|
-| `/api/register` | 注册 (用户名>=3位, 密码>=4位) |
-| `/api/login` | 登录 (客户端通过 X-User-Id 头传身份) |
-| `/api/profile` GET/POST | 身体数据 + BMR/TDEE 计算 |
-| `/api/meals` GET | 获取最近 50 条记录 |
-| `/api/daily-summaries` GET/POST | 每日汇总同步 (upsert) |
-| `/api/report/weekly` | 7 天周报 |
-| `/api/report/suggestions` | AI 运动/营养建议 |
-| `/api/health` | 版本检查 (v5-local-first) |
-
-### 4.3 认证方式
-
-客户端通过 `X-User-Id` 请求头传递用户名，无 token/session 管理。
-
----
-
-## 五、数据库表结构
-
-SQLite3 数据库，包含 4 张表：
-
-- **users** — 账号 (username PK) + 身体数据 (gender, age, height, weight, activity_level)
-- **meals** — 食物记录 (id PK, food_name, calories, protein, carbs, fat, portion, weight, session_id, username)
-- **exercises** — 运动记录 (exercise_name, calories, duration, type, target_muscles)
-- **daily_summaries** — 每日汇总 (username+date PK, total_calories, total_protein, total_carbs, total_fat, total_burn_calories, total_exercise_duration)
-
-BMR 计算公式 (Mifflin-St Jeor)：
-- 男性：`10*w + 6.25*h - 5*a + 5`
-- 女性：`10*w + 6.25*h - 5*a - 161`
-- TDEE = BMR * 活动量系数 (1.2 ~ 1.9)
-
----
-
-## 六、关键代码位置
-
-### app.py
-
-| 行号 | 内容 |
-|------|------|
-| 1-30 | import, Flask 初始化, Gemini API Key |
-| 36-118 | `init_db()` — 建表 + 列迁移 (幂等) |
-| 129-141 | `/api/health` |
-| 143-191 | `parse_ai_multi_result()` — 解析 AI JSON (数组/单对象/fallback) |
-| 261-356 | `/api/analyze` — 拍照识别 (模型降级, 数据返回, 文件清理) |
-| 414-511 | `/api/voice-input` — 语音输入 (食物+运动混合解析) |
-| 514-588 | `/api/speech-to-text` — 语音转文字 |
-| 651-697 | `/api/report/weekly` — 7 天周报 (空日补零) |
-| 700-863 | `/api/coach/chat` — AI 营养教练 (多轮+上下文) |
-| 870-943 | `/api/profile` — BMR/TDEE 计算 |
-| 984-1120 | `/api/report/suggestions` — AI 运动/营养建议 |
-| 1123-1164 | `/api/daily-summaries` — 每日汇总同步 |
-
-### index.html
-
-| 行号 | 内容 |
-|------|------|
-| 47-110 | CSS 变量 (MD3 深浅色板) |
-| 260-344 | 首页仪表盘 (卡路里环 + 宏量 + 记录区) |
-| 780-950 | 底部导航 (5 tabs) |
-| 1000-1200 | `MealStorage` — localStorage 食物类 |
-| 1200-1400 | `ExerciseStorage` — localStorage 运动类 |
-| 1370-1550 | `showResult()` — 识别结果页 (多食物卡片+分量调节) |
-| 1628-1770 | 语音输入 (MediaRecorder + 倒计时 + 转写) |
-| 2105-2301 | `fetchTodayData()` — 首页数据聚合渲染 |
-| 2303-2340 | `updateRings()` — 卡路里环 + 仪表盘更新 |
-| 2420-2525 | `fetchWeeklyReport()` — 周报 (Chart.js 图表) |
-| 2527-2570 | `fetchAISuggestions()` — AI 分析建议 (<3天门槛检查) |
-| 2620-2670 | `generateCoachResponse()` — AI 教练聊天 |
-| 2715-2844 | `updateProfileUI()` — 个人中心 + BMR 卡片 |
-| 2862-2926 | 深色模式 + FAB 菜单 + 初始化 |
-
----
-
-## 七、Bug 历史与已修复项 (v5.0.0)
-
-本次交接前完成 13 项修复：
-
-| # | 严重 | 问题 | 修复 |
-|---|------|------|------|
-| 1 | 🔴 | 卡路里仪表盘公式混淆 | `摄入-消耗=净摄入` + `目标→剩余` 双行 |
-| 2 | 🔴 | 周报平均值除以7而非有记录天数 | 改除 nonZeroDays + 显示"基于 X 天" |
-| 3 | 🔴 | 运动统计始终为0 | fetchWeeklyReport() 末尾赋值 |
-| 4 | 🔴 | 语音弹窗错别字 | "吃了什么" |
-| 5 | 🔴 | AI教练Markdown不渲染 | parseMarkdownToHTML(reply) |
-| 6 | 🟡 | 数据不足时输出诊断性结论 | <3天显示引导卡片 |
-| 7 | 🟡 | 删除确认无摘要 | 显示"汉堡包 250kcal" |
-| 8 | 🟡 | FAB无菜单 | 弹出"记饮食/记运动"二选一 |
-| 9 | 🟢 | 时间戳含秒 | formatTime() 今天/昨天/月日 |
-| 10 | 🟢 | BMR空状态与目标矛盾 | "当前目标 2000 kcal（默认值）" |
-| 11 | 🟢 | 深色模式两处入口 | 移除header图标 |
-| 12 | 🟢 | 分量按钮无步进 | hover 提示 ±25g |
-
----
-
-## 八、待做事项（接班后优先）
-
-### P0：基础功能完整性
-
-- [ ] **手动食物搜索** — 预置常见食物 JSON + 自定义输入 + AI 估算
-- [ ] **新手引导** — 2-3 屏故事化引导页
-- [ ] **每日推送提醒** — FCM / Capacitor Local Notifications
-- [ ] **体重追踪** — 趋势折线图
-
-### P1：用户参与度
-
-- [ ] **连续打卡 (Streak)** — YAZIO 火焰图标
-- [ ] **成就徽章** — 7天/30天打卡
-- [ ] **饮水追踪**
-- [ ] **"完美日"判定**
-
-### P2：生态强化
-
-- [ ] **条形码扫描** — Open Food Facts API + Capacitor MLKit
-- [ ] **数据导出** — CSV
-- [ ] **Android Health Connect 集成**
-- [ ] **食物收藏夹**
-
-### P3：差异化壁垒
-
-- [ ] **间歇性断食计时器**
-- [ ] **iOS App** — Capacitor 同构
-- [ ] **API 降成本** — 切换到 OpenRouter 免费路由 (8+ 模型)
-- [ ] **Android APK 正式发布** — 签名 + Google Play
-
-### 基础设施
-
-- [ ] **数据库升级** — SQLite → PostgreSQL
-- [ ] **图片存储** — uploads → Cloud Storage
-- [ ] **OAuth 登录** — Google/微信
-
----
-
-## 九、部署
-
-### 本地开发
-
-```bash
-cd ai-diet-tracker
-cp .env.example .env   # 填入 GEMINI_API_KEY
-pip install -r requirements.txt
-python app.py           # → http://localhost:5000
+改 app.py → git commit + push → 等 Cloud Run 自动部署
 ```
 
-### 生产部署 (Cloud Run)
-
-```bash
-gcloud config set project tensile-imprint-496808-v5
-
-# 构建镜像
-gcloud builds submit --config cloudbuild.yaml . --region us-central1
-
-# 部署
-gcloud run deploy nutrisnap-ai \
-  --image gcr.io/tensile-imprint-496808-v5/nutrisnap-ai:v4 \
-  --region us-central1 \
-  --allow-unauthenticated
+### 修改 Android 图标 / Modify Android Icon
+```
+替换 android-icons/ 下对应分辨率文件 → git push → CI 自动构建 APK
 ```
 
-**GCP 项目**：`tensile-imprint-496808-v5` / `us-central1`
-
-### CI/CD
-
-推送到 `main` 分支 → GitHub Actions 自动构建镜像 + 部署 Cloud Run (`deploy.yml`)。Android APK 由 `android.yml` 构建。
-
-### 环境变量
-
-- `GEMINI_API_KEY` — 必填，Google Gemini API 密钥
+### 更新 GitHub Release / Update GitHub Release
+```python
+import json, urllib.request
+# 使用 GitHub API PATCH /repos/unique-immortal/nutrisnap-ai/releases/{id}
+# 注意：中文内容需 ensure_ascii=False
+data = json.dumps({"body": "中英双语内容..."}, ensure_ascii=False).encode("utf-8")
+```
 
 ---
 
-## 十、已知限制
+## 10. 注意事项 / Notes
 
-- **SQLite**：Cloud Run 缩容/重启数据丢失（单实例）
-- **图片**：`uploads/` 容器重启丢失
-- **Gemini 配额**：免费层 RPM 限制严格，高峰期可能 429
-- **单实例**：不支持水平扩展
+1. **Python + urllib.request 处理中文**：调用 GitHub API 时，`json.dumps` 必须设置 `ensure_ascii=False`，然后 `.encode("utf-8")`
+2. **用户偏好**：所有文档和 Release 内容均为中英双语格式（中文在上，英文在下）
+3. **用户倾向于直接执行**，不需要频繁确认，减少不必要的交互
+4. **前端静态资源**：`www/` 下的文件由 CI 自动生成，不要手动编辑
+5. **API_BASE 注入**：CI 使用 `sed` 命令替换，确保 `www/index.html` 中的 `API_BASE` 占位符格式与 `sed` 模式匹配
+
+---
+
+*最后更新：2026-05-22*
