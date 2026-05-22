@@ -6,7 +6,7 @@ AI 智能饮食记录应用 — 拍照识别食物营养成分，支持多食物
 **线上地址**: https://nutrisnap-ai-940406235442.us-central1.run.app  
 **技术栈**: Python Flask + SQLite + Gemini API + Tailwind CSS + Chart.js  
 **部署**: Google Cloud Run (us-central1)  
-**当前版本**: v5.2.0
+**当前版本**: v5.3.0
 
 ---
 
@@ -27,7 +27,7 @@ requirements.txt            ← Python 依赖
 | 端点 | 方法 | 说明 |
 |------|------|------|
 | `/` | GET | 前端页面 |
-| `/api/health` | GET | 版本检查（当前 v5.2.0） |
+| `/api/health` | GET | 版本检查（当前 v5.3.0） |
 | `/api/analyze` | POST | 拍照识别（multipart image → 多食物 JSON） |
 | `/api/voice-input` | POST | 语音输入（text → 食物 JSON） |
 | `/api/meals` | GET | 获取饮食记录（支持 portion 倍率） |
@@ -94,6 +94,19 @@ portion     REAL DEFAULT 1.0  -- 分量倍率
 - 密码哈希存储（Werkzeug SHA256）
 - JWT 令牌认证，保护 API 端点
 - Flask-Limiter 速率限制，防止 API 滥用
+
+### 8. 离线支持与本地推送通知 (v5.3.0 新增)
+- Service Worker 离线缓存，无网络时仍可查看历史记录和报告
+- 本地推送通知，用餐时间提醒（无需服务器）
+- PWA 可安装到桌面/主屏幕，获得原生应用体验
+
+### 9. UI 全面重设计 (v5.3.0)
+- Material Design 3 设计令牌系统重构（CSS 变量 + color-mix）
+- 底部导航重设计（药丸式现代风格，活动状态指示器）
+- 聊天气泡、卡片、面板等 8 类组件样式标准化
+- Chart.js 暗色模式全适配（4 个图表实例动态颜色）
+- 无障碍访问增强（viewport meta、focus 状态优化）
+- CDN 预连接 & 脚本延迟加载性能优化
 
 ### AI 模型降级链
 

@@ -307,6 +307,12 @@ def init_db():
         )
     ''')
 
+    # Migrate daily_summaries: add total_water
+    try:
+        cursor.execute('ALTER TABLE daily_summaries ADD COLUMN total_water INTEGER DEFAULT 0')
+    except sqlite3.OperationalError:
+        pass  # column already exists
+
     # Backfill old records without session_id or username
     cursor.execute("UPDATE meals SET session_id = 'legacy_' || id WHERE session_id IS NULL")
     cursor.execute("UPDATE meals SET username = 'anonymous' WHERE username IS NULL")
@@ -350,7 +356,7 @@ def get_db_connection():
 @app.route('/api/health')
 def health():
     return jsonify({
-        "version": "v5.2.0",
+        "version": "v5.3.0",
         "architecture": "local-first + throttled-meal-sync + server-daily-summaries + OpenRouter",
         "models": [
             'gemini-3.5-flash',
@@ -550,8 +556,8 @@ def upsert_daily_summary(cursor, username, summary):
     cursor.execute('''
         INSERT OR REPLACE INTO daily_summaries (
             username, date, total_calories, total_protein, total_carbs, total_fat,
-            total_burn_calories, total_exercise_duration
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            total_burn_calories, total_exercise_duration, total_water
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''', (
         username,
         date_str,
@@ -560,7 +566,8 @@ def upsert_daily_summary(cursor, username, summary):
         clamp_number(summary.get('total_carbs'), 0, 0, 10000),
         clamp_number(summary.get('total_fat'), 0, 0, 10000),
         clamp_number(summary.get('total_burn_calories'), 0, 0, 100000),
-        clamp_number(summary.get('total_exercise_duration'), 0, 0, 10000)
+        clamp_number(summary.get('total_exercise_duration'), 0, 0, 10000),
+        clamp_number(summary.get('total_water'), 0, 0, 50000)
     ))
     return True
 
@@ -1064,7 +1071,8 @@ def weekly_report():
             total_carbs,
             total_fat,
             total_burn_calories,
-            total_exercise_duration
+            total_exercise_duration,
+            total_water
         FROM daily_summaries
         WHERE date >= date('now', '-7 days') AND username = ?
         ORDER BY date ASC
@@ -1098,6 +1106,7 @@ def weekly_report():
                 'total_fat': item.get('total_fat') or 0,
                 'total_burn_calories': item.get('total_burn_calories') or 0,
                 'total_exercise_duration': item.get('total_exercise_duration') or 0,
+                'total_water': item.get('total_water') or 0,
                 'weight': weight_map.get(d)
             })
         else:
@@ -1109,6 +1118,7 @@ def weekly_report():
                 'total_fat': 0,
                 'total_burn_calories': 0,
                 'total_exercise_duration': 0,
+                'total_water': 0,
                 'weight': weight_map.get(d)
             })
     return jsonify({"data": report})
@@ -1124,6 +1134,7 @@ def coach_chat():
     pro_target = data.get('proTarget', 120)
     meals_from_client = data.get('meals') # Optional local meals from app
     exercises_from_client = data.get('exercises') # Optional local exercises from app
+    water_from_client = data.get('water') # Optional local water from app
 
     if not user_message and not history:
         return jsonify({"error": "消息内容为空"}), 400
@@ -1150,13 +1161,19 @@ def coach_chat():
             total_carbs += carbs
             total_fat += fat
         meals_detail = "\n".join(meals_summary) if meals_summary else "无饮食记录"
-        meals_context = f"用户今日饮食明细：\n{meals_detail}\n累计摄入：热量 {total_cal} kcal，蛋白质 {total_pro}g，碳水 {total_carbs}g，脂肪 {total_fat}g。"
+        
+        # Calculate water
+        total_water = 0
+        if water_from_client is not None:
+            total_water = int(water_from_client)
+            
+        meals_context = f"用户今日饮食明细：\n{meals_detail}\n累计摄入：热量 {total_cal} kcal，蛋白质 {total_pro}g，碳水 {total_carbs}g，脂肪 {total_fat}g，饮水量 {total_water}ml。"
     else:
         conn = get_db_connection()
         cursor = conn.cursor()
         today_str = datetime.date.today().isoformat()
         row = cursor.execute('''
-            SELECT total_calories, total_protein, total_carbs, total_fat
+            SELECT total_calories, total_protein, total_carbs, total_fat, total_water
             FROM daily_summaries
             WHERE date = ? AND username = ?
         ''', (today_str, username)).fetchone()
@@ -1167,7 +1184,8 @@ def coach_chat():
             total_pro = row['total_protein'] or 0
             total_carbs = row['total_carbs'] or 0
             total_fat = row['total_fat'] or 0
-            meals_context = f"用户今日累计摄入：热量 {total_cal} kcal，蛋白质 {total_pro}g，碳水 {total_carbs}g，脂肪 {total_fat}g。"
+            total_water = row['total_water'] or 0
+            meals_context = f"用户今日累计摄入：热量 {total_cal} kcal，蛋白质 {total_pro}g，碳水 {total_carbs}g，脂肪 {total_fat}g，饮水量 {total_water}ml。"
         else:
             meals_context = "用户今日尚未记录任何饮食。"
 
@@ -1496,7 +1514,7 @@ def handle_daily_summaries():
         conn = get_db_connection()
         cursor = conn.cursor()
         rows = cursor.execute('''
-            SELECT date, total_calories, total_protein, total_carbs, total_fat, total_burn_calories, total_exercise_duration
+            SELECT date, total_calories, total_protein, total_carbs, total_fat, total_burn_calories, total_exercise_duration, total_water
             FROM daily_summaries
             WHERE username = ?
             ORDER BY date ASC

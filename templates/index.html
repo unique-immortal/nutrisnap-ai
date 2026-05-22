@@ -703,6 +703,163 @@ html.dark .onboarding-slide:nth-child(3) {
 .ob-particle-2 { width: 120px; height: 120px; bottom: 80px; left: -40px; }
 .ob-particle-3 { width: 80px; height: 80px; top: 30%; left: 15%; background: rgba(255,255,255,.04); }
 
+/* Water Wave Animations and UI styling */
+.water-wave-container {
+  position: relative;
+  width: 140px;
+  height: 140px;
+  border-radius: 50%;
+  background: var(--surface-container-highest);
+  border: 4px solid var(--primary-container);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1;
+}
+
+.water-wave-wrapper {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  left: 0;
+  bottom: 0;
+  background: linear-gradient(180deg, #64b5f6 0%, #1e88e5 100%);
+  transform: translateY(100%);
+  transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.water-wave {
+  position: absolute;
+  width: 280px;
+  height: 280px;
+  background: rgba(255, 255, 255, 0.25);
+  border-radius: 40% 43% 42% 44%;
+  bottom: 95%;
+  left: -70px;
+  animation: wave-rotate 8s infinite linear;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.water-wave-back {
+  position: absolute;
+  width: 290px;
+  height: 290px;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 42% 40% 44% 43%;
+  bottom: 97%;
+  left: -75px;
+  animation: wave-rotate 12s infinite linear;
+  z-index: 1;
+  pointer-events: none;
+}
+
+@keyframes wave-rotate {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.water-text-overlay {
+  position: relative;
+  z-index: 10;
+  text-align: center;
+  pointer-events: none;
+  font-family: inherit;
+}
+
+.badge-card {
+  position: relative;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: hidden;
+}
+
+.badge-card.unlocked {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--primary) 6%, transparent) 0%, color-mix(in srgb, #ffa500 10%, transparent) 100%);
+  border-color: rgba(255, 215, 0, 0.4);
+}
+
+.badge-card.unlocked:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.05);
+}
+
+.badge-icon-container {
+  position: relative;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-container-high);
+  color: var(--on-surface-variant);
+  transition: all 0.3s ease;
+}
+
+.badge-card.unlocked .badge-icon-container {
+  background: linear-gradient(135deg, #ffd700 0%, #ffa500 100%);
+  color: #fff;
+  box-shadow: 0 4px 10px rgba(255, 215, 0, 0.4);
+}
+
+.badge-card.locked .badge-icon-container {
+  filter: grayscale(100%);
+  opacity: 0.6;
+}
+
+.badge-lock {
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
+  background: var(--surface-container-highest);
+  color: var(--on-surface-variant);
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--outline-variant);
+}
+
+/* Floating Unlock Toast Notification */
+.achievement-toast {
+  position: fixed;
+  top: -100px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  background: var(--surface-container-lowest);
+  border: 1px solid rgba(255, 215, 0, 0.5);
+  box-shadow: 0 16px 32px rgba(255, 165, 0, 0.15);
+  padding: 1rem 1.25rem;
+  border-radius: 1.25rem;
+  width: calc(100% - 32px);
+  max-width: 400px;
+  transition: all 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.achievement-toast.show {
+  top: 24px;
+}
+
+.achievement-toast-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #ffd700 0%, #ffa500 100%);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 8px rgba(255, 165, 0, 0.3);
+}
+
 </style>
 </head>
 <body class="bg-background text-on-background font-body-md min-h-screen pb-28">
