@@ -208,7 +208,37 @@ ai-diet-tracker/
 - Android APK 图标已通过 CI 替换为新 AS + 绿叶设计，需手动下载 artifact 安装
 - 体重功能已完整集成在报告页（周报）
 - 底部导航已简化为 5 项（首页 / 教练 / + / 报告 / 个人）
-- 待优化：离线支持、推送通知、iOS 适配
+- iOS 适配与 OpenRouter 免费模型调优已于 v5.5.0 顺利完成
+- 待优化：离线模式本地数据同步细节、iOS 推送通知适配
+
+### 🌟 UI/UX 优化规划 / UI/UX Optimization Roadmap
+
+为了进一步提升产品的视觉质感与用户体验，已在全局 Agent 部署了专用的高级 UI 优化技能 `ui-optimization`，位于 `C:\Users\14615\.gemini\antigravity\skills\ui-optimization\SKILL.md`。
+To further enhance visual aesthetics and user experience, a custom `ui-optimization` agent skill has been deployed globally at `C:\Users\14615\.gemini\antigravity\skills\ui-optimization\SKILL.md`.
+
+规划以下 UI 专项优化路线图：
+The following UI optimization roadmap is planned:
+
+1. **毛玻璃与卡片视觉微调 (Glassmorphism & Surface Refinement)**:
+   - **目标 / Target**：优化 [templates/index.html](file:///G:/%E6%88%91%E7%9A%84%E4%BA%91%E7%AB%AF%E7%A1%AC%E7%9B%98/vibe%20coding/ai-diet-tracker/templates/index.html) 中的 `.surface-panel`、`.card`、`.modal-content` 等组件。
+   - **细节 / Details**：统一全局毛玻璃 `backdrop-filter` 模糊度为 `16px`，背景混色 `color-mix` 比例调优至 `88%` 增强弱光下易读性。
+   - **立体感 / Depth**：为深色模式下的卡片外边框增设 `border: 1px solid rgba(255, 255, 255, 0.05)` 及内阴影 `inset 0 1px 0 rgba(255, 255, 255, 0.08)` 增强卡片层次感。
+
+2. **自适应流式字体排版 (Fluid Typography & Clamp Integration)**:
+   - **目标 / Target**：优化 `#calories-summary` 核心卡路里看盘、各卡片标题 `.card-title` 及栏目头 `.section-header`。
+   - **细节 / Details**：全面使用 `clamp()` 自适应大小，例如大卡路里看板设置 `font-size: clamp(2rem, 6vw, 3.5rem)`，彻底解决 iPhone SE 等窄屏或折叠屏下的字体折行和溢出问题。
+
+3. **微交互与弹性点击动效 (Micro-Animations & Physics Click Feedback)**:
+   - **目标 / Target**：主功能点击按钮、饮水打卡、以及底部导航项切换。
+   - **细节 / Details**：为核心按钮应用 `transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1)`。并在 `:active` 状态下注入 `transform: scale(0.95)` 带来真实的物理点按回弹手感。
+
+4. **渐变骨架屏占位动画 (Skeleton Shimmer Loaders for AI & Load States)**:
+   - **目标 / Target**：AI 饮食教练聊天面板与图片分析上传状态。
+   - **细节 / Details**：使用自定义动画 `skeleton-shimmer` 与流畅循环的闪烁骨架块，替换原有单调的“正在分析…”或“AI 正在思考中…”纯文字提示，极大平滑等待体验。
+
+5. **图表暗黑模式与色彩动态映射 (Chart.js Theme Sync via CSS Variables)**:
+   - **目标 / Target**：报告页周报及趋势分析图表。
+   - **细节 / Details**：重构 JavaScript 中 Chart.js 的初始颜色读取逻辑，每次初始化前使用 `getComputedStyle(document.documentElement)` 动态拉取当前主题的 CSS 变量（如 `--text-muted` 和 `--border-color`），确保图表格线与整体主题背景过渡完全同步。
 
 ---
 
@@ -246,7 +276,9 @@ python update_release.py
 3. **用户倾向于直接执行**，不需要频繁确认，减少不必要的交互
 4. **前端静态资源**：`www/` 下的文件由 CI 自动生成，不要手动编辑
 5. **API_BASE 注入**：CI 使用 `sed` 命令替换，确保 `www/index.html` 中的 `API_BASE` 占位符格式与 `sed` 模式匹配
+6. **UI/UX 优化标准**：所有 UI 的进一步优化开发都应遵循 `ui-optimization` 技能定义的毛玻璃与弹性排版规范。
+   (All subsequent UI/UX optimization steps should follow the guidelines defined in the `ui-optimization` agent skill.)
 
 ---
 
-*最后更新：2026-05-22*
+*最后更新：2026-05-22 (Last Updated: May 22, 2026)*
