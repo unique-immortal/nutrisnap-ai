@@ -169,7 +169,8 @@ ai-diet-tracker/
 ## 6. 最近变更记录 / Recent Changes
 
 ### v5.5.0 (当前开发)
-- **iOS 适配**: 调整 Capacitor iOS 配置，在 `capacitor.config.json` 中配置 `"iosScheme": "https"`，并优化了 `.glass-header` 的 `padding-top` 样式，加入顶部安全区以适配有刘海或状态栏的 iOS 设备。
+- **数据库迁移至 PostgreSQL / Database Migration to PostgreSQL**: 支持通过 `DATABASE_URL` 环境变量配置连接外部持久化 PostgreSQL 数据库，防止 Cloud Run 重启后数据丢失；同时保留本地 SQLite (`database.db`) 自动回退以保障本地离线开发的便利性。
+- **iOS 适配**: 调整 Capacitor iOS 配置，在 `capacitor.config.json` 中配置 `"iosScheme": "https"`，并优化了 `.glass-header` 的 `padding-top` 样式，加入顶部安全区以适配有刘海或状态栏 of iOS 设备。
 - **OpenRouter 免费模型调优**: 在 `call_llm` 中优化了 OpenRouter 降级链，将多模态请求与纯文本请求进行分流，分别优先调用最佳的高性能免费模型（如 Llama 3.3 70B 及 Gemma 4 31B 视觉版），显著节省 API 运行成本。
 
 ### v5.4.0 (最新发布)
@@ -249,4 +250,26 @@ python update_release.py
 
 ---
 
-*最后更新：2026-05-22*
+## 11. 数据库配置与迁移 / Database Configuration & Migration
+
+应用采用动态数据库连接层，能自动适配本地开发环境和生产 Cloud Run 环境的持久化需求：
+
+### 11.1 自动路由逻辑 / Automatic Routing Logic
+1. 当检测到环境变量中有 `DATABASE_URL` 且以 `postgres://` 或 `postgresql://` 开头时：
+   - 自动加载 `psycopg2` 驱动连接 PostgreSQL 数据库（如 Supabase 或 Neon）。
+   - 在首次启动时自动执行 PostgreSQL 兼容的建表与更新逻辑（`init_db()`）。
+2. 当未配置 `DATABASE_URL`，或连接异常时：
+   - 自动回退（Fallback）至本地 SQLite 数据库 `database.db`，确保本地开发零配置且能完全离线运行。
+
+### 11.2 SQL 语法兼容翻译 / SQL Compatibility Translation
+由于 PostgreSQL 和 SQLite 语法差异，代码内置了 SQL 翻译适配层（`translate_sql`）：
+- 占位符转换：运行时将 `?` 转换为 `%s`。
+- 时间函数转换：
+  - `date('now', '-7 days')` 转换为 `CURRENT_DATE - INTERVAL '7 days'`。
+  - `date(recorded_at)` 转换为 `CAST(recorded_at AS DATE)`。
+- UPSERT 翻译：将 `INSERT OR REPLACE` 转换为 PostgreSQL 的 `ON CONFLICT (username, date) DO UPDATE SET...`。
+- Row 结构体伪造：实现了 `PgRowWrapper` 模拟 `sqlite3.Row` 行为，支持通过列名访问字段与 `dict(row)` 操作，完全避免修改业务代码。
+
+---
+
+*最后更新：2026-05-23*

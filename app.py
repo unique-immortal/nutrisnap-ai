@@ -2,6 +2,12 @@ import os
 import uuid
 import json
 import sqlite3
+try:
+    import psycopg2
+    import psycopg2.extras
+except ImportError:
+    psycopg2 = None
+
 import datetime
 import re
 import hashlib
@@ -245,9 +251,170 @@ def call_llm(prompt_text, image=None, audio=None, mime_type=None, history=None, 
 # ==========================================
 # 2. 数据库配置
 # ==========================================
+def translate_sql(sql, is_postgres):
+    if not is_postgres:
+        return sql
+    
+    # 1. Translate daily summaries INSERT OR REPLACE to ON CONFLICT DO UPDATE
+    if "INSERT OR REPLACE INTO daily_summaries" in sql or "INSERT OR REPLACE INTO daily_summaries" in sql.upper():
+        return """
+            INSERT INTO daily_summaries (
+                username, date, total_calories, total_protein, total_carbs, total_fat,
+                total_burn_calories, total_exercise_duration, total_water
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (username, date) DO UPDATE SET
+                total_calories = EXCLUDED.total_calories,
+                total_protein = EXCLUDED.total_protein,
+                total_carbs = EXCLUDED.total_carbs,
+                total_fat = EXCLUDED.total_fat,
+                total_burn_calories = EXCLUDED.total_burn_calories,
+                total_exercise_duration = EXCLUDED.total_exercise_duration,
+                total_water = EXCLUDED.total_water
+        """
+
+    # 2. Convert SQLite date functions
+    # Replace date('now', '-7 days')
+    sql = re.sub(r"date\(\s*'now'\s*,\s*'-7 days'\s*\)", "CURRENT_DATE - INTERVAL '7 days'", sql, flags=re.IGNORECASE)
+    # Replace date(recorded_at)
+    sql = re.sub(r"date\(\s*recorded_at\s*\)", "CAST(recorded_at AS DATE)", sql, flags=re.IGNORECASE)
+    # Replace date(?) -> CAST(? AS DATE) (which then becomes CAST(%s AS DATE))
+    sql = re.sub(r"date\(\s*\?\s*\)", "CAST(? AS DATE)", sql, flags=re.IGNORECASE)
+    # Replace datetime(created_at) -> CAST(created_at AS TIMESTAMP)
+    sql = re.sub(r"datetime\(\s*created_at\s*\)", "CAST(created_at AS TIMESTAMP)", sql, flags=re.IGNORECASE)
+
+    # 3. Replace SQLite placeholder ? with PostgreSQL %s
+    sql = sql.replace('?', '%s')
+    
+    return sql
+
+class PgRowWrapper:
+    def __init__(self, col_names, values):
+        self._row = dict(zip(col_names, values))
+    
+    def keys(self):
+        return self._row.keys()
+    
+    def __getitem__(self, key):
+        if isinstance(key, int):
+            return list(self._row.values())[key]
+        return self._row[key]
+
+    def __contains__(self, key):
+        return key in self._row
+
+class DbCursor:
+    def __init__(self, cursor, is_postgres):
+        self._cursor = cursor
+        self._is_postgres = is_postgres
+
+    def execute(self, sql, params=None):
+        translated = translate_sql(sql, self._is_postgres)
+        if params is None:
+            self._cursor.execute(translated)
+        else:
+            self._cursor.execute(translated, params)
+        return self
+
+    def fetchone(self):
+        row = self._cursor.fetchone()
+        if row is None:
+            return None
+        if self._is_postgres:
+            col_names = [desc[0] for desc in self._cursor.description]
+            return PgRowWrapper(col_names, row)
+        return row
+
+    def fetchall(self):
+        rows = self._cursor.fetchall()
+        if self._is_postgres:
+            col_names = [desc[0] for desc in self._cursor.description]
+            return [PgRowWrapper(col_names, r) for r in rows]
+        return rows
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        row = self.fetchone()
+        if row is None:
+            raise StopIteration
+        return row
+
+    @property
+    def rowcount(self):
+        return self._cursor.rowcount
+
+    def __getattr__(self, name):
+        return getattr(self._cursor, name)
+
+class DbConnection:
+    def __init__(self, conn, is_postgres):
+        self._conn = conn
+        self._is_postgres = is_postgres
+        if not is_postgres:
+            self._conn.row_factory = sqlite3.Row
+
+    def cursor(self):
+        return DbCursor(self._conn.cursor(), self._is_postgres)
+
+    def execute(self, sql, params=None):
+        cursor = self.cursor()
+        cursor.execute(sql, params)
+        return cursor
+
+    def commit(self):
+        self._conn.commit()
+
+    def rollback(self):
+        self._conn.rollback()
+
+    def close(self):
+        self._conn.close()
+
+    @property
+    def row_factory(self):
+        if self._is_postgres:
+            return None
+        return self._conn.row_factory
+
+    @row_factory.setter
+    def row_factory(self, val):
+        if not self._is_postgres:
+            self._conn.row_factory = val
+
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
+
+INTEGRITY_ERRORS = (sqlite3.IntegrityError, psycopg2.IntegrityError) if psycopg2 else (sqlite3.IntegrityError,)
+
 def init_db():
-    conn = sqlite3.connect('database.db')
+    is_postgres = False
+    db_url = os.environ.get('DATABASE_URL')
+    if db_url and (db_url.startswith('postgres://') or db_url.startswith('postgresql://')):
+        is_postgres = True
+
+    if is_postgres:
+        if not psycopg2:
+            print("DATABASE_URL is set but psycopg2-binary is not installed! Falling back to SQLite.")
+            conn_raw = sqlite3.connect('database.db')
+            is_postgres = False
+        else:
+            try:
+                conn_str = db_url
+                if conn_str.startswith('postgres://'):
+                    conn_str = conn_str.replace('postgres://', 'postgresql://', 1)
+                conn_raw = psycopg2.connect(conn_str)
+            except Exception as e:
+                print(f"Failed to connect to PostgreSQL: {e}. Falling back to SQLite.")
+                conn_raw = sqlite3.connect('database.db')
+                is_postgres = False
+    else:
+        conn_raw = sqlite3.connect('database.db')
+
+    conn = DbConnection(conn_raw, is_postgres)
     cursor = conn.cursor()
+    
+    # 1. users table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
             username TEXT PRIMARY KEY,
@@ -255,9 +422,12 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
-    cursor.execute('''
+    
+    # 2. meals table
+    id_type = "SERIAL PRIMARY KEY" if is_postgres else "INTEGER PRIMARY KEY AUTOINCREMENT"
+    cursor.execute(f'''
         CREATE TABLE IF NOT EXISTS meals (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id {id_type},
             image_path TEXT,
             food_name TEXT,
             calories INTEGER,
@@ -267,10 +437,10 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
-    # Migrate: add session_id, portion, weight, username, client_id, updated_at columns (idempotent)
+    
     for col, col_def in [
         ('session_id', 'TEXT'),
-        ('portion', 'REAL DEFAULT 1.0'),
+        ('portion', 'REAL DEFAULT 1.0' if not is_postgres else 'DOUBLE PRECISION DEFAULT 1.0'),
         ('weight', 'INTEGER DEFAULT 100'),
         ('username', 'TEXT'),
         ('client_id', 'TEXT'),
@@ -278,26 +448,26 @@ def init_db():
     ]:
         try:
             cursor.execute(f'ALTER TABLE meals ADD COLUMN {col} {col_def}')
-        except sqlite3.OperationalError:
+        except Exception:
             pass  # column already exists
 
     # Migrate users: add BMR physical data columns
     for col, col_def in [
         ('gender', 'TEXT'),
         ('age', 'INTEGER'),
-        ('height', 'REAL'),
-        ('weight', 'REAL'),
+        ('height', 'REAL' if not is_postgres else 'DOUBLE PRECISION'),
+        ('weight', 'REAL' if not is_postgres else 'DOUBLE PRECISION'),
         ('activity_level', 'TEXT')
     ]:
         try:
             cursor.execute(f'ALTER TABLE users ADD COLUMN {col} {col_def}')
-        except sqlite3.OperationalError:
+        except Exception:
             pass  # column already exists
 
-    # Create exercises table
-    cursor.execute('''
+    # 3. exercises table
+    cursor.execute(f'''
         CREATE TABLE IF NOT EXISTS exercises (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id {id_type},
             exercise_name TEXT,
             calories INTEGER,
             duration INTEGER,
@@ -308,7 +478,7 @@ def init_db():
         )
     ''')
 
-    # Create daily_summaries table
+    # 4. daily_summaries table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS daily_summaries (
             username TEXT,
@@ -323,32 +493,34 @@ def init_db():
         )
     ''')
 
-    # Migrate daily_summaries: add total_water
     try:
         cursor.execute('ALTER TABLE daily_summaries ADD COLUMN total_water INTEGER DEFAULT 0')
-    except sqlite3.OperationalError:
+    except Exception:
         pass  # column already exists
 
-    # Backfill old records without session_id or username
-    cursor.execute("UPDATE meals SET session_id = 'legacy_' || id WHERE session_id IS NULL")
+    # Backfill old records
+    cursor.execute("UPDATE meals SET session_id = 'legacy_' || CAST(id AS TEXT) WHERE session_id IS NULL")
     cursor.execute("UPDATE meals SET username = 'anonymous' WHERE username IS NULL")
-    cursor.execute("UPDATE meals SET client_id = 'server_' || id WHERE client_id IS NULL")
-    cursor.execute("UPDATE meals SET updated_at = COALESCE(created_at, CURRENT_TIMESTAMP) WHERE updated_at IS NULL")
+    cursor.execute("UPDATE meals SET client_id = 'server_' || CAST(id AS TEXT) WHERE client_id IS NULL")
+    cursor.execute("UPDATE meals SET updated_at = CAST(COALESCE(created_at, CURRENT_TIMESTAMP) AS TEXT) WHERE updated_at IS NULL")
 
-    # Create weight_logs table
-    cursor.execute('''
+    # 5. weight_logs table
+    cursor.execute(f'''
         CREATE TABLE IF NOT EXISTS weight_logs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id {id_type},
             username TEXT,
             weight REAL NOT NULL,
             recorded_at TEXT NOT NULL,
             FOREIGN KEY (username) REFERENCES users(username)
         )
     ''')
+
+    # 6. Index
     cursor.execute('''
         CREATE UNIQUE INDEX IF NOT EXISTS idx_meals_username_client_id
         ON meals(username, client_id)
     ''')
+
     conn.commit()
     conn.close()
 
@@ -361,9 +533,30 @@ def not_found(e):
     return render_template('index.html')
 
 def get_db_connection():
-    conn = sqlite3.connect('database.db')
-    conn.row_factory = sqlite3.Row
-    return conn
+    is_postgres = False
+    db_url = os.environ.get('DATABASE_URL')
+    if db_url and (db_url.startswith('postgres://') or db_url.startswith('postgresql://')):
+        is_postgres = True
+
+    if is_postgres:
+        if not psycopg2:
+            print("DATABASE_URL is set but psycopg2-binary is not installed! Falling back to SQLite.")
+            conn_raw = sqlite3.connect('database.db')
+            is_postgres = False
+        else:
+            try:
+                conn_str = db_url
+                if conn_str.startswith('postgres://'):
+                    conn_str = conn_str.replace('postgres://', 'postgresql://', 1)
+                conn_raw = psycopg2.connect(conn_str)
+            except Exception as e:
+                print(f"Failed to connect to PostgreSQL: {e}. Falling back to SQLite.")
+                conn_raw = sqlite3.connect('database.db')
+                is_postgres = False
+    else:
+        conn_raw = sqlite3.connect('database.db')
+
+    return DbConnection(conn_raw, is_postgres)
 
 # ==========================================
 # 3. 页面路由
@@ -613,7 +806,7 @@ def register():
             cursor.execute("INSERT INTO users (username, password_hash) VALUES (?, ?)", (username, pw_hash))
         conn.commit()
         return jsonify({"success": True, "message": "注册成功", "username": username})
-    except sqlite3.IntegrityError:
+    except INTEGRITY_ERRORS:
         return jsonify({"error": "用户名已存在，请换一个用户名或直接登录"}), 409
     except Exception as e:
         return jsonify({"error": f"注册失败: {str(e)}"}), 500

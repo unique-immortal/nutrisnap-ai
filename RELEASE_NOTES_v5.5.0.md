@@ -7,6 +7,10 @@
 
 ## 🌟 新特性 / New Features
 
+### 🗄️ PostgreSQL 数据库持久化迁移 / PostgreSQL Database Migration
+- **中**: 新增 PostgreSQL 数据库迁移支持，当配置 `DATABASE_URL` 环境变量时，应用自动识别并连接至外部 PostgreSQL 数据库（如 Supabase / Neon），彻底解决 Cloud Run 部署或重启后用户账号及历史数据丢失问题；同时支持零配置本地自动回退（Fallback）至本地 SQLite (`database.db`)，兼顾生产持久化与本地开发便利。
+- **EN**: Migrated database layer to support PostgreSQL persistent storage. When the `DATABASE_URL` environment variable is defined, the application automatically routes and synchronizes with an external PostgreSQL engine (like Supabase or Neon), completely resolving the ephemeral data loss issue on Cloud Run container restarts. Falls back to local SQLite when unset for zero-config offline developer productivity.
+
 ### 📱 iOS 适配与安全区优化 / iOS Adaptation & Safe Area Refinements
 - **中**: 在 `.glass-header` 样式中加入了顶部安全区填充 padding-top `calc(env(safe-area-inset-top, 0px) + 0.75rem)`，防止头部标题栏与 iOS 刘海或状态标发生重叠。
 - **EN**: Refined header positioning by adding safe area inset padding `calc(env(safe-area-inset-top, 0px) + 0.75rem)` to `.glass-header`, preventing layout overlaps with the iOS status bar or notch.
