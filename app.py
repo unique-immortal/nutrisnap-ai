@@ -252,6 +252,26 @@ def call_llm(prompt_text, image=None, audio=None, mime_type=None, history=None, 
 # ==========================================
 # 2. 数据库配置
 # ==========================================
+def get_sqlite_path():
+    if 'K_SERVICE' in os.environ:
+        return '/tmp/database.db'
+    return 'database.db'
+
+def column_exists(cursor, table_name, column_name, is_postgres):
+    if is_postgres:
+        cursor.execute('''
+            SELECT 1 
+            FROM information_schema.columns 
+            WHERE table_name = %s AND column_name = %s
+        ''', (table_name.lower(), column_name.lower()))
+        return cursor.fetchone() is not None
+    else:
+        cursor.execute(f"PRAGMA table_info({table_name})")
+        for r in cursor.fetchall():
+            if r[1] == column_name:
+                return True
+        return False
+
 def translate_sql(sql, is_postgres):
     if not is_postgres:
         return sql
@@ -397,7 +417,7 @@ def init_db():
     if is_postgres:
         if not psycopg2:
             print("DATABASE_URL is set but psycopg2-binary is not installed! Falling back to SQLite.")
-            conn_raw = sqlite3.connect('database.db')
+            conn_raw = sqlite3.connect(get_sqlite_path())
             is_postgres = False
         else:
             try:
@@ -407,10 +427,10 @@ def init_db():
                 conn_raw = psycopg2.connect(conn_str)
             except Exception as e:
                 print(f"Failed to connect to PostgreSQL: {e}. Falling back to SQLite.")
-                conn_raw = sqlite3.connect('database.db')
+                conn_raw = sqlite3.connect(get_sqlite_path())
                 is_postgres = False
     else:
-        conn_raw = sqlite3.connect('database.db')
+        conn_raw = sqlite3.connect(get_sqlite_path())
 
     conn = DbConnection(conn_raw, is_postgres)
     cursor = conn.cursor()
@@ -447,10 +467,11 @@ def init_db():
         ('client_id', 'TEXT'),
         ('updated_at', 'TEXT')
     ]:
-        try:
-            cursor.execute(f'ALTER TABLE meals ADD COLUMN {col} {col_def}')
-        except Exception:
-            pass  # column already exists
+        if not column_exists(cursor, 'meals', col, is_postgres):
+            try:
+                cursor.execute(f'ALTER TABLE meals ADD COLUMN {col} {col_def}')
+            except Exception:
+                pass  # column already exists / fallback
 
     # Migrate users: add BMR physical data columns
     for col, col_def in [
@@ -460,10 +481,11 @@ def init_db():
         ('weight', 'REAL' if not is_postgres else 'DOUBLE PRECISION'),
         ('activity_level', 'TEXT')
     ]:
-        try:
-            cursor.execute(f'ALTER TABLE users ADD COLUMN {col} {col_def}')
-        except Exception:
-            pass  # column already exists
+        if not column_exists(cursor, 'users', col, is_postgres):
+            try:
+                cursor.execute(f'ALTER TABLE users ADD COLUMN {col} {col_def}')
+            except Exception:
+                pass  # column already exists / fallback
 
     # 3. exercises table
     cursor.execute(f'''
@@ -494,10 +516,11 @@ def init_db():
         )
     ''')
 
-    try:
-        cursor.execute('ALTER TABLE daily_summaries ADD COLUMN total_water INTEGER DEFAULT 0')
-    except Exception:
-        pass  # column already exists
+    if not column_exists(cursor, 'daily_summaries', 'total_water', is_postgres):
+        try:
+            cursor.execute('ALTER TABLE daily_summaries ADD COLUMN total_water INTEGER DEFAULT 0')
+        except Exception:
+            pass  # column already exists / fallback
 
     # Backfill old records
     cursor.execute("UPDATE meals SET session_id = 'legacy_' || CAST(id AS TEXT) WHERE session_id IS NULL")
@@ -542,7 +565,7 @@ def get_db_connection():
     if is_postgres:
         if not psycopg2:
             print("DATABASE_URL is set but psycopg2-binary is not installed! Falling back to SQLite.")
-            conn_raw = sqlite3.connect('database.db')
+            conn_raw = sqlite3.connect(get_sqlite_path())
             is_postgres = False
         else:
             try:
@@ -552,10 +575,10 @@ def get_db_connection():
                 conn_raw = psycopg2.connect(conn_str)
             except Exception as e:
                 print(f"Failed to connect to PostgreSQL: {e}. Falling back to SQLite.")
-                conn_raw = sqlite3.connect('database.db')
+                conn_raw = sqlite3.connect(get_sqlite_path())
                 is_postgres = False
     else:
-        conn_raw = sqlite3.connect('database.db')
+        conn_raw = sqlite3.connect(get_sqlite_path())
 
     return DbConnection(conn_raw, is_postgres)
 
