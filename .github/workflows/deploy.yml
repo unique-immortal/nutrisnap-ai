@@ -46,6 +46,7 @@ jobs:
 
     - name: Replace App Icon
       run: |
+        # Copy Light Mode Icons
         cp android-icons/mipmap-mdpi/ic_launcher.png android/app/src/main/res/mipmap-mdpi/ic_launcher.png
         cp android-icons/mipmap-mdpi/ic_launcher_round.png android/app/src/main/res/mipmap-mdpi/ic_launcher_round.png
         cp android-icons/mipmap-hdpi/ic_launcher.png android/app/src/main/res/mipmap-hdpi/ic_launcher.png
@@ -56,6 +57,27 @@ jobs:
         cp android-icons/mipmap-xxhdpi/ic_launcher_round.png android/app/src/main/res/mipmap-xxhdpi/ic_launcher_round.png
         cp android-icons/mipmap-xxxhdpi/ic_launcher.png android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
         cp android-icons/mipmap-xxxhdpi/ic_launcher_round.png android/app/src/main/res/mipmap-xxxhdpi/ic_launcher_round.png
+        
+        # Create Night Mode Directories and Copy Night Mode Icons
+        mkdir -p android/app/src/main/res/mipmap-mdpi-night
+        cp android-icons/mipmap-mdpi-night/ic_launcher.png android/app/src/main/res/mipmap-mdpi-night/ic_launcher.png
+        cp android-icons/mipmap-mdpi-night/ic_launcher_round.png android/app/src/main/res/mipmap-mdpi-night/ic_launcher_round.png
+        
+        mkdir -p android/app/src/main/res/mipmap-hdpi-night
+        cp android-icons/mipmap-hdpi-night/ic_launcher.png android/app/src/main/res/mipmap-hdpi-night/ic_launcher.png
+        cp android-icons/mipmap-hdpi-night/ic_launcher_round.png android/app/src/main/res/mipmap-hdpi-night/ic_launcher_round.png
+        
+        mkdir -p android/app/src/main/res/mipmap-xhdpi-night
+        cp android-icons/mipmap-xhdpi-night/ic_launcher.png android/app/src/main/res/mipmap-xhdpi-night/ic_launcher.png
+        cp android-icons/mipmap-xhdpi-night/ic_launcher_round.png android/app/src/main/res/mipmap-xhdpi-night/ic_launcher_round.png
+        
+        mkdir -p android/app/src/main/res/mipmap-xxhdpi-night
+        cp android-icons/mipmap-xxhdpi-night/ic_launcher.png android/app/src/main/res/mipmap-xxhdpi-night/ic_launcher.png
+        cp android-icons/mipmap-xxhdpi-night/ic_launcher_round.png android/app/src/main/res/mipmap-xxhdpi-night/ic_launcher_round.png
+        
+        mkdir -p android/app/src/main/res/mipmap-xxxhdpi-night
+        cp android-icons/mipmap-xxxhdpi-night/ic_launcher.png android/app/src/main/res/mipmap-xxxhdpi-night/ic_launcher.png
+        cp android-icons/mipmap-xxxhdpi-night/ic_launcher_round.png android/app/src/main/res/mipmap-xxxhdpi-night/ic_launcher_round.png
 
     - name: Patch Android Manifest Permissions
       run: |
