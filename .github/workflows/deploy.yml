@@ -82,6 +82,7 @@ jobs:
         mkdir -p ~/.android
         tr -d '\r' < debug.keystore.base64 > clean.base64
         base64 -d clean.base64 > ~/.android/debug.keystore
+        cp ~/.android/debug.keystore android/app/debug.keystore
 
     - name: Build APK
       run: |
