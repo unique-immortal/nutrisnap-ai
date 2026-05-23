@@ -6050,6 +6050,12 @@ function showAbout() {
   m.style.display = 'flex';
 }
 
+window.closeAboutModal = function() {
+  const m = document.getElementById('aboutModal');
+  m.classList.add('hidden');
+  m.style.display = 'none';
+};
+
 // ===================== DARK MODE =====================
 function toggleFabMenu() {
   const menu = document.getElementById('fabMenu');
