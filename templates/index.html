@@ -933,8 +933,6 @@ html.dark .onboarding-slide:nth-child(3) {
 }
 
 </style>
-  <!-- Capacitor Preferences Plugin for Web/Standalone mode -->
-  <script src="https://cdn.jsdelivr.net/npm/@capacitor/preferences@6.0.2/dist/plugin.js"></script>
 </head>
 <body class="bg-background text-on-background font-body-md min-h-screen pb-28">
 <a href="#" class="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-[9999] bg-primary text-on-primary px-4 py-2 rounded-lg font-semibold shadow-lg focus:outline focus:outline-2 focus:outline-primary" onclick="window.focusActivePage(event)">跳过导航，跳转到主内容</a>
@@ -2301,8 +2299,14 @@ const CLIENT_VERSION = "v5.5.0";
 // Native preferences helper to survive app process kills on mobile
 const NativeStorage = {
   getPreferences: function() {
-    return (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Preferences) ||
-           (window.capacitorPreferences && window.capacitorPreferences.Preferences);
+    if (window.Capacitor && typeof window.Capacitor.registerPlugin === 'function') {
+      try {
+        return window.Capacitor.registerPlugin('Preferences');
+      } catch (e) {
+        return null;
+      }
+    }
+    return null;
   },
   
   getItem: async function(key) {

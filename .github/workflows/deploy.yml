@@ -98,6 +98,11 @@ jobs:
       run: |
         python patch_manifest.py
 
+    - name: Setup Android Debug Keystore
+      run: |
+        mkdir -p ~/.android
+        base64 -d debug.keystore.base64 > ~/.android/debug.keystore
+
     - name: Build APK
       run: |
         cd android
