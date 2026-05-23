@@ -588,7 +588,7 @@ def get_db_connection():
 
 def get_latest_release_info():
     # Target regex for update_release.py: "version": "v5.5.0"
-    fallback_version = "v5.5.3"
+    fallback_version = "v5.5.4"
     try:
         files = glob.glob("RELEASE_NOTES_*.md")
         if not files:

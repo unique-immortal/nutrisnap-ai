@@ -1,0 +1,10 @@
+.git/
+__pycache__/
+*.pyc
+*.db
+uploads/
+node_modules/
+android/
+www/
+deploy_log.txt
+.env
