@@ -32,3 +32,33 @@ with open(manifest_path, "w", encoding="utf-8") as f:
     f.write(content)
 
 print("AndroidManifest.xml patched successfully!")
+
+# Patch build.gradle version
+import json
+import re
+
+package_json_path = "package.json"
+build_gradle_path = "android/app/build.gradle"
+
+if os.path.exists(package_json_path) and os.path.exists(build_gradle_path):
+    with open(package_json_path, "r", encoding="utf-8") as f:
+        pkg = json.load(f)
+    version = pkg.get("version", "1.0.0")
+    
+    # Calculate versionCode: 5.5.4 -> 554
+    v_parts = version.replace("v", "").split(".")
+    try:
+        v_code = int("".join(v_parts))
+    except:
+        v_code = 1
+
+    with open(build_gradle_path, "r", encoding="utf-8") as f:
+        gradle_content = f.read()
+
+    gradle_content = re.sub(r'versionName\s+".*?"', f'versionName "{version}"', gradle_content)
+    gradle_content = re.sub(r'versionCode\s+\d+', f'versionCode {v_code}', gradle_content)
+
+    with open(build_gradle_path, "w", encoding="utf-8") as f:
+        f.write(gradle_content)
+
+    print(f"build.gradle patched with versionName {version} and versionCode {v_code}!")
