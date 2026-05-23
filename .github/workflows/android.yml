@@ -8,6 +8,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -64,3 +66,23 @@ jobs:
         with:
           name: app-debug.apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Get Version
+        id: get_version
+        run: |
+          VERSION=$(python -c "import re; m=re.search(r'\"version\":\s*\"([^\"]+)\"', open('app.py').read()); print(m.group(1) if m else 'v5.5.0')")
+          if [[ ! $VERSION =~ ^v ]]; then
+            VERSION="v$VERSION"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Release APK
+        uses: softprops/action-gh-release@v2
+        with:
+          files: android/app/build/outputs/apk/debug/app-debug.apk
+          tag_name: ${{ steps.get_version.outputs.version }}
+          name: ${{ steps.get_version.outputs.version }}
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
