@@ -15,7 +15,7 @@ import jwt
 import functools
 import requests
 from dotenv import load_dotenv
-from flask import Flask, request, jsonify, render_template, send_from_directory, make_response
+from flask import Flask, request, jsonify, render_template, send_from_directory, make_response, redirect
 from flask_cors import CORS
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
@@ -23,6 +23,7 @@ from google import genai
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
 import PIL.Image
+import glob
 
 # 加载 .env 文件（仅本地开发使用，Cloud Run 通过环境变量注入）
 load_dotenv()
@@ -562,10 +563,46 @@ def get_db_connection():
 # 3. 页面路由
 # ==========================================
 
+def get_latest_release_info():
+    # Target regex for update_release.py: "version": "v5.5.0"
+    fallback_version = "v5.5.0"
+    try:
+        files = glob.glob("RELEASE_NOTES_*.md")
+        if not files:
+            return fallback_version, "本次更新包含性能优化与体验改进。"
+        
+        def version_key(filename):
+            match = re.search(r'RELEASE_NOTES_v?(\d+\.\d+\.\d+)\.md', filename)
+            if match:
+                return [int(x) for x in match.group(1).split('.')]
+            return [0, 0, 0]
+        
+        latest_file = max(files, key=version_key)
+        ver_match = re.search(r'RELEASE_NOTES_v?(\d+\.\d+\.\d+)\.md', latest_file)
+        version = f"v{ver_match.group(1)}" if ver_match else fallback_version
+        
+        with open(latest_file, "r", encoding="utf-8") as f:
+            content = f.read()
+            
+        changelog = ""
+        lines = content.splitlines()
+        capture = False
+        for line in lines:
+            if line.startswith("## "):
+                capture = True
+            if capture:
+                changelog += line + "\n"
+        
+        return version, changelog.strip() or "优化了系统性能和无障碍体验。"
+    except Exception as e:
+        print(f"Error reading release notes: {e}")
+        return fallback_version, "本次更新包含性能优化与体验改进。"
+
 @app.route('/api/health')
 def health():
+    version, _ = get_latest_release_info()
     return jsonify({
-        "version": "v5.5.0",
+        "version": version,
         "architecture": "local-first + throttled-meal-sync + server-daily-summaries + OpenRouter",
         "models": [
             'gemini-3.5-flash',
@@ -575,6 +612,19 @@ def health():
             'gemini-3.1-flash-lite',
         ]
     })
+
+@app.route('/api/update/info')
+def update_info():
+    version, changelog = get_latest_release_info()
+    return jsonify({
+        "version": version,
+        "changelog": changelog,
+        "download_url": request.host_url + "api/update/download"
+    })
+
+@app.route('/api/update/download')
+def download_update():
+    return redirect("https://github.com/unique-immortal/nutrisnap-ai/releases/latest/download/app-debug.apk")
 
 def parse_ai_multi_result(raw_text):
     """解析 AI JSON 输出，返回食物列表"""
