@@ -2294,7 +2294,7 @@ html.dark .onboarding-slide:nth-child(3) {
 <script>
 // ===================== CONFIG =====================
 const API_BASE = "";
-const CLIENT_VERSION = "v5.5.1";
+const CLIENT_VERSION = "v5.5.2";
 
 // Native preferences helper to survive app process kills on mobile
 const NativeStorage = {
@@ -2387,6 +2387,7 @@ let proTarget = 120;
 let calChart = null;
 let macroChart = null;
 let reportWeightChart = null;
+let weightChartInstance = null;
 let activeChartTab = 'calorie';
 let chatHistory = [];
 let pendingResult = { foods: [], exercises: [], source: '', session_id: '' };
@@ -6253,7 +6254,8 @@ async function completeOnboarding() {
 // ===================== INIT =====================
 document.addEventListener('DOMContentLoaded', async () => {
   // Sync critical auth & onboarding state from native preferences to localStorage
-  if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Preferences) {
+  const prefs = NativeStorage.getPreferences();
+  if (prefs) {
     const keys = ['currentUser', 'authToken', 'storageMode', 'onboarding_completed'];
     for (const key of keys) {
       try {
@@ -6637,7 +6639,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   // ==========================================
   // Weight Tracking
   // ==========================================
-  let weightChartInstance = null;
 
   function showWeightRecordModal() {
     document.getElementById('weightRecordModal').classList.remove('hidden');
