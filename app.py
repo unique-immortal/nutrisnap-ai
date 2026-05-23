@@ -887,7 +887,8 @@ def register():
         else:
             cursor.execute("INSERT INTO users (username, password_hash) VALUES (?, ?)", (username, pw_hash))
         conn.commit()
-        return jsonify({"success": True, "message": "注册成功", "username": username})
+        token = create_token(username)
+        return jsonify({"success": True, "message": "注册成功", "username": username, "token": token})
     except INTEGRITY_ERRORS:
         return jsonify({"error": "用户名已存在，请换一个用户名或直接登录"}), 409
     except Exception as e:
