@@ -6808,7 +6808,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
   window.startAppUpdate = function() {
     if (updateDownloadUrl) {
-      window.open(updateDownloadUrl, '_system');
+      const token = localStorage.getItem('authToken') || '';
+      const separator = updateDownloadUrl.includes('?') ? '&' : '?';
+      const authUrl = updateDownloadUrl + separator + 'token=' + encodeURIComponent(token);
+      window.open(authUrl, '_system');
     }
     closeUpdateModal();
   };

@@ -647,7 +647,16 @@ def update_info():
 
 @app.route('/api/update/download')
 def download_update():
-    return redirect("https://github.com/unique-immortal/nutrisnap-ai/releases/latest/download/app-debug.apk")
+    token = request.args.get('token')
+    if not token:
+        return jsonify({"error": "未提供认证令牌"}), 401
+    try:
+        data = jwt.decode(token, JWT_SECRET_KEY, algorithms=['HS256'])
+        return send_from_directory('static', 'app-debug.apk', as_attachment=True)
+    except jwt.ExpiredSignatureError:
+        return jsonify({"error": "令牌已过期，请重新登录"}), 401
+    except jwt.InvalidTokenError:
+        return jsonify({"error": "无效的认证令牌"}), 401
 
 def parse_ai_multi_result(raw_text):
     """解析 AI JSON 输出，返回食物列表"""

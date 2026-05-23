@@ -19,6 +19,57 @@ jobs:
     - name: Checkout Code
       uses: actions/checkout@v4
 
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 20
+
+    - name: Setup Java
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'zulu'
+        java-version: '17'
+
+    - name: Install Dependencies
+      run: |
+        npm install
+
+    - name: Build Web Assets
+      run: |
+        npm run build
+        # Inject Cloud Run API URL
+        sed -i 's|const API_BASE = "";|const API_BASE = "https://nutrisnap-ai-940406235442.us-central1.run.app";|g' www/index.html
+
+    - name: Add Android Platform
+      run: |
+        npx cap add android
+
+    - name: Replace App Icon
+      run: |
+        cp android-icons/mipmap-mdpi/ic_launcher.png android/app/src/main/res/mipmap-mdpi/ic_launcher.png
+        cp android-icons/mipmap-mdpi/ic_launcher_round.png android/app/src/main/res/mipmap-mdpi/ic_launcher_round.png
+        cp android-icons/mipmap-hdpi/ic_launcher.png android/app/src/main/res/mipmap-hdpi/ic_launcher.png
+        cp android-icons/mipmap-hdpi/ic_launcher_round.png android/app/src/main/res/mipmap-hdpi/ic_launcher_round.png
+        cp android-icons/mipmap-xhdpi/ic_launcher.png android/app/src/main/res/mipmap-xhdpi/ic_launcher.png
+        cp android-icons/mipmap-xhdpi/ic_launcher_round.png android/app/src/main/res/mipmap-xhdpi/ic_launcher_round.png
+        cp android-icons/mipmap-xxhdpi/ic_launcher.png android/app/src/main/res/mipmap-xxhdpi/ic_launcher.png
+        cp android-icons/mipmap-xxhdpi/ic_launcher_round.png android/app/src/main/res/mipmap-xxhdpi/ic_launcher_round.png
+        cp android-icons/mipmap-xxxhdpi/ic_launcher.png android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
+        cp android-icons/mipmap-xxxhdpi/ic_launcher_round.png android/app/src/main/res/mipmap-xxxhdpi/ic_launcher_round.png
+
+    - name: Patch Android Manifest Permissions
+      run: |
+        python patch_manifest.py
+
+    - name: Build APK
+      run: |
+        cd android
+        ./gradlew assembleDebug
+
+    - name: Copy APK to Static Assets
+      run: |
+        cp android/app/build/outputs/apk/debug/app-debug.apk static/app-debug.apk
+
     - name: Authenticate with Google Cloud
       id: auth
       uses: google-github-actions/auth@v2
