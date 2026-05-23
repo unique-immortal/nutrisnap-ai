@@ -6862,10 +6862,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     return false;
   }
 
-  async function checkAppUpdate() {
+  window.checkAppUpdate = async function(manual = false) {
     try {
       const res = await fetch(API_BASE + '/api/update/info');
-      if (!res.ok) return;
+      if (!res.ok) {
+        if (manual) showToast('检查更新失败，请稍后再试', 'error');
+        return;
+      }
       const data = await res.json();
       if (data && data.version) {
         if (isNewerVersion(data.version, CLIENT_VERSION)) {
@@ -6884,12 +6887,19 @@ document.addEventListener('DOMContentLoaded', async () => {
             updateModal.classList.remove('hidden');
             updateModal.classList.add('flex');
           }
+        } else {
+          if (manual) {
+            showToast('已经是最新版本', 'success');
+          }
         }
+      } else if (manual) {
+        showToast('已经是最新版本', 'success');
       }
     } catch (e) {
       console.warn('Update check failed:', e);
+      if (manual) showToast('检查更新失败，请稍后再试', 'error');
     }
-  }
+  };
 
   window.closeUpdateModal = function() {
     const modal = document.getElementById('updateModal');
@@ -6910,7 +6920,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   };
 
   // Check for app updates on startup
-  setTimeout(checkAppUpdate, 1500);
+  setTimeout(() => window.checkAppUpdate(false), 1500);
 
   // Check if onboarding has been completed
   if (!localStorage.getItem('onboarding_completed')) {
