@@ -46,15 +46,30 @@ jobs:
 
     - name: Replace App Icon
       run: |
+        # Delete default adaptive XML folder to prevent override on API 26+ devices and duplicate resource conflicts
+        rm -rf android/app/src/main/res/mipmap-anydpi-v26
+        
+        # Clean any existing template icons (png, webp, xml) to prevent duplicate resource compilation conflicts (AAPT2)
+        find android/app/src/main/res/ -name "ic_launcher*" -delete
+        
         # Copy Light Mode Icons
+        mkdir -p android/app/src/main/res/mipmap-mdpi
         cp android-icons/mipmap-mdpi/ic_launcher.png android/app/src/main/res/mipmap-mdpi/ic_launcher.png
         cp android-icons/mipmap-mdpi/ic_launcher_round.png android/app/src/main/res/mipmap-mdpi/ic_launcher_round.png
+        
+        mkdir -p android/app/src/main/res/mipmap-hdpi
         cp android-icons/mipmap-hdpi/ic_launcher.png android/app/src/main/res/mipmap-hdpi/ic_launcher.png
         cp android-icons/mipmap-hdpi/ic_launcher_round.png android/app/src/main/res/mipmap-hdpi/ic_launcher_round.png
+        
+        mkdir -p android/app/src/main/res/mipmap-xhdpi
         cp android-icons/mipmap-xhdpi/ic_launcher.png android/app/src/main/res/mipmap-xhdpi/ic_launcher.png
         cp android-icons/mipmap-xhdpi/ic_launcher_round.png android/app/src/main/res/mipmap-xhdpi/ic_launcher_round.png
+        
+        mkdir -p android/app/src/main/res/mipmap-xxhdpi
         cp android-icons/mipmap-xxhdpi/ic_launcher.png android/app/src/main/res/mipmap-xxhdpi/ic_launcher.png
         cp android-icons/mipmap-xxhdpi/ic_launcher_round.png android/app/src/main/res/mipmap-xxhdpi/ic_launcher_round.png
+        
+        mkdir -p android/app/src/main/res/mipmap-xxxhdpi
         cp android-icons/mipmap-xxxhdpi/ic_launcher.png android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
         cp android-icons/mipmap-xxxhdpi/ic_launcher_round.png android/app/src/main/res/mipmap-xxxhdpi/ic_launcher_round.png
         

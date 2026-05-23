@@ -2296,6 +2296,50 @@ html.dark .onboarding-slide:nth-child(3) {
 const API_BASE = "";
 const CLIENT_VERSION = "v5.5.0";
 
+// Native preferences helper to survive app process kills on mobile
+const NativeStorage = {
+  getPreferences: function() {
+    return window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Preferences;
+  },
+  
+  getItem: async function(key) {
+    const prefs = this.getPreferences();
+    if (prefs) {
+      try {
+        const result = await prefs.get({ key: key });
+        return result.value;
+      } catch (e) {
+        console.error('Failed to get item from native preferences:', e);
+      }
+    }
+    return localStorage.getItem(key);
+  },
+  
+  setItem: async function(key, value) {
+    localStorage.setItem(key, value); // Sync to localStorage first
+    const prefs = this.getPreferences();
+    if (prefs) {
+      try {
+        await prefs.set({ key: key, value: String(value) });
+      } catch (e) {
+        console.error('Failed to set item in native preferences:', e);
+      }
+    }
+  },
+  
+  removeItem: async function(key) {
+    localStorage.removeItem(key);
+    const prefs = this.getPreferences();
+    if (prefs) {
+      try {
+        await prefs.remove({ key: key });
+      } catch (e) {
+        console.error('Failed to remove item from native preferences:', e);
+      }
+    }
+  }
+};
+
 async function safeFetchJSON(url, options = {}) {
   // 自动附加 JWT token
   const token = localStorage.getItem('authToken');
@@ -3553,12 +3597,14 @@ async function handleAuthSubmit() {
       body: JSON.stringify({ username, password })
     });
     if (json.success) {
-      localStorage.setItem('currentUser', json.username || username);
+      await NativeStorage.setItem('currentUser', json.username || username);
       if (json.token) {
-        localStorage.setItem('authToken', json.token);
+        await NativeStorage.setItem('authToken', json.token);
+      } else {
+        await NativeStorage.removeItem('authToken');
       }
       storageMode = 'server';
-      localStorage.setItem('storageMode', 'server');
+      await NativeStorage.setItem('storageMode', 'server');
       hideAuthOverlay();
       await initializeSignedInSession();
     } else {
@@ -3571,10 +3617,10 @@ async function handleAuthSubmit() {
   });
 }
 
-function loginAsGuest() {
-  localStorage.setItem('currentUser', 'local_user');
+async function loginAsGuest() {
+  await NativeStorage.setItem('currentUser', 'local_user');
   storageMode = 'local';
-  localStorage.setItem('storageMode', 'local');
+  await NativeStorage.setItem('storageMode', 'local');
   hideAuthOverlay();
   loadTargets();
   applyTargets();
@@ -3584,9 +3630,10 @@ function loginAsGuest() {
 
 async function logout() {
   if (canSyncUserData()) await flushMealSyncQueue();
-  localStorage.removeItem('currentUser');
+  await NativeStorage.removeItem('currentUser');
+  await NativeStorage.removeItem('authToken');
   storageMode = 'local';
-  localStorage.setItem('storageMode', 'local');
+  await NativeStorage.setItem('storageMode', 'local');
   showAuthOverlay();
 }
 
@@ -6153,8 +6200,8 @@ function nextOnboardingSlide() {
   }
 }
 
-function completeOnboarding() {
-  localStorage.setItem('onboarding_completed', 'true');
+async function completeOnboarding() {
+  await NativeStorage.setItem('onboarding_completed', 'true');
   const overlay = document.getElementById('onboardingOverlay');
   overlay.classList.add('hidden');
   // After onboarding, proceed to auth check
@@ -6197,7 +6244,25 @@ function completeOnboarding() {
 })();
 
 // ===================== INIT =====================
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+  // Sync critical auth & onboarding state from native preferences to localStorage
+  if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Preferences) {
+    const keys = ['currentUser', 'authToken', 'storageMode', 'onboarding_completed'];
+    for (const key of keys) {
+      try {
+        const val = await NativeStorage.getItem(key);
+        if (val !== null && val !== undefined) {
+          localStorage.setItem(key, val);
+        }
+      } catch (e) {
+        console.error('Failed to pre-load native preference ' + key, e);
+      }
+    }
+  }
+  
+  // Re-evaluate storageMode after loading from NativeStorage
+  storageMode = localStorage.getItem('storageMode') || (IS_APP ? 'local' : 'server');
+
   // Set dynamic --vh custom property for Safari keyboard & layout issue
   const updateVh = () => {
     const vh = (window.visualViewport ? window.visualViewport.height : window.innerHeight) * 0.01;
