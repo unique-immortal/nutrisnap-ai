@@ -932,6 +932,13 @@ html.dark .onboarding-slide:nth-child(3) {
   box-shadow: 0 4px 8px rgba(255, 165, 0, 0.3);
 }
 
+@keyframes modalPop {
+  0% { opacity: 0; transform: scale(0.95); }
+  100% { opacity: 1; transform: scale(1); }
+}
+.animate-modal-pop {
+  animation: modalPop 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
 </style>
 </head>
 <body class="bg-background text-on-background font-body-md min-h-screen pb-28">
@@ -1974,19 +1981,26 @@ html.dark .onboarding-slide:nth-child(3) {
 </div>
 
 <!-- About Modal -->
-<div id="aboutModal" class="fixed inset-0 bg-black/40 z-[100] items-center justify-center hidden" onclick="if(event.target===this)this.style.display='none'">
-  <div class="modal-panel rounded-2xl p-6 mx-6 max-w-sm w-full">
+<div id="aboutModal" class="fixed inset-0 bg-black/40 z-[100] items-center justify-center hidden transition-opacity duration-200" onclick="if(event.target===this)closeAboutModal()">
+  <div class="modal-panel rounded-2xl p-6 mx-6 max-w-sm w-full animate-modal-pop">
     <div class="flex items-center gap-3 mb-4">
       <div class="w-12 h-12 rounded-full bg-primary flex items-center justify-center">
         <span class="material-symbols-outlined text-on-primary" style="font-variation-settings:'FILL' 1">restaurant</span>
       </div>
       <div>
         <h3 class="font-headline-md text-headline-md text-on-background">NutriSnap AI</h3>
-        <p class="font-label-md text-label-md text-outline">v5.5.0</p>
+        <p class="font-label-md text-label-md text-outline" id="aboutAppVersion">v5.5.4</p>
       </div>
     </div>
-    <p class="font-body-md text-body-md text-on-surface-variant mb-2">基于 Gemini AI 的智能饮食记录工具。支持拍照多食物识别、语音输入、分量调节、每周营养报告。</p>
-    <button onclick="document.getElementById('aboutModal').style.display='none'" class="w-full bg-primary text-on-primary font-body-lg text-body-lg py-3 rounded-xl mt-4">知道了</button>
+    <p class="font-body-md text-body-md text-on-surface-variant mb-6">基于 Gemini AI 的智能饮食记录工具。支持拍照多食物识别、语音输入、分量调节、每周营养报告。</p>
+    
+    <div class="flex flex-col gap-3">
+      <button onclick="checkAppUpdate(true)" class="w-full bg-surface-container-high text-on-surface font-body-lg text-body-lg py-3 rounded-xl transition-colors flex items-center justify-center gap-2 hover:bg-surface-container-highest active:bg-surface-variant">
+        <span class="material-symbols-outlined text-[20px]">system_update</span>
+        检查更新
+      </button>
+      <button onclick="closeAboutModal()" class="w-full bg-primary text-on-primary font-body-lg text-body-lg py-3 rounded-xl hover:scale-[1.02] active:scale-95 transition-all shadow-md btn-premium">知道了</button>
+    </div>
   </div>
 </div>
 
@@ -2218,7 +2232,7 @@ html.dark .onboarding-slide:nth-child(3) {
 
 <!-- Update Notification Modal -->
 <div id="updateModal" class="fixed inset-0 bg-black/40 z-[110] items-center justify-center hidden" onclick="if(event.target===this)closeUpdateModal()">
-  <div class="modal-panel rounded-2xl p-6 mx-6 max-w-sm w-full relative overflow-hidden" onclick="event.stopPropagation()">
+  <div class="modal-panel rounded-2xl p-6 mx-6 max-w-sm w-full relative overflow-hidden animate-modal-pop" onclick="event.stopPropagation()">
     <!-- Accent top glow -->
     <div class="absolute top-0 left-0 right-0 h-2 bg-primary"></div>
     
