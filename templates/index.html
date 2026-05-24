@@ -601,19 +601,10 @@ html.dark .modal-panel {
 }
 
 .modal-actions{
-  position:sticky;
-  bottom:0;
-  background: color-mix(in srgb, var(--surface-container-lowest) 88%, transparent) !important;
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
   padding-top:.75rem;
   padding-bottom:env(safe-area-inset-bottom, 0);
-  transition: background 0.3s ease;
 }
 
-html.dark .modal-actions {
-  background: color-mix(in srgb, var(--surface-container-lowest) 82%, transparent) !important;
-}
 
 .field-invalid{
   border-color:var(--error) !important;
@@ -1069,15 +1060,15 @@ html.dark .onboarding-slide:nth-child(3) {
         <div class="font-headline-md text-headline-md leading-none text-on-background">NutriSnap AI</div>
       </div>
     </div>
-    <div class="flex items-center gap-2">
+    <div class="flex items-center gap-2 flex-shrink-0">
       <!-- Streak Pill -->
       <div id="headerStreakPill" class="flex items-center bg-surface-container-high rounded-full px-3 py-1 border border-outline-variant cursor-pointer hover:bg-surface-container-highest transition-all" style="display: none;" onclick="showAchievementsModal()">
         <span class="material-symbols-outlined text-amber-500 text-sm mr-1" style="font-variation-settings:'FILL' 1">local_fire_department</span>
         <span class="font-label-md text-label-md text-amber-500 font-bold" id="headerStreakCount">0天</span>
       </div>
-      <div class="flex items-center bg-surface-container-high rounded-full px-3 py-1 border border-outline-variant">
+      <div class="flex items-center bg-surface-container-high rounded-full px-3 py-1 border border-outline-variant flex-shrink-0">
         <span class="material-symbols-outlined text-primary text-sm mr-1">local_fire_department</span>
-        <span class="font-label-md text-label-md text-primary" id="headerCalBadge">0 kcal</span>
+        <span class="font-label-md text-label-md text-primary whitespace-nowrap" id="headerCalBadge">0 kcal</span>
       </div>
     </div>
   </header>
@@ -1120,9 +1111,9 @@ html.dark .onboarding-slide:nth-child(3) {
               <span class="text-[11px] text-on-surface-variant">净摄入</span>
             </div>
           </div>
-          <div class="flex items-center justify-between bg-primary/5 rounded-xl px-4 py-3">
-            <span class="font-label-md text-label-md text-on-surface-variant">目标 <span class="font-bold text-on-background" id="dashTarget">2,000</span> kcal</span>
-            <span class="font-label-md text-label-md">剩余 <span class="font-bold text-primary" id="dashRemaining">2,000</span> kcal</span>
+          <div class="flex flex-wrap items-center justify-between gap-y-1 bg-primary/5 rounded-xl px-4 py-3">
+            <span class="font-label-md text-label-md text-on-surface-variant whitespace-nowrap">目标 <span class="font-bold text-on-background" id="dashTarget">2,000</span> kcal</span>
+            <span class="font-label-md text-label-md whitespace-nowrap">剩余 <span class="font-bold text-primary" id="dashRemaining">2,000</span> kcal</span>
           </div>
         </div>
       </div>
