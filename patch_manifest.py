@@ -58,6 +58,20 @@ if os.path.exists(package_json_path) and os.path.exists(build_gradle_path):
     gradle_content = re.sub(r'versionName\s+".*?"', f'versionName "{version}"', gradle_content)
     gradle_content = re.sub(r'versionCode\s+\d+', f'versionCode {v_code}', gradle_content)
 
+    # Inject signingConfigs block if not present
+    if "signingConfigs {" not in gradle_content:
+        gradle_content = gradle_content.replace(
+            "android {",
+            "android {\n    signingConfigs {\n        debug {\n            storeFile file('debug.keystore')\n            storePassword 'android'\n            keyAlias 'androiddebugkey'\n            keyPassword 'android'\n        }\n    }"
+        )
+
+    # Inject debug signingConfig in buildTypes if not present
+    if "signingConfig signingConfigs.debug" not in gradle_content:
+        gradle_content = gradle_content.replace(
+            "buildTypes {",
+            "buildTypes {\n        debug {\n            signingConfig signingConfigs.debug\n        }"
+        )
+
     with open(build_gradle_path, "w", encoding="utf-8") as f:
         f.write(gradle_content)
 
