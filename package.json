@@ -1,9 +1,12 @@
 {
   "name": "nutrisnap-ai",
-  "version": "5.5.8",
+  "version": "5.5.9",
   "description": "NutriSnap AI Diet Tracker",
   "scripts": {
-    "build": "node build.js"
+    "build": "node build.js",
+    "test": "playwright test",
+    "test:ui": "playwright test --ui",
+    "test:codegen": "playwright codegen http://localhost:5000"
   },
   "dependencies": {
     "@capacitor/android": "^6.0.0",
@@ -12,6 +15,7 @@
     "@capacitor/preferences": "^6.0.0"
   },
   "devDependencies": {
-    "@capacitor/cli": "^6.0.0"
+    "@capacitor/cli": "^6.0.0",
+    "@playwright/test": "^1.44.0"
   }
 }

@@ -38,6 +38,8 @@ JWT_EXPIRATION_HOURS = int(os.environ.get('JWT_EXPIRATION_HOURS', '72'))
 # Flask-Limiter 速率限制
 app.config['RATELIMIT_STORAGE_URI'] = 'memory://'
 app.config['RATELIMIT_DEFAULT'] = '60 per minute'
+if os.environ.get('TEST_MODE') == 'true':
+    app.config['RATELIMIT_ENABLED'] = False
 limiter = Limiter(key_func=get_remote_address, app=app)
 
 # ==========================================
@@ -588,7 +590,7 @@ def get_db_connection():
 
 def get_latest_release_info():
     # Target regex for update_release.py: "version": "v5.5.0"
-    fallback_version = "v5.5.8"
+    fallback_version = "v5.5.9"
     try:
         files = glob.glob("RELEASE_NOTES_*.md")
         if not files:
