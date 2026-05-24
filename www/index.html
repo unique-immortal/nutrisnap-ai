@@ -1989,7 +1989,7 @@ html.dark .onboarding-slide:nth-child(3) {
       </div>
       <div>
         <h3 class="font-headline-md text-headline-md text-on-background">NutriSnap AI</h3>
-        <p class="font-label-md text-label-md text-outline" id="aboutAppVersion">v5.5.4</p>
+        <p class="font-label-md text-label-md text-outline" id="aboutAppVersion">v5.5.8</p>
       </div>
     </div>
     <p class="font-body-md text-body-md text-on-surface-variant mb-6">基于 Gemini AI 的智能饮食记录工具。支持拍照多食物识别、语音输入、分量调节、每周营养报告。</p>
@@ -2308,7 +2308,7 @@ html.dark .onboarding-slide:nth-child(3) {
 <script>
 // ===================== CONFIG =====================
 const API_BASE = "";
-const CLIENT_VERSION = "v5.5.7";
+const CLIENT_VERSION = "v5.5.8";
 
 // Native preferences helper to survive app process kills on mobile
 const NativeStorage = {
@@ -6045,6 +6045,8 @@ async function updateProfileUI() {
 }
 
 function showAbout() {
+  const verEl = document.getElementById('aboutAppVersion');
+  if (verEl) verEl.textContent = CLIENT_VERSION;
   const m = document.getElementById('aboutModal');
   m.classList.remove('hidden');
   m.style.display = 'flex';
