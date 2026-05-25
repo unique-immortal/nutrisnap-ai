@@ -752,12 +752,7 @@ def update_info():
     })
 
 @app.route('/api/update/download')
-@token_required
 def download_update():
-    allowed_users = {u.strip() for u in os.environ.get('UPDATE_DOWNLOAD_USERS', '').split(',') if u.strip()}
-    username = get_current_username()
-    if allowed_users and username not in allowed_users:
-        return jsonify({"error": "No permission to download this update"}), 403
     return send_from_directory('static', 'app-debug.apk', as_attachment=True)
 
 def parse_ai_multi_result(raw_text):
