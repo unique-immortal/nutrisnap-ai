@@ -79,7 +79,16 @@ jobs:
 
     - name: Setup Android Debug Keystore
       run: |
-        cp debug.keystore android/app/debug.keystore
+        if [ -n "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" ]; then
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 --decode > android/app/debug.keystore
+          echo "Successfully restored keystore from GitHub Secrets."
+        elif [ -f debug.keystore ]; then
+          cp debug.keystore android/app/debug.keystore
+          echo "Restored keystore from local debug.keystore file."
+        else
+          echo "Error: Neither ANDROID_KEYSTORE_BASE64 secret nor local debug.keystore file was found!"
+          exit 1
+        fi
 
     - name: Build APK
       run: |
