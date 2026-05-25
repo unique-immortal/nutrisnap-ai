@@ -33,11 +33,14 @@ import glob
 load_dotenv()
 
 app = Flask(__name__)
-default_cors_origins = [] if os.environ.get('K_SERVICE') else [
+default_cors_origins = [
+    'http://localhost',
+    'https://localhost',
+    'capacitor://localhost',
     'http://localhost:5000',
     'http://127.0.0.1:5000',
     'http://localhost:8080',
-    'capacitor://localhost',
+    'http://localhost:8100',
 ]
 cors_origins = [o.strip() for o in os.environ.get('CORS_ORIGINS', '').split(',') if o.strip()]
 CORS(app, origins=cors_origins or default_cors_origins, supports_credentials=True)
