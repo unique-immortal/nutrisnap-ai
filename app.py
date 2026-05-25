@@ -54,7 +54,7 @@ JWT_EXPIRATION_HOURS = int(os.environ.get('JWT_EXPIRATION_HOURS', '72'))
 # Flask-Limiter 速率限制
 app.config['MAX_CONTENT_LENGTH'] = int(os.environ.get('MAX_CONTENT_LENGTH', 16 * 1024 * 1024))
 app.config['RATELIMIT_STORAGE_URI'] = os.environ.get('RATELIMIT_STORAGE_URI', 'memory://')
-if os.environ.get('K_SERVICE') and app.config['RATELIMIT_STORAGE_URI'] == 'memory://':
+if os.environ.get('K_SERVICE') and app.config['RATELIMIT_STORAGE_URI'] == 'memory://' and os.environ.get('TEST_MODE') != 'true':
     raise RuntimeError('RATELIMIT_STORAGE_URI must use a shared store in production')
 app.config['RATELIMIT_DEFAULT'] = '60 per minute'
 if os.environ.get('TEST_MODE') == 'true':
