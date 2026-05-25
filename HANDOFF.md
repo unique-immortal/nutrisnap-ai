@@ -168,6 +168,16 @@ ai-diet-tracker/
 
 ## 6. 最近变更记录 / Recent Changes
 
+### v5.5.11 (最新发布)
+- **CORS 跨域修复 / CORS Config for WebViews**: 允许 `http://localhost`, `https://localhost` 以及 `capacitor://localhost` 等移动端 WebView 源方案，解决手机客户端请求被拦截报“网络连接异常”的问题。
+- **401 自动登出与自愈 / 401 Expiration Auto-Logout**: 在 `safeFetchJSON` 中拦截 401 错误，检测到 Token 过期或无效时，自动清理本地 `authToken` 缓存并跳转回登录页面重新登录，解决客户端因会话失效导致的死锁状态。
+
+### v5.5.10 (最新发布)
+- **弹窗样式修复 / Modal Action Style Fix**: 移除 `.modal-actions` 底部按钮区的冗余粘性（sticky）、高斯模糊与背景设置，修复了“基础代谢 (BMR)”与“自定义饮水”等弹窗在轻量模式下显示白色硬色块的视觉 Bug。
+- **安全密钥清理与配置 / Keystore Safety Hardening**: 从 Git 跟踪中移除敏感的 `debug.keystore` 和日志文件；GitHub Actions 编译时改为从 GitHub Repository Secrets 获取 Base64 编码的密钥，确保签名和 overlay 升级的一致性。
+- **无鉴权升级下载 / Public Update Download**: 移除 `/api/update/download` 的 `@token_required` 限制，使旧版客户端无需 Token 也能下载更新包。
+- **Cloud Run 启动修复 / Cloud Run 503 Startup Fix**: 修正了 `gcloud` 环境变量格式将 `TEST_MODE=true` 错误拼入 `JWT_SECRET_KEY` 的问题，确保生产环境下限流器回退机制正常运作。
+
 ### v5.5.0 (当前开发)
 - **数据库迁移至 PostgreSQL / Database Migration to PostgreSQL**: 支持通过 `DATABASE_URL` 环境变量配置连接外部持久化 PostgreSQL 数据库，防止 Cloud Run 重启后数据丢失；同时保留本地 SQLite (`database.db`) 自动回退以保障本地离线开发的便利性。
 - **iOS 适配**: 调整 Capacitor iOS 配置，在 `capacitor.config.json` 中配置 `"iosScheme": "https"`，并优化了 `.glass-header` 的 `padding-top` 样式，加入顶部安全区以适配有刘海或状态栏 of iOS 设备。
@@ -199,7 +209,7 @@ ai-diet-tracker/
 |------|-----|
 | 仓库 | `unique-immortal/nutrisnap-ai` |
 | Token | `ghp_************************************` |
-| 最新 Release | v5.5.0 (当前发布中) |
+| 最新 Release | v5.5.11 (当前发布中) |
 | 线上地址 | https://nutrisnap-ai-940406235442.us-central1.run.app |
 
 ---
@@ -272,4 +282,4 @@ python update_release.py
 
 ---
 
-*最后更新：2026-05-23*
+*最后更新：2026-05-26*
