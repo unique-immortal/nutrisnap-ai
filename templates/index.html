@@ -2299,7 +2299,7 @@ html.dark .onboarding-slide:nth-child(3) {
 <script>
 // ===================== CONFIG =====================
 const API_BASE = "";
-const CLIENT_VERSION = "v5.5.10";
+const CLIENT_VERSION = "v5.5.11";
 
 // Native preferences helper to survive app process kills on mobile
 const NativeStorage = {
@@ -2363,6 +2363,14 @@ async function safeFetchJSON(url, options = {}) {
   }
   const response = await fetch(url, options);
   if (!response.ok) {
+    if (response.status === 401 && !url.includes('/api/login') && !url.includes('/api/register')) {
+      localStorage.removeItem('authToken');
+      NativeStorage.removeItem('authToken').catch(console.error);
+      setTimeout(() => {
+        showToast('登录已过期或认证无效，请重新登录', 'error');
+        logoutWithoutFlush();
+      }, 100);
+    }
     let errMsg = `HTTP error! status: ${response.status}`;
     try {
       const contentType = response.headers.get('content-type') || '';
@@ -3640,13 +3648,27 @@ async function loginAsGuest() {
   switchTab('home');
 }
 
-async function logout() {
-  if (canSyncUserData()) await flushMealSyncQueue();
+async function logoutWithoutFlush() {
   await NativeStorage.removeItem('currentUser');
   await NativeStorage.removeItem('authToken');
   storageMode = 'local';
   await NativeStorage.setItem('storageMode', 'local');
   showAuthOverlay();
+}
+
+async function logout() {
+  if (canSyncUserData()) {
+    try {
+      await flushMealSyncQueue();
+    } catch (e) {
+      console.warn('Sync failed during logout:', e);
+    }
+  }
+  await logoutWithoutFlush();
+
+
+
+
 }
 
 // ===================== TAB SWITCHING =====================
