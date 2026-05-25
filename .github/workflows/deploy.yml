@@ -10,9 +10,9 @@ jobs:
     name: Deploy Job
     runs-on: ubuntu-latest
 
-    # Add permissions required for Workload Identity Federation
+    # Add permissions required for Workload Identity Federation and Releases
     permissions:
-      contents: 'read'
+      contents: 'write'
       id-token: 'write'
 
     steps:
@@ -127,3 +127,9 @@ jobs:
           --image gcr.io/tensile-imprint-496808-v5/nutrisnap-ai:v4 \
           --region us-central1 \
           --allow-unauthenticated
+
+    - name: Update GitHub Release
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        python update_release.py
