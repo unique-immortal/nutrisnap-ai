@@ -5,15 +5,18 @@ import sqlite3
 try:
     import psycopg2
     import psycopg2.extras
+    import psycopg2.pool
 except ImportError:
     psycopg2 = None
 
 import datetime
 import re
 import hashlib
+import hmac
 import jwt
 import functools
 import requests
+from urllib.parse import urlparse
 from dotenv import load_dotenv
 from flask import Flask, request, jsonify, render_template, send_from_directory, make_response, redirect
 from flask_cors import CORS
@@ -23,24 +26,62 @@ from google import genai
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
 import PIL.Image
+from PIL import UnidentifiedImageError
 import glob
 
 # 加载 .env 文件（仅本地开发使用，Cloud Run 通过环境变量注入）
 load_dotenv()
 
 app = Flask(__name__)
-CORS(app)
+default_cors_origins = [] if os.environ.get('K_SERVICE') else [
+    'http://localhost:5000',
+    'http://127.0.0.1:5000',
+    'http://localhost:8080',
+    'capacitor://localhost',
+]
+cors_origins = [o.strip() for o in os.environ.get('CORS_ORIGINS', '').split(',') if o.strip()]
+CORS(app, origins=cors_origins or default_cors_origins, supports_credentials=True)
 
 # JWT 密钥（优先从环境变量读取）
-JWT_SECRET_KEY = os.environ.get('JWT_SECRET_KEY', 'nutrisnap-jwt-secret-change-in-production')
+DEFAULT_JWT_SECRET_KEY = 'nutrisnap-jwt-secret-change-in-production'
+JWT_SECRET_KEY = os.environ.get('JWT_SECRET_KEY')
+if not JWT_SECRET_KEY:
+    if os.environ.get('K_SERVICE'):
+        raise RuntimeError('JWT_SECRET_KEY must be set in production')
+    JWT_SECRET_KEY = DEFAULT_JWT_SECRET_KEY
 JWT_EXPIRATION_HOURS = int(os.environ.get('JWT_EXPIRATION_HOURS', '72'))
 
 # Flask-Limiter 速率限制
-app.config['RATELIMIT_STORAGE_URI'] = 'memory://'
+app.config['MAX_CONTENT_LENGTH'] = int(os.environ.get('MAX_CONTENT_LENGTH', 16 * 1024 * 1024))
+app.config['RATELIMIT_STORAGE_URI'] = os.environ.get('RATELIMIT_STORAGE_URI', 'memory://')
+if os.environ.get('K_SERVICE') and app.config['RATELIMIT_STORAGE_URI'] == 'memory://':
+    raise RuntimeError('RATELIMIT_STORAGE_URI must use a shared store in production')
 app.config['RATELIMIT_DEFAULT'] = '60 per minute'
 if os.environ.get('TEST_MODE') == 'true':
     app.config['RATELIMIT_ENABLED'] = False
 limiter = Limiter(key_func=get_remote_address, app=app)
+
+MAX_TEXT_INPUT_CHARS = int(os.environ.get('MAX_TEXT_INPUT_CHARS', '4000'))
+MAX_CHAT_HISTORY_ITEMS = int(os.environ.get('MAX_CHAT_HISTORY_ITEMS', '20'))
+MAX_AUDIO_UPLOAD_BYTES = int(os.environ.get('MAX_AUDIO_UPLOAD_BYTES', 8 * 1024 * 1024))
+
+def get_bearer_token():
+    auth_header = request.headers.get('Authorization', '')
+    if auth_header.startswith('Bearer '):
+        return auth_header[7:]
+    return request.args.get('token')
+
+def user_or_ip_limit_key():
+    token = get_bearer_token()
+    if token:
+        try:
+            data = jwt.decode(token, JWT_SECRET_KEY, algorithms=['HS256'])
+            username = data.get('username')
+            if username:
+                return f'user:{username}'
+        except jwt.InvalidTokenError:
+            pass
+    return f'ip:{get_remote_address()}'
 
 # ==========================================
 # 1. 基础配置
@@ -118,10 +159,12 @@ def call_llm(prompt_text, image=None, audio=None, mime_type=None, history=None, 
             # Encode audio bytes to base64
             audio_b64 = base64.b64encode(audio).decode('utf-8')
             mtype = mime_type or 'audio/webm'
+            audio_format = mtype.split(';', 1)[0].split('/')[-1].lower()
             user_content.append({
-                "type": "image_url",
-                "image_url": {
-                    "url": f"data:{mtype};base64,{audio_b64}"
+                "type": "input_audio",
+                "input_audio": {
+                    "data": audio_b64,
+                    "format": audio_format
                 }
             })
             
@@ -137,8 +180,6 @@ def call_llm(prompt_text, image=None, audio=None, mime_type=None, history=None, 
                 'nvidia/nemotron-nano-12b-v2-vl:free',
                 'google/gemini-2.5-flash',
                 'google/gemini-2.5-flash-lite',
-                'google/gemini-2.0-flash',
-                'google/gemini-1.5-flash',
             ]
         else:
             models_to_try = [
@@ -148,8 +189,6 @@ def call_llm(prompt_text, image=None, audio=None, mime_type=None, history=None, 
                 'openrouter/free',
                 'google/gemini-2.5-flash',
                 'google/gemini-2.5-flash-lite',
-                'google/gemini-2.0-flash',
-                'google/gemini-1.5-flash',
             ]
         
         last_error = None
@@ -186,10 +225,10 @@ def call_llm(prompt_text, image=None, audio=None, mime_type=None, history=None, 
             
         models_to_try = [
             'gemini-3.5-flash',
+            'gemini-3.1-flash-lite',
             'gemini-2.5-flash',
             'gemini-2.5-flash-lite',
             'gemini-2.0-flash',
-            'gemini-3.1-flash-lite',
         ]
         
         # GenAI SDK contents format
@@ -256,7 +295,7 @@ def call_llm(prompt_text, image=None, audio=None, mime_type=None, history=None, 
 # ==========================================
 def get_sqlite_path():
     if 'K_SERVICE' in os.environ:
-        return '/tmp/database.db'
+        raise RuntimeError('DATABASE_URL must be set in Cloud Run; refusing to use ephemeral SQLite')
     return 'database.db'
 
 def column_exists(cursor, table_name, column_name, is_postgres):
@@ -279,7 +318,7 @@ def translate_sql(sql, is_postgres):
         return sql
     
     # 1. Translate daily summaries INSERT OR REPLACE to ON CONFLICT DO UPDATE
-    if "INSERT OR REPLACE INTO daily_summaries" in sql or "INSERT OR REPLACE INTO daily_summaries" in sql.upper():
+    if "INSERT OR REPLACE INTO DAILY_SUMMARIES" in sql.upper():
         return """
             INSERT INTO daily_summaries (
                 username, date, total_calories, total_protein, total_carbs, total_fat,
@@ -306,9 +345,28 @@ def translate_sql(sql, is_postgres):
     sql = re.sub(r"datetime\(\s*created_at\s*\)", "CAST(created_at AS TIMESTAMP)", sql, flags=re.IGNORECASE)
 
     # 3. Replace SQLite placeholder ? with PostgreSQL %s
-    sql = sql.replace('?', '%s')
+    sql = replace_sqlite_placeholders(sql)
     
     return sql
+
+def replace_sqlite_placeholders(sql):
+    result = []
+    in_single_quote = False
+    in_double_quote = False
+    i = 0
+    while i < len(sql):
+        ch = sql[i]
+        if ch == "'" and not in_double_quote:
+            if i + 1 < len(sql) and sql[i + 1] == "'":
+                result.append("''")
+                i += 2
+                continue
+            in_single_quote = not in_single_quote
+        elif ch == '"' and not in_single_quote:
+            in_double_quote = not in_double_quote
+        result.append('%s' if ch == '?' and not in_single_quote and not in_double_quote else ch)
+        i += 1
+    return ''.join(result)
 
 class PgRowWrapper:
     def __init__(self, col_names, values):
@@ -371,9 +429,10 @@ class DbCursor:
         return getattr(self._cursor, name)
 
 class DbConnection:
-    def __init__(self, conn, is_postgres):
+    def __init__(self, conn, is_postgres, pool_ref=None):
         self._conn = conn
         self._is_postgres = is_postgres
+        self._pool_ref = pool_ref
         if not is_postgres:
             self._conn.row_factory = sqlite3.Row
 
@@ -392,7 +451,25 @@ class DbConnection:
         self._conn.rollback()
 
     def close(self):
-        self._conn.close()
+        if self._conn is None:
+            return
+        if self._pool_ref is not None:
+            self._pool_ref.putconn(self._conn)
+        else:
+            self._conn.close()
+        self._conn = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        self.close()
+
+    def __del__(self):
+        try:
+            self.close()
+        except Exception:
+            pass
 
     @property
     def row_factory(self):
@@ -409,28 +486,53 @@ class DbConnection:
         return getattr(self._conn, name)
 
 INTEGRITY_ERRORS = (sqlite3.IntegrityError, psycopg2.IntegrityError) if psycopg2 else (sqlite3.IntegrityError,)
+POSTGRES_POOL = None
+
+def is_postgres_url(db_url):
+    return bool(db_url and (db_url.startswith('postgres://') or db_url.startswith('postgresql://')))
+
+def normalize_postgres_url(db_url):
+    if db_url.startswith('postgres://'):
+        return db_url.replace('postgres://', 'postgresql://', 1)
+    return db_url
+
+def validate_postgres_url(conn_str):
+    parsed = urlparse(conn_str)
+    hostname = parsed.hostname or ''
+    port = parsed.port or 5432
+    require_pooler = os.environ.get('REQUIRE_SUPABASE_POOLER', 'true').lower() == 'true'
+    if os.environ.get('K_SERVICE') and require_pooler and 'supabase' in hostname and port != 6543:
+        raise RuntimeError('Supabase DATABASE_URL must use the connection pooler port 6543 in production')
+
+def open_postgres_connection(db_url):
+    if not psycopg2:
+        raise RuntimeError('DATABASE_URL is set but psycopg2-binary is not installed')
+    conn_str = normalize_postgres_url(db_url)
+    validate_postgres_url(conn_str)
+    return psycopg2.connect(conn_str)
+
+def get_postgres_pool(db_url):
+    global POSTGRES_POOL
+    if not psycopg2:
+        raise RuntimeError('DATABASE_URL is set but psycopg2-binary is not installed')
+    if POSTGRES_POOL is None:
+        conn_str = normalize_postgres_url(db_url)
+        validate_postgres_url(conn_str)
+        POSTGRES_POOL = psycopg2.pool.ThreadedConnectionPool(
+            minconn=int(os.environ.get('POSTGRES_POOL_MINCONN', '1')),
+            maxconn=int(os.environ.get('POSTGRES_POOL_MAXCONN', '8')),
+            dsn=conn_str
+        )
+    return POSTGRES_POOL
 
 def init_db():
     is_postgres = False
     db_url = os.environ.get('DATABASE_URL')
-    if db_url and (db_url.startswith('postgres://') or db_url.startswith('postgresql://')):
+    if is_postgres_url(db_url):
         is_postgres = True
 
     if is_postgres:
-        if not psycopg2:
-            print("DATABASE_URL is set but psycopg2-binary is not installed! Falling back to SQLite.")
-            conn_raw = sqlite3.connect(get_sqlite_path())
-            is_postgres = False
-        else:
-            try:
-                conn_str = db_url
-                if conn_str.startswith('postgres://'):
-                    conn_str = conn_str.replace('postgres://', 'postgresql://', 1)
-                conn_raw = psycopg2.connect(conn_str)
-            except Exception as e:
-                print(f"Failed to connect to PostgreSQL: {e}. Falling back to SQLite.")
-                conn_raw = sqlite3.connect(get_sqlite_path())
-                is_postgres = False
+        conn_raw = open_postgres_connection(db_url)
     else:
         conn_raw = sqlite3.connect(get_sqlite_path())
 
@@ -528,7 +630,18 @@ def init_db():
     cursor.execute("UPDATE meals SET session_id = 'legacy_' || CAST(id AS TEXT) WHERE session_id IS NULL")
     cursor.execute("UPDATE meals SET username = 'anonymous' WHERE username IS NULL")
     cursor.execute("UPDATE meals SET client_id = 'server_' || CAST(id AS TEXT) WHERE client_id IS NULL")
-    cursor.execute("UPDATE meals SET updated_at = CAST(COALESCE(created_at, CURRENT_TIMESTAMP) AS TEXT) WHERE updated_at IS NULL")
+    if is_postgres:
+        cursor.execute("""
+            UPDATE meals
+            SET updated_at = to_char(COALESCE(created_at, CURRENT_TIMESTAMP), 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+            WHERE updated_at IS NULL
+        """)
+    else:
+        cursor.execute("""
+            UPDATE meals
+            SET updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', COALESCE(created_at, CURRENT_TIMESTAMP))
+            WHERE updated_at IS NULL
+        """)
 
     # 5. weight_logs table
     cursor.execute(f'''
@@ -550,35 +663,25 @@ def init_db():
     conn.commit()
     conn.close()
 
-init_db()
+if os.environ.get('RUN_DB_MIGRATIONS') == 'true' or not os.environ.get('K_SERVICE'):
+    init_db()
 
 @app.errorhandler(404)
 def not_found(e):
     if request.path.startswith('/api/'):
         return jsonify({"error": "API endpoint not found", "path": request.path}), 404
-    return render_template('index.html')
+    return render_template('index.html'), 404
 
 def get_db_connection():
     is_postgres = False
     db_url = os.environ.get('DATABASE_URL')
-    if db_url and (db_url.startswith('postgres://') or db_url.startswith('postgresql://')):
+    if is_postgres_url(db_url):
         is_postgres = True
 
     if is_postgres:
-        if not psycopg2:
-            print("DATABASE_URL is set but psycopg2-binary is not installed! Falling back to SQLite.")
-            conn_raw = sqlite3.connect(get_sqlite_path())
-            is_postgres = False
-        else:
-            try:
-                conn_str = db_url
-                if conn_str.startswith('postgres://'):
-                    conn_str = conn_str.replace('postgres://', 'postgresql://', 1)
-                conn_raw = psycopg2.connect(conn_str)
-            except Exception as e:
-                print(f"Failed to connect to PostgreSQL: {e}. Falling back to SQLite.")
-                conn_raw = sqlite3.connect(get_sqlite_path())
-                is_postgres = False
+        pool_ref = get_postgres_pool(db_url)
+        conn_raw = pool_ref.getconn()
+        return DbConnection(conn_raw, True, pool_ref)
     else:
         conn_raw = sqlite3.connect(get_sqlite_path())
 
@@ -592,7 +695,8 @@ def get_latest_release_info():
     # Target regex for update_release.py: "version": "v5.5.0"
     fallback_version = "v5.5.9"
     try:
-        files = glob.glob("RELEASE_NOTES_*.md")
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        files = glob.glob(os.path.join(base_dir, "RELEASE_NOTES_*.md"))
         if not files:
             return fallback_version, "本次更新包含性能优化与体验改进。"
         
@@ -631,10 +735,10 @@ def health():
         "architecture": "local-first + throttled-meal-sync + server-daily-summaries + OpenRouter",
         "models": [
             'gemini-3.5-flash',
+            'gemini-3.1-flash-lite',
             'gemini-2.5-flash',
             'gemini-2.5-flash-lite',
             'gemini-2.0-flash',
-            'gemini-3.1-flash-lite',
         ]
     })
 
@@ -648,17 +752,13 @@ def update_info():
     })
 
 @app.route('/api/update/download')
+@token_required
 def download_update():
-    token = request.args.get('token')
-    if not token:
-        return jsonify({"error": "未提供认证令牌"}), 401
-    try:
-        data = jwt.decode(token, JWT_SECRET_KEY, algorithms=['HS256'])
-        return send_from_directory('static', 'app-debug.apk', as_attachment=True)
-    except jwt.ExpiredSignatureError:
-        return jsonify({"error": "令牌已过期，请重新登录"}), 401
-    except jwt.InvalidTokenError:
-        return jsonify({"error": "无效的认证令牌"}), 401
+    allowed_users = {u.strip() for u in os.environ.get('UPDATE_DOWNLOAD_USERS', '').split(',') if u.strip()}
+    username = get_current_username()
+    if allowed_users and username not in allowed_users:
+        return jsonify({"error": "No permission to download this update"}), 403
+    return send_from_directory('static', 'app-debug.apk', as_attachment=True)
 
 def parse_ai_multi_result(raw_text):
     """解析 AI JSON 输出，返回食物列表"""
@@ -700,15 +800,17 @@ def parse_ai_multi_result(raw_text):
     # Normalize
     normalized = []
     for item in items:
+        if not isinstance(item, dict):
+            continue
         normalized.append({
-            'food_name': item.get('food_name', '未知食物'),
-            'calories': item.get('calories', 0),
-            'protein': item.get('protein', 0),
-            'carbs': item.get('carbs', 0),
-            'fat': item.get('fat', 0),
-            'weight': item.get('weight', 100),
+            'food_name': clean_text(item.get('food_name'), default='Unknown food', max_len=120),
+            'calories': clamp_number(item.get('calories'), default=0, min_value=0, max_value=5000),
+            'protein': clamp_number(item.get('protein'), default=0, min_value=0, max_value=300),
+            'carbs': clamp_number(item.get('carbs'), default=0, min_value=0, max_value=500),
+            'fat': clamp_number(item.get('fat'), default=0, min_value=0, max_value=300),
+            'weight': clamp_number(item.get('weight'), default=100, min_value=1, max_value=2000),
         })
-    return normalized
+    return normalized or None
 
 
 @app.route('/')
@@ -750,10 +852,7 @@ def token_required(f):
     """JWT 验证装饰器"""
     @functools.wraps(f)
     def decorated(*args, **kwargs):
-        token = None
-        auth_header = request.headers.get('Authorization', '')
-        if auth_header.startswith('Bearer '):
-            token = auth_header[7:]
+        token = get_bearer_token()
         
         if not token:
             return jsonify({"error": "未提供认证令牌"}), 401
@@ -774,8 +873,7 @@ def get_current_username():
     # 优先从 JWT 获取
     if hasattr(request, 'current_user'):
         return request.current_user
-    # 兼容旧的 X-User-Id header
-    return request.headers.get('X-User-Id') or 'anonymous'
+    return None
 
 def validate_profile_payload(data):
     try:
@@ -865,6 +963,7 @@ def upsert_daily_summary(cursor, username, summary):
     return True
 
 @app.route('/api/register', methods=['POST'])
+@limiter.limit("5 per minute")
 def register():
     data = request.get_json() or {}
     username = data.get('username', '').strip()
@@ -882,10 +981,7 @@ def register():
         pw_hash = hash_password(password)
 
         if existing:
-            if existing['password_hash']:
-                return jsonify({"error": "用户名已存在，请换一个用户名或直接登录"}), 409
-            # Profiles can create placeholder rows before a real registration.
-            cursor.execute("UPDATE users SET password_hash = ? WHERE username = ?", (pw_hash, username))
+            return jsonify({"error": "用户名已存在，请换一个用户名或直接登录"}), 409
         else:
             cursor.execute("INSERT INTO users (username, password_hash) VALUES (?, ?)", (username, pw_hash))
         conn.commit()
@@ -894,7 +990,8 @@ def register():
     except INTEGRITY_ERRORS:
         return jsonify({"error": "用户名已存在，请换一个用户名或直接登录"}), 409
     except Exception as e:
-        return jsonify({"error": f"注册失败: {str(e)}"}), 500
+        print(f"Register error: {e}")
+        return jsonify({"error": "注册失败，请稍后重试"}), 500
     finally:
         conn.close()
 
@@ -917,7 +1014,7 @@ def login():
             stored_hash = row['password_hash']
             if verify_password(password, stored_hash):
                 pass
-            elif stored_hash == hashlib.sha256(password.encode('utf-8')).hexdigest():
+            elif hmac.compare_digest(stored_hash, hashlib.sha256(password.encode('utf-8')).hexdigest()):
                 # 旧密码格式，自动升级为 werkzeug hash
                 new_hash = hash_password(password)
                 cursor.execute("UPDATE users SET password_hash = ? WHERE username = ?", (new_hash, username))
@@ -930,7 +1027,8 @@ def login():
         else:
             return jsonify({"error": "用户名或密码错误"}), 400
     except Exception as e:
-        return jsonify({"error": f"登录失败: {str(e)}"}), 500
+        print(f"Login error: {e}")
+        return jsonify({"error": "登录失败，请稍后重试"}), 500
     finally:
         conn.close()
 
@@ -939,6 +1037,8 @@ def login():
 # ==========================================
 
 @app.route('/api/analyze', methods=['POST'])
+@token_required
+@limiter.limit("10 per minute", key_func=user_or_ip_limit_key)
 def analyze_food():
     if 'image' not in request.files:
         return jsonify({"error": "没有找到图片"}), 400
@@ -948,14 +1048,24 @@ def analyze_food():
         return jsonify({"error": "图片名为空"}), 400
 
     is_app = request.form.get('is_app') == 'true' or request.args.get('is_app') == 'true'
-    username = request.headers.get('X-User-Id') or 'anonymous'
+    username = get_current_username()
 
-    filename = secure_filename(file.filename)
+    if not file.mimetype or not file.mimetype.startswith('image/'):
+        return jsonify({"error": "Only image uploads are supported"}), 400
+
+    original_name = secure_filename(file.filename or '')
+    ext = os.path.splitext(original_name)[1].lower()
+    if ext not in ('.jpg', '.jpeg', '.png', '.webp'):
+        ext = '.jpg'
+    filename = f"{uuid.uuid4().hex}{ext}"
     filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
     file.save(filepath)
 
     try:
-        img = PIL.Image.open(filepath)
+        with PIL.Image.open(filepath) as probe:
+            probe.verify()
+        with PIL.Image.open(filepath) as opened:
+            img = opened.convert('RGB')
 
         prompt = """分析这张图片中的所有食物。对每种食物分别返回以下信息，用 JSON 数组格式：
 [
@@ -983,7 +1093,7 @@ Strictly output JSON only, do not add any explanation or markdown formatting."""
         session_id = str(uuid.uuid4())
         saved = []
         for i, food in enumerate(foods):
-            food['id'] = int(datetime.datetime.now().timestamp() * 1000) + i
+            food['id'] = uuid.uuid4().hex
             food['portion'] = 1.0
             saved.append(food)
 
@@ -994,9 +1104,11 @@ Strictly output JSON only, do not add any explanation or markdown formatting."""
             "image_url": ""
         })
 
+    except UnidentifiedImageError:
+        return jsonify({"error": "Invalid image file"}), 400
     except Exception as e:
         print(f"Error calling AI API: {e}")
-        return jsonify({"error": f"AI识别失败，详细错误: {str(e)}"}), 500
+        return jsonify({"error": "AI image analysis failed. Please try again later."}), 500
     finally:
         # Clean up temp file immediately — meals are stored locally, not on server
         if os.path.exists(filepath):
@@ -1021,12 +1133,12 @@ def parse_voice_input_result(raw_text):
         for f in foods:
             if isinstance(f, dict):
                 normalized_foods.append({
-                    'food_name': f.get('food_name', '未知食物'),
-                    'calories': int(f.get('calories', 0)),
-                    'protein': int(f.get('protein', 0)),
-                    'carbs': int(f.get('carbs', 0)),
-                    'fat': int(f.get('fat', 0)),
-                    'weight': int(f.get('weight', 100))
+                    'food_name': clean_text(f.get('food_name'), default='Unknown food', max_len=120),
+                    'calories': clamp_number(f.get('calories'), default=0, min_value=0, max_value=5000),
+                    'protein': clamp_number(f.get('protein'), default=0, min_value=0, max_value=300),
+                    'carbs': clamp_number(f.get('carbs'), default=0, min_value=0, max_value=500),
+                    'fat': clamp_number(f.get('fat'), default=0, min_value=0, max_value=300),
+                    'weight': clamp_number(f.get('weight'), default=100, min_value=1, max_value=2000)
                 })
                 
         # 规范化运动列表
@@ -1040,9 +1152,9 @@ def parse_voice_input_result(raw_text):
                 else:
                     muscles_str = str(muscles).strip()
                 normalized_exercises.append({
-                    'exercise_name': ex.get('exercise_name', '未知运动'),
-                    'calories': int(ex.get('calories', 0)),
-                    'duration': int(ex.get('duration', 0)),
+                    'exercise_name': clean_text(ex.get('exercise_name'), default='Unknown exercise', max_len=120),
+                    'calories': clamp_number(ex.get('calories'), default=0, min_value=0, max_value=5000),
+                    'duration': clamp_number(ex.get('duration'), default=0, min_value=0, max_value=600),
                     'exercise_type': ex.get('exercise_type', 'aerobic'),
                     'target_muscles': muscles_str
                 })
@@ -1062,15 +1174,19 @@ def parse_voice_input_result(raw_text):
         }
 
 @app.route('/api/voice-input', methods=['POST'])
+@token_required
+@limiter.limit("10 per minute", key_func=user_or_ip_limit_key)
 def voice_input():
     """语音输入：用 Gemini 自动分辨运动与食物并解析提取"""
     data = request.json or {}
     text = data.get('text', '')
     is_app = data.get('is_app') == True
-    username = request.headers.get('X-User-Id') or 'anonymous'
+    username = get_current_username()
 
     if not text:
         return jsonify({"error": "语音文本为空"}), 400
+    if len(text) > MAX_TEXT_INPUT_CHARS:
+        return jsonify({"error": "Input text is too long"}), 413
 
     prompt = f"""分析用户通过语音或文本输入的内容，自动识别并提取其中的食物摄入信息与运动消耗信息。
 用户输入："{text}"
@@ -1113,12 +1229,12 @@ Strictly output JSON only, do not add any explanation or markdown formatting."""
 
         # Generate temporary IDs for the client to store locally.
         for i, food in enumerate(parsed['foods']):
-            food['id'] = int(datetime.datetime.now().timestamp() * 1000) + i
+            food['id'] = uuid.uuid4().hex
             food['portion'] = 1.0
             saved_foods.append(food)
             
         for i, ex in enumerate(parsed['exercises']):
-            ex['id'] = int(datetime.datetime.now().timestamp() * 1000) + 100 + i
+            ex['id'] = uuid.uuid4().hex
             saved_exercises.append(ex)
 
         return jsonify({
@@ -1132,10 +1248,12 @@ Strictly output JSON only, do not add any explanation or markdown formatting."""
 
     except Exception as e:
         print(f"Voice input error: {e}")
-        return jsonify({"error": f"语音识别失败: {str(e)}"}), 500
+        return jsonify({"error": "语音识别失败，请稍后重试"}), 500
 
 
 @app.route('/api/speech-to-text', methods=['POST'])
+@token_required
+@limiter.limit("10 per minute", key_func=user_or_ip_limit_key)
 def speech_to_text():
     """将上传的语音文件通过 Gemini 2.5/2.0 转写为文字"""
     if 'audio' not in request.files:
@@ -1159,6 +1277,8 @@ def speech_to_text():
         audio_bytes = audio_file.read()
         if len(audio_bytes) < 100:
             return jsonify({"error": "音频文件过小或无效"}), 400
+        if len(audio_bytes) > MAX_AUDIO_UPLOAD_BYTES:
+            return jsonify({"error": "Audio file is too large"}), 413
 
         prompt = "请将这段录音直接转写成中文文本，不要包含任何额外的引导语、标点纠正解释，仅输出转写文本本身。如果是静音或没有说话，请直接返回空字符串。"
         result_text = call_llm(prompt_text=prompt, audio=audio_bytes, mime_type=mime_type)
@@ -1172,46 +1292,46 @@ def speech_to_text():
 
     except Exception as e:
         print(f"Speech to text API error: {e}")
-        return jsonify({"error": f"语音听写失败: {str(e)}"}), 500
+        return jsonify({"error": "语音听写失败，请稍后重试"}), 500
 
 
 @app.route('/api/meals', methods=['GET'])
+@token_required
 def get_meals():
-    username = request.headers.get('X-User-Id') or 'anonymous'
-    conn = get_db_connection()
-    meals = conn.execute('''
-        SELECT id, client_id, image_path, food_name,
-               CAST(calories * COALESCE(portion, 1.0) AS INTEGER) as calories,
-               CAST(protein * COALESCE(portion, 1.0) AS INTEGER) as protein,
-               CAST(carbs * COALESCE(portion, 1.0) AS INTEGER) as carbs,
-               CAST(fat * COALESCE(portion, 1.0) AS INTEGER) as fat,
-               weight, created_at, updated_at, session_id, COALESCE(portion, 1.0) as portion
-        FROM meals
-        WHERE username = ?
-        ORDER BY created_at DESC LIMIT 50
-    ''', (username,)).fetchall()
-    conn.close()
+    username = get_current_username()
+    with get_db_connection() as conn:
+        meals = conn.execute('''
+            SELECT id, client_id, image_path, food_name,
+                   CAST(calories * COALESCE(portion, 1.0) AS INTEGER) as calories,
+                   CAST(protein * COALESCE(portion, 1.0) AS INTEGER) as protein,
+                   CAST(carbs * COALESCE(portion, 1.0) AS INTEGER) as carbs,
+                   CAST(fat * COALESCE(portion, 1.0) AS INTEGER) as fat,
+                   weight, created_at, updated_at, session_id, COALESCE(portion, 1.0) as portion
+            FROM meals
+            WHERE username = ?
+            ORDER BY created_at DESC LIMIT 50
+        ''', (username,)).fetchall()
     return jsonify({"data": [dict(m) for m in meals]})
 
 
 @app.route('/api/meals/sync', methods=['GET', 'POST'])
+@token_required
 def sync_meals():
-    username = request.headers.get('X-User-Id') or 'anonymous'
+    username = get_current_username()
     if username in ('anonymous', 'guest', 'local_user'):
         return jsonify({"error": "请登录后再同步饮食记录"}), 401
 
     if request.method == 'GET':
         limit = min(max(request.args.get('limit', default=500, type=int), 1), 1000)
-        conn = get_db_connection()
-        rows = conn.execute('''
-            SELECT id as server_id, client_id, session_id, food_name, calories, protein, carbs, fat,
-                   weight, COALESCE(portion, 1.0) as portion, created_at, updated_at
-            FROM meals
-            WHERE username = ?
-            ORDER BY datetime(created_at) DESC
-            LIMIT ?
-        ''', (username, limit)).fetchall()
-        conn.close()
+        with get_db_connection() as conn:
+            rows = conn.execute('''
+                SELECT id as server_id, client_id, session_id, food_name, calories, protein, carbs, fat,
+                       weight, COALESCE(portion, 1.0) as portion, created_at, updated_at
+                FROM meals
+                WHERE username = ?
+                ORDER BY datetime(created_at) DESC
+                LIMIT ?
+            ''', (username, limit)).fetchall()
         return jsonify({"success": True, "data": [dict(row) for row in rows]})
 
     data = request.get_json() or {}
@@ -1305,19 +1425,19 @@ def sync_meals():
     except Exception as e:
         conn.rollback()
         print(f"Meal sync error: {e}")
-        return jsonify({"error": f"饮食记录同步失败: {str(e)}"}), 500
+        return jsonify({"error": "饮食记录同步失败，请稍后重试"}), 500
     finally:
         conn.close()
 
 
 @app.route('/api/meals/<int:meal_id>', methods=['PATCH', 'DELETE'])
+@token_required
 def meal_action(meal_id):
-    username = request.headers.get('X-User-Id') or 'anonymous'
+    username = get_current_username()
     if request.method == 'DELETE':
-        conn = get_db_connection()
-        conn.execute('DELETE FROM meals WHERE id = ? AND username = ?', (meal_id, username))
-        conn.commit()
-        conn.close()
+        with get_db_connection() as conn:
+            conn.execute('DELETE FROM meals WHERE id = ? AND username = ?', (meal_id, username))
+            conn.commit()
         return jsonify({"success": True})
 
     elif request.method == 'PATCH':
@@ -1325,66 +1445,69 @@ def meal_action(meal_id):
         portion = data.get('portion')
         if portion is None:
             return jsonify({"error": "缺少 portion 参数"}), 400
-        conn = get_db_connection()
-        conn.execute('UPDATE meals SET portion = ? WHERE id = ? AND username = ?', (float(portion), meal_id, username))
-        conn.commit()
-        row = conn.execute('''
-            SELECT id, food_name,
-                   CAST(calories * COALESCE(portion, 1.0) AS INTEGER) as calories,
-                   protein, carbs, fat, portion, session_id
-            FROM meals WHERE id = ? AND username = ?
-        ''', (meal_id, username)).fetchone()
-        conn.close()
+        with get_db_connection() as conn:
+            conn.execute('UPDATE meals SET portion = ? WHERE id = ? AND username = ?', (float(portion), meal_id, username))
+            conn.commit()
+            row = conn.execute('''
+                SELECT id, food_name,
+                       CAST(calories * COALESCE(portion, 1.0) AS INTEGER) as calories,
+                       protein, carbs, fat, portion, session_id
+                FROM meals WHERE id = ? AND username = ?
+            ''', (meal_id, username)).fetchone()
         if row is None:
             return jsonify({"error": "未找到对应的记录"}), 404
         return jsonify({"success": True, "data": dict(row)})
 
 
 @app.route('/api/meals/session/<session_id>', methods=['DELETE'])
+@token_required
 def delete_session(session_id):
-    username = request.headers.get('X-User-Id') or 'anonymous'
-    conn = get_db_connection()
-    conn.execute('DELETE FROM meals WHERE session_id = ? AND username = ?', (session_id, username))
-    conn.commit()
-    conn.close()
+    username = get_current_username()
+    with get_db_connection() as conn:
+        conn.execute('DELETE FROM meals WHERE session_id = ? AND username = ?', (session_id, username))
+        conn.commit()
     return jsonify({"success": True})
 
 
 @app.route('/api/report/weekly', methods=['GET'])
 @app.route('/api/weekly-report', methods=['GET'])
+@token_required
 def weekly_report():
-    username = request.headers.get('X-User-Id') or 'anonymous'
-    conn = get_db_connection()
+    username = get_current_username()
+    since = (datetime.date.today() - datetime.timedelta(days=6)).isoformat()
     
     # Get daily summaries
-    rows = conn.execute('''
-        SELECT
-            date as day,
-            total_calories,
-            total_protein,
-            total_carbs,
-            total_fat,
-            total_burn_calories,
-            total_exercise_duration,
-            total_water
-        FROM daily_summaries
-        WHERE date >= date('now', '-7 days') AND username = ?
-        ORDER BY date ASC
-    ''', (username,)).fetchall()
-    
-    # Get weight data for the same period
-    weight_rows = conn.execute('''
-        SELECT date(recorded_at) as day, weight
-        FROM weight_logs
-        WHERE username = ? AND date(recorded_at) >= date('now', '-7 days')
-        GROUP BY date(recorded_at)
-        ORDER BY day ASC
-    ''', (username,)).fetchall()
-    conn.close()
+    with get_db_connection() as conn:
+        rows = conn.execute('''
+            SELECT
+                date as day,
+                total_calories,
+                total_protein,
+                total_carbs,
+                total_fat,
+                total_burn_calories,
+                total_exercise_duration,
+                total_water
+            FROM daily_summaries
+            WHERE date >= ? AND username = ?
+            ORDER BY date ASC
+        ''', (since, username)).fetchall()
+        
+        # Get weight data for the same period
+        weight_rows = conn.execute('''
+            SELECT substr(recorded_at, 1, 10) as day, weight
+            FROM weight_logs
+            WHERE username = ? AND recorded_at >= ?
+            ORDER BY recorded_at DESC, id DESC
+        ''', (username, since)).fetchall()
 
     # Fill missing dates
     data_map = {row['day']: dict(row) for row in rows}
-    weight_map = {row['day']: row['weight'] for row in weight_rows}
+    weight_map = {}
+    for row in weight_rows:
+        day = str(row['day'])
+        if day not in weight_map:
+            weight_map[day] = row['weight']
     
     report = []
     today = datetime.date.today()
@@ -1419,8 +1542,10 @@ def weekly_report():
 
 
 @app.route('/api/coach/chat', methods=['POST'])
+@token_required
+@limiter.limit("10 per minute", key_func=user_or_ip_limit_key)
 def coach_chat():
-    username = request.headers.get('X-User-Id') or 'anonymous'
+    username = get_current_username()
     data = request.get_json() or {}
     user_message = data.get('message', '')
     history = data.get('history', [])
@@ -1432,6 +1557,10 @@ def coach_chat():
 
     if not user_message and not history:
         return jsonify({"error": "消息内容为空"}), 400
+    if len(str(user_message)) > MAX_TEXT_INPUT_CHARS:
+        return jsonify({"error": "Message is too long"}), 413
+    if not isinstance(history, list) or len(history) > MAX_CHAT_HISTORY_ITEMS:
+        return jsonify({"error": "Chat history is too large"}), 413
 
     meals_summary = []
     total_cal = 0
@@ -1441,12 +1570,12 @@ def coach_chat():
 
     if meals_from_client is not None:
         for row in meals_from_client:
-            portion = float(row.get('portion', 1.0))
-            food_name = row.get('food_name', '未知食物')
-            cal = int(row.get('calories', 0) * portion)
-            pro = int(row.get('protein', 0) * portion)
-            carbs = int(row.get('carbs', 0) * portion)
-            fat = int(row.get('fat', 0) * portion)
+            portion = clamp_number(row.get('portion'), default=1.0, min_value=0.1, max_value=10, integer=False)
+            food_name = clean_text(row.get('food_name'), default='Unknown food', max_len=80).replace('\n', ' ')
+            cal = clamp_number(row.get('calories'), default=0, min_value=0, max_value=5000)
+            pro = clamp_number(row.get('protein'), default=0, min_value=0, max_value=300)
+            carbs = clamp_number(row.get('carbs'), default=0, min_value=0, max_value=500)
+            fat = clamp_number(row.get('fat'), default=0, min_value=0, max_value=300)
             meals_summary.append(
                 f"- {food_name}: {cal} kcal (蛋白质 {pro}g, 碳水 {carbs}g, 脂肪 {fat}g, 分量 {portion}x)"
             )
@@ -1463,15 +1592,14 @@ def coach_chat():
             
         meals_context = f"用户今日饮食明细：\n{meals_detail}\n累计摄入：热量 {total_cal} kcal，蛋白质 {total_pro}g，碳水 {total_carbs}g，脂肪 {total_fat}g，饮水量 {total_water}ml。"
     else:
-        conn = get_db_connection()
-        cursor = conn.cursor()
         today_str = datetime.date.today().isoformat()
-        row = cursor.execute('''
-            SELECT total_calories, total_protein, total_carbs, total_fat, total_water
-            FROM daily_summaries
-            WHERE date = ? AND username = ?
-        ''', (today_str, username)).fetchone()
-        conn.close()
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            row = cursor.execute('''
+                SELECT total_calories, total_protein, total_carbs, total_fat, total_water
+                FROM daily_summaries
+                WHERE date = ? AND username = ?
+            ''', (today_str, username)).fetchone()
 
         if row:
             total_cal = row['total_calories'] or 0
@@ -1498,15 +1626,14 @@ def coach_chat():
         ex_detail = "\n".join(ex_summary) if ex_summary else "无运动记录"
         meals_context += f"\n\n用户今日运动明细：\n{ex_detail}\n累计消耗：{total_burn} kcal，运动时长 {total_duration} 分钟。"
     else:
-        conn = get_db_connection()
-        cursor = conn.cursor()
         today_str = datetime.date.today().isoformat()
-        row = cursor.execute('''
-            SELECT total_burn_calories, total_exercise_duration
-            FROM daily_summaries
-            WHERE date = ? AND username = ?
-        ''', (today_str, username)).fetchone()
-        conn.close()
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            row = cursor.execute('''
+                SELECT total_burn_calories, total_exercise_duration
+                FROM daily_summaries
+                WHERE date = ? AND username = ?
+            ''', (today_str, username)).fetchone()
 
         if row:
             total_burn = row['total_burn_calories'] or 0
@@ -1540,7 +1667,8 @@ def coach_chat():
             temperature=0.7
         )
     except Exception as api_err:
-        return jsonify({"error": f"AI 营养教练服务繁忙，请稍后再试。详细错误: {str(api_err)}"}), 500
+        print(f"Coach chat error: {api_err}")
+        return jsonify({"error": "AI 营养教练服务繁忙，请稍后再试。"}), 500
 
     return jsonify({
         "success": True,
@@ -1553,43 +1681,42 @@ def coach_chat():
 # ==========================================
 
 @app.route('/api/profile', methods=['GET', 'POST'])
+@token_required
 def profile_bmr():
-    username = request.headers.get('X-User-Id') or 'anonymous'
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    # Ensure user exists in users table
-    cursor.execute("SELECT 1 FROM users WHERE username = ?", (username,))
-    if not cursor.fetchone():
-        cursor.execute("INSERT INTO users (username, password_hash) VALUES (?, '')", (username,))
-        conn.commit()
-    
-    if request.method == 'POST':
-        data = request.get_json() or {}
-        profile, validation_error = validate_profile_payload(data)
-        if validation_error:
-            conn.close()
-            return jsonify({"error": validation_error}), 400
+    username = get_current_username()
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
         
-        cursor.execute('''
-            UPDATE users 
-            SET gender = ?, age = ?, height = ?, weight = ?, activity_level = ?
-            WHERE username = ?
-        ''', (
-            profile['gender'],
-            profile['age'],
-            profile['height'],
-            profile['weight'],
-            profile['activity_level'],
-            username
-        ))
-        conn.commit()
+        cursor.execute("SELECT 1 FROM users WHERE username = ?", (username,))
+        if not cursor.fetchone():
+            if request.method == 'POST':
+                return jsonify({"error": "User does not exist"}), 404
+            return jsonify({"has_profile": False, "profile": None})
         
-    row = cursor.execute('''
-        SELECT gender, age, height, weight, activity_level
-        FROM users WHERE username = ?
-    ''', (username,)).fetchone()
-    conn.close()
+        if request.method == 'POST':
+            data = request.get_json() or {}
+            profile, validation_error = validate_profile_payload(data)
+            if validation_error:
+                return jsonify({"error": validation_error}), 400
+            
+            cursor.execute('''
+                UPDATE users 
+                SET gender = ?, age = ?, height = ?, weight = ?, activity_level = ?
+                WHERE username = ?
+            ''', (
+                profile['gender'],
+                profile['age'],
+                profile['height'],
+                profile['weight'],
+                profile['activity_level'],
+                username
+            ))
+            conn.commit()
+            
+        row = cursor.execute('''
+            SELECT gender, age, height, weight, activity_level
+            FROM users WHERE username = ?
+        ''', (username,)).fetchone()
     
     if row is None or row['weight'] is None:
         return jsonify({
@@ -1634,60 +1761,54 @@ def profile_bmr():
     })
 
 @app.route('/api/exercises', methods=['GET', 'POST'])
+@token_required
 def manage_exercises():
-    username = request.headers.get('X-User-Id') or 'anonymous'
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    if request.method == 'POST':
-        data = request.get_json() or {}
-        name = data.get('exercise_name', '未知运动').strip()
-        try:
-            calories = int(data.get('calories', 0))
-            duration = int(data.get('duration', 0))
-        except (TypeError, ValueError):
-            conn.close()
-            return jsonify({"error": "运动时长和消耗热量必须是数字"}), 400
-        if duration <= 0 or duration > 600:
-            conn.close()
-            return jsonify({"error": "运动时长需在 1-600 分钟之间"}), 400
-        if calories < 0 or calories > 5000:
-            conn.close()
-            return jsonify({"error": "运动消耗需在 0-5000 kcal 之间"}), 400
-        ex_type = data.get('exercise_type', 'aerobic')
-        if ex_type not in ('aerobic', 'strength'):
-            ex_type = 'aerobic'
-        muscles = data.get('target_muscles', '')
+    username = get_current_username()
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
         
-        cursor.execute('''
-            INSERT INTO exercises (exercise_name, calories, duration, exercise_type, target_muscles, username)
-            VALUES (?, ?, ?, ?, ?, ?)
-        ''', (name, calories, duration, ex_type, muscles, username))
-        conn.commit()
-        
-    rows = cursor.execute('''
-        SELECT id, exercise_name, calories, duration, exercise_type, target_muscles, created_at
-        FROM exercises
-        WHERE username = ?
-        ORDER BY created_at DESC LIMIT 50
-    ''', (username,)).fetchall()
-    conn.close()
+        if request.method == 'POST':
+            data = request.get_json() or {}
+            name = clean_text(data.get('exercise_name'), default='Unknown exercise', max_len=120)
+            calories = clamp_number(data.get('calories'), default=0, min_value=0, max_value=5000)
+            duration = clamp_number(data.get('duration'), default=0, min_value=0, max_value=600)
+            if duration <= 0:
+                return jsonify({"error": "运动时长需在 1-600 分钟之间"}), 400
+            ex_type = data.get('exercise_type', 'aerobic')
+            if ex_type not in ('aerobic', 'strength'):
+                ex_type = 'aerobic'
+            muscles = clean_text(data.get('target_muscles', ''), max_len=240)
+            
+            cursor.execute('''
+                INSERT INTO exercises (exercise_name, calories, duration, exercise_type, target_muscles, username)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (name, calories, duration, ex_type, muscles, username))
+            conn.commit()
+            
+        rows = cursor.execute('''
+            SELECT id, exercise_name, calories, duration, exercise_type, target_muscles, created_at
+            FROM exercises
+            WHERE username = ?
+            ORDER BY created_at DESC LIMIT 50
+        ''', (username,)).fetchall()
     
     return jsonify({"success": True, "data": [dict(r) for r in rows]})
 
 @app.route('/api/exercises/<int:ex_id>', methods=['DELETE'])
+@token_required
 def delete_exercise(ex_id):
-    username = request.headers.get('X-User-Id') or 'anonymous'
-    conn = get_db_connection()
-    conn.execute('DELETE FROM exercises WHERE id = ? AND username = ?', (ex_id, username))
-    conn.commit()
-    conn.close()
+    username = get_current_username()
+    with get_db_connection() as conn:
+        conn.execute('DELETE FROM exercises WHERE id = ? AND username = ?', (ex_id, username))
+        conn.commit()
     return jsonify({"success": True})
 
 @app.route('/api/report/suggestions', methods=['GET', 'POST'])
 @app.route('/api/coach/suggestions', methods=['GET', 'POST'])
+@token_required
+@limiter.limit("10 per minute", key_func=user_or_ip_limit_key)
 def report_suggestions():
-    username = request.headers.get('X-User-Id') or 'anonymous'
+    username = get_current_username()
     
     meals_list = None
     exercises_list = None
@@ -1708,25 +1829,24 @@ def report_suggestions():
             }
             
     if meals_list is None or exercises_list is None:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        if user_row is None:
-            user_row = cursor.execute('''
-                SELECT gender, age, height, weight, activity_level
-                FROM users WHERE username = ?
-            ''', (username,)).fetchone()
-            if user_row:
-                user_row = dict(user_row)
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
             
-        # Retrieve past 7 days daily summaries
-        summaries_db = cursor.execute('''
-            SELECT total_calories, total_protein, total_burn_calories, total_exercise_duration
-            FROM daily_summaries
-            WHERE username = ? AND date >= date('now', '-7 days')
-        ''', (username,)).fetchall()
-        
-        conn.close()
+            if user_row is None:
+                user_row = cursor.execute('''
+                    SELECT gender, age, height, weight, activity_level
+                    FROM users WHERE username = ?
+                ''', (username,)).fetchone()
+                if user_row:
+                    user_row = dict(user_row)
+                
+            # Retrieve past 7 days daily summaries
+            since = (datetime.date.today() - datetime.timedelta(days=6)).isoformat()
+            summaries_db = cursor.execute('''
+                SELECT total_calories, total_protein, total_burn_calories, total_exercise_duration
+                FROM daily_summaries
+                WHERE username = ? AND date >= ?
+            ''', (username, since)).fetchall()
         
         total_cal = 0
         total_pro = 0
@@ -1797,23 +1917,23 @@ def report_suggestions():
         return jsonify({"success": True, "suggestions": response_text})
     except Exception as e:
         print(f"Suggestions generation error: {e}")
-        return jsonify({"success": False, "suggestions": f"AI 营养教练服务繁忙，请稍后再试。详细错误: {str(e)}"})
+        return jsonify({"success": False, "suggestions": "AI 营养教练服务繁忙，请稍后再试。"}), 500
 
 
 @app.route('/api/daily-summaries', methods=['GET', 'POST'])
+@token_required
 def handle_daily_summaries():
-    username = request.headers.get('X-User-Id') or 'anonymous'
+    username = get_current_username()
     
     if request.method == 'GET':
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        rows = cursor.execute('''
-            SELECT date, total_calories, total_protein, total_carbs, total_fat, total_burn_calories, total_exercise_duration, total_water
-            FROM daily_summaries
-            WHERE username = ?
-            ORDER BY date ASC
-        ''', (username,)).fetchall()
-        conn.close()
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            rows = cursor.execute('''
+                SELECT date, total_calories, total_protein, total_carbs, total_fat, total_burn_calories, total_exercise_duration, total_water
+                FROM daily_summaries
+                WHERE username = ?
+                ORDER BY date ASC
+            ''', (username,)).fetchall()
         
         result = [dict(row) for row in rows]
         return jsonify(result)
@@ -1824,11 +1944,10 @@ def handle_daily_summaries():
         if not date_str:
             return jsonify({"error": "缺少日期参数"}), 400
 
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        upsert_daily_summary(cursor, username, data)
-        conn.commit()
-        conn.close()
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            upsert_daily_summary(cursor, username, data)
+            conn.commit()
 
         return jsonify({"success": True})
 
@@ -1866,6 +1985,8 @@ def map_off_nutriments(nutriments):
     }
 
 @app.route('/api/food/search', methods=['GET'])
+@token_required
+@limiter.limit("30 per minute", key_func=user_or_ip_limit_key)
 def food_search():
     """搜索 Open Food Facts 食物数据库"""
     query = request.args.get('q', '').strip()
@@ -1917,11 +2038,15 @@ def food_search():
     except requests.exceptions.Timeout:
         return jsonify({"error": "食物数据库请求超时，请稍后重试"}), 504
     except requests.exceptions.RequestException as e:
-        return jsonify({"error": f"食物数据库请求失败: {str(e)}"}), 502
+        print(f"Food search request error: {e}")
+        return jsonify({"error": "食物数据库请求失败，请稍后重试"}), 502
     except Exception as e:
-        return jsonify({"error": f"搜索失败: {str(e)}"}), 500
+        print(f"Food search error: {e}")
+        return jsonify({"error": "搜索失败，请稍后重试"}), 500
 
 @app.route('/api/food/barcode/<barcode>', methods=['GET'])
+@token_required
+@limiter.limit("30 per minute", key_func=user_or_ip_limit_key)
 def food_barcode(barcode):
     """通过条形码查询 Open Food Facts 食物信息"""
     if not barcode or not barcode.isdigit():
@@ -1955,15 +2080,18 @@ def food_barcode(barcode):
     except requests.exceptions.Timeout:
         return jsonify({"error": "条形码查询超时，请稍后重试"}), 504
     except requests.exceptions.RequestException as e:
-        return jsonify({"error": f"条形码查询失败: {str(e)}"}), 502
+        print(f"Barcode request error: {e}")
+        return jsonify({"error": "条形码查询失败，请稍后重试"}), 502
     except Exception as e:
-        return jsonify({"error": f"条形码查询失败: {str(e)}"}), 500
+        print(f"Barcode lookup error: {e}")
+        return jsonify({"error": "条形码查询失败，请稍后重试"}), 500
 
 # ==========================================
 # 8. 体重追踪 API
 # ==========================================
 
 @app.route('/api/weight', methods=['GET'])
+@token_required
 def get_weight_logs():
     """获取体重历史记录"""
     username = get_current_username()
@@ -1973,16 +2101,15 @@ def get_weight_logs():
     
     since = (datetime.date.today() - datetime.timedelta(days=days)).isoformat()
     
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    rows = cursor.execute('''
-        SELECT id, weight, recorded_at
-        FROM weight_logs
-        WHERE username = ?
-        AND recorded_at >= ?
-        ORDER BY recorded_at ASC
-    ''', (username, since)).fetchall()
-    conn.close()
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        rows = cursor.execute('''
+            SELECT id, weight, recorded_at
+            FROM weight_logs
+            WHERE username = ?
+            AND recorded_at >= ?
+            ORDER BY recorded_at ASC
+        ''', (username, since)).fetchall()
     
     return jsonify({
         "success": True,
@@ -1991,6 +2118,7 @@ def get_weight_logs():
     })
 
 @app.route('/api/weight', methods=['POST'])
+@token_required
 def record_weight():
     """记录体重"""
     username = get_current_username()
@@ -2004,31 +2132,32 @@ def record_weight():
     if weight < 20 or weight > 300:
         return jsonify({"error": "体重需在 20-300 kg 之间"}), 400
     
-    recorded_at = data.get('recorded_at', datetime.date.today().isoformat())
+    recorded_at = str(data.get('recorded_at', datetime.date.today().isoformat())).strip()
+    if not re.fullmatch(r'\d{4}-\d{2}-\d{2}(?:T[0-9:.+-]+Z?)?', recorded_at):
+        return jsonify({"error": "recorded_at must be an ISO date"}), 400
     
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    # 同一天已有记录则更新
-    cursor.execute('''
-        SELECT id FROM weight_logs
-        WHERE username = ? AND date(recorded_at) = date(?)
-    ''', (username, recorded_at))
-    existing = cursor.fetchone()
-    
-    if existing:
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        
+        # 同一天已有记录则更新
         cursor.execute('''
-            UPDATE weight_logs SET weight = ?, recorded_at = ?
-            WHERE id = ?
-        ''', (weight, recorded_at, existing['id']))
-    else:
-        cursor.execute('''
-            INSERT INTO weight_logs (username, weight, recorded_at)
-            VALUES (?, ?, ?)
-        ''', (username, weight, recorded_at))
-    
-    conn.commit()
-    conn.close()
+            SELECT id FROM weight_logs
+            WHERE username = ? AND substr(recorded_at, 1, 10) = substr(?, 1, 10)
+        ''', (username, recorded_at))
+        existing = cursor.fetchone()
+        
+        if existing:
+            cursor.execute('''
+                UPDATE weight_logs SET weight = ?, recorded_at = ?
+                WHERE id = ?
+            ''', (weight, recorded_at, existing['id']))
+        else:
+            cursor.execute('''
+                INSERT INTO weight_logs (username, weight, recorded_at)
+                VALUES (?, ?, ?)
+            ''', (username, weight, recorded_at))
+        
+        conn.commit()
     
     return jsonify({"success": True, "weight": weight, "recorded_at": recorded_at})
 
@@ -2036,4 +2165,4 @@ def record_weight():
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     print(f"Backend server started! Running on port {port}")
-    app.run(host='0.0.0.0', debug=True, port=port)
+    app.run(host='127.0.0.1', debug=os.environ.get('FLASK_DEBUG') == '1', port=port)

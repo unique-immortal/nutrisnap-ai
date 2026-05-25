@@ -8,3 +8,14 @@ www/
 deploy_log.txt
 .env
 *.apk
+*.log
+*.keystore
+*.keystore.base64
+models.txt
+model_list.txt
+scratch/
+tests/
+.uploads/
+out.bin
+test.base64
+job_logs.txt

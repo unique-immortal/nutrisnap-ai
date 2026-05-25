@@ -2808,11 +2808,10 @@ function getCurrentUser() {
 }
 
 function getAuthHeaders() {
-  const user = getCurrentUser() || 'anonymous';
-  return {
-    'X-User-Id': user,
-    'Content-Type': 'application/json'
-  };
+  const headers = { 'Content-Type': 'application/json' };
+  const token = localStorage.getItem('authToken');
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  return headers;
 }
 
 function canSyncUserData() {
@@ -3735,9 +3734,6 @@ async function doAnalyze() {
   }
   
   const headers = {};
-  if (!isLocalMode()) {
-    headers['X-User-Id'] = getCurrentUser() || 'anonymous';
-  }
   
   try {
     const json = await safeFetchJSON(API_BASE + '/api/analyze', { 

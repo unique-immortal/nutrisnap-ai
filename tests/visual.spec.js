@@ -140,3 +140,46 @@ test('记录饮水弹窗 (Custom Water Modal) 视觉验证', async ({ page }) =>
   await expect(page).toHaveScreenshot('water-record-modal.png');
 });
 
+test('教练标签页 (Coach Tab) 视觉验证', async ({ page }) => {
+  await setupApp(page);
+
+  // 切换到“教练”标签页
+  await page.locator('[data-tab="coach"]').click();
+  await expect(page.locator('#page-coach')).toBeVisible();
+
+  // 稳定页面并截图对比
+  await stabilize(page);
+  await expect(page).toHaveScreenshot('coach-tab.png');
+});
+
+test('营养周报标签页 (Report Tab) 视觉验证', async ({ page }) => {
+  await setupApp(page);
+
+  // 切换到“报告”标签页
+  await page.locator('[data-tab="report"]').click();
+  await expect(page.locator('#page-report')).toBeVisible();
+
+  // 稳定页面并截图对比
+  await stabilize(page);
+  await expect(page).toHaveScreenshot('report-tab.png', {
+    mask: [
+      page.locator('#calorieChart'),
+      page.locator('#macroChart'),
+      page.locator('#weightChart')
+    ]
+  });
+});
+
+test('个人中心标签页 (Profile Tab) 视觉验证', async ({ page }) => {
+  await setupApp(page);
+
+  // 切换到“个人”标签页
+  await page.locator('[data-tab="profile"]').click();
+  await expect(page.locator('#page-profile')).toBeVisible();
+
+  // 稳定页面并截图对比
+  await stabilize(page);
+  await expect(page).toHaveScreenshot('profile-tab.png');
+});
+
+

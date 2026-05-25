@@ -12,10 +12,13 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # 创建上传目录
-RUN mkdir -p uploads
+RUN useradd --create-home --shell /usr/sbin/nologin appuser \
+    && mkdir -p uploads \
+    && chown -R appuser:appuser /app
 
 # Cloud Run 会通过环境变量 PORT 告诉你该监听哪个端口
 ENV PORT=8080
+USER appuser
 
 # 用 gunicorn (生产级服务器) 启动 Flask 应用
-CMD exec gunicorn --bind :$PORT --workers 1 --threads 8 --timeout 0 app:app
+CMD exec gunicorn --bind :$PORT --workers 1 --threads 8 --timeout ${GUNICORN_TIMEOUT:-120} app:app
