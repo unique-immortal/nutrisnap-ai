@@ -586,7 +586,8 @@ def init_db():
         ('age', 'INTEGER'),
         ('height', 'REAL' if not is_postgres else 'DOUBLE PRECISION'),
         ('weight', 'REAL' if not is_postgres else 'DOUBLE PRECISION'),
-        ('activity_level', 'TEXT')
+        ('activity_level', 'TEXT'),
+        ('nutrition_goal', 'TEXT')
     ]:
         if not column_exists(cursor, 'users', col, is_postgres):
             try:
@@ -695,8 +696,8 @@ def get_db_connection():
 # ==========================================
 
 def get_latest_release_info():
-    # Target regex for update_release.py: "version": "v5.5.11"
-    fallback_version = "v5.5.11"
+    # Target regex for update_release.py: "version": "v5.6.16"
+    fallback_version = "v5.6.16"
     try:
         base_dir = os.path.dirname(os.path.abspath(__file__))
         files = glob.glob(os.path.join(base_dir, "RELEASE_NOTES_*.md"))
@@ -880,6 +881,7 @@ def validate_profile_payload(data):
         height = float(data.get('height'))
         weight = float(data.get('weight'))
         activity_level = data.get('activity_level') or 'sedentary'
+        nutrition_goal = data.get('nutrition_goal') or data.get('goal') or 'maintain'
     except (TypeError, ValueError):
         return None, "请填写完整且有效的身体参数"
 
@@ -894,13 +896,57 @@ def validate_profile_payload(data):
     if activity_level not in ('sedentary', 'lightly_active', 'moderately_active', 'very_active', 'highly_active'):
         return None, "请选择有效的活动量级别"
 
+    if nutrition_goal not in ('fat_loss', 'maintain', 'muscle_gain'):
+        return None, "Invalid nutrition goal"
+
     return {
         'gender': gender,
         'age': age,
         'height': height,
         'weight': weight,
-        'activity_level': activity_level
+        'activity_level': activity_level,
+        'nutrition_goal': nutrition_goal
     }, None
+
+NUTRITION_GOAL_CONFIGS = {
+    'fat_loss': {'label': 'fat_loss', 'energy_multiplier': 0.85, 'protein_g_per_kg': 2.0, 'fat_ratio': 0.25},
+    'maintain': {'label': 'maintain', 'energy_multiplier': 1.0, 'protein_g_per_kg': 1.6, 'fat_ratio': 0.30},
+    'muscle_gain': {'label': 'muscle_gain', 'energy_multiplier': 1.10, 'protein_g_per_kg': 1.8, 'fat_ratio': 0.25},
+}
+
+def calculate_profile_targets(gender, age, height, weight, activity_level, nutrition_goal='maintain'):
+    w = float(weight)
+    h = float(height)
+    a = int(age)
+    if gender == 'female':
+        bmr = 10 * w + 6.25 * h - 5 * a - 161
+    else:
+        bmr = 10 * w + 6.25 * h - 5 * a + 5
+
+    multipliers = {
+        'sedentary': 1.2,
+        'lightly_active': 1.375,
+        'moderately_active': 1.55,
+        'very_active': 1.725,
+        'highly_active': 1.9
+    }
+    tdee = int(round(bmr * multipliers.get(activity_level, 1.2)))
+    goal = nutrition_goal if nutrition_goal in NUTRITION_GOAL_CONFIGS else 'maintain'
+    config = NUTRITION_GOAL_CONFIGS[goal]
+    calorie_target = int(round((tdee * config['energy_multiplier']) / 10) * 10)
+    protein_target = max(1, int(round(w * config['protein_g_per_kg'])))
+    fat_target = max(1, int(round((calorie_target * config['fat_ratio']) / 9)))
+    carbs_target = max(1, int(round((calorie_target - protein_target * 4 - fat_target * 9) / 4)))
+    return {
+        'bmr': int(round(bmr)),
+        'tdee': tdee,
+        'calorie_target': calorie_target,
+        'target_calories': calorie_target,
+        'protein_target': protein_target,
+        'carbs_target': carbs_target,
+        'fat_target': fat_target,
+        'nutrition_goal': goal
+    }
 
 def clamp_number(value, default=0, min_value=0, max_value=10000, integer=True):
     try:
@@ -1552,6 +1598,7 @@ def coach_chat():
     meals_from_client = data.get('meals') # Optional local meals from app
     exercises_from_client = data.get('exercises') # Optional local exercises from app
     water_from_client = data.get('water') # Optional local water from app
+    today_summary_from_client = data.get('todaySummary') or data.get('today_summary')
 
     if not user_message and not history:
         return jsonify({"error": "消息内容为空"}), 400
@@ -1565,6 +1612,7 @@ def coach_chat():
     total_pro = 0
     total_carbs = 0
     total_fat = 0
+    total_water = 0
 
     if meals_from_client is not None:
         for row in meals_from_client:
@@ -1574,20 +1622,29 @@ def coach_chat():
             pro = clamp_number(row.get('protein'), default=0, min_value=0, max_value=300)
             carbs = clamp_number(row.get('carbs'), default=0, min_value=0, max_value=500)
             fat = clamp_number(row.get('fat'), default=0, min_value=0, max_value=300)
+            weighted_cal = int(round(cal * portion))
+            weighted_pro = int(round(pro * portion))
+            weighted_carbs = int(round(carbs * portion))
+            weighted_fat = int(round(fat * portion))
             meals_summary.append(
-                f"- {food_name}: {cal} kcal (蛋白质 {pro}g, 碳水 {carbs}g, 脂肪 {fat}g, 分量 {portion}x)"
+                f"- {food_name}: {weighted_cal} kcal (蛋白质 {weighted_pro}g, 碳水 {weighted_carbs}g, 脂肪 {weighted_fat}g, 分量 {portion}x)"
             )
-            total_cal += cal
-            total_pro += pro
-            total_carbs += carbs
-            total_fat += fat
+            total_cal += weighted_cal
+            total_pro += weighted_pro
+            total_carbs += weighted_carbs
+            total_fat += weighted_fat
         meals_detail = "\n".join(meals_summary) if meals_summary else "无饮食记录"
         
         # Calculate water
-        total_water = 0
         if water_from_client is not None:
             total_water = int(water_from_client)
-            
+        if isinstance(today_summary_from_client, dict):
+            total_cal = clamp_number(today_summary_from_client.get('total_calories'), default=total_cal, min_value=0, max_value=100000)
+            total_pro = clamp_number(today_summary_from_client.get('total_protein'), default=total_pro, min_value=0, max_value=10000)
+            total_carbs = clamp_number(today_summary_from_client.get('total_carbs'), default=total_carbs, min_value=0, max_value=10000)
+            total_fat = clamp_number(today_summary_from_client.get('total_fat'), default=total_fat, min_value=0, max_value=10000)
+            total_water = clamp_number(today_summary_from_client.get('total_water'), default=total_water, min_value=0, max_value=20000)
+
         meals_context = f"用户今日饮食明细：\n{meals_detail}\n累计摄入：热量 {total_cal} kcal，蛋白质 {total_pro}g，碳水 {total_carbs}g，脂肪 {total_fat}g，饮水量 {total_water}ml。"
     else:
         today_str = datetime.date.today().isoformat()
@@ -1622,6 +1679,9 @@ def coach_chat():
             total_burn += cal
             total_duration += dur
         ex_detail = "\n".join(ex_summary) if ex_summary else "无运动记录"
+        if isinstance(today_summary_from_client, dict):
+            total_burn = clamp_number(today_summary_from_client.get('total_burn_calories'), default=total_burn, min_value=0, max_value=100000)
+            total_duration = clamp_number(today_summary_from_client.get('total_exercise_duration'), default=total_duration, min_value=0, max_value=10000)
         meals_context += f"\n\n用户今日运动明细：\n{ex_detail}\n累计消耗：{total_burn} kcal，运动时长 {total_duration} 分钟。"
     else:
         today_str = datetime.date.today().isoformat()
@@ -1640,6 +1700,14 @@ def coach_chat():
         else:
             meals_context += "\n\n用户今日尚未记录任何运动。"
 
+    net_cal = total_cal - total_burn
+    remaining_cal = clamp_number(cal_target, default=2000, min_value=1, max_value=10000) - net_cal
+    protein_gap = max(clamp_number(pro_target, default=120, min_value=1, max_value=500) - total_pro, 0)
+    if remaining_cal >= 0:
+        balance_context = f"今日净摄入 {net_cal} kcal，距离热量目标还剩 {remaining_cal} kcal；蛋白质还差 {protein_gap}g。"
+    else:
+        balance_context = f"今日净摄入 {net_cal} kcal，已超过热量目标 {abs(remaining_cal)} kcal；蛋白质还差 {protein_gap}g。"
+
     system_instruction = f"""你是一位专业且亲切的 AI 营养教练 (NutriSnap AI Coach)。
 你的任务是协助用户记录饮食、分析营养、解答疑问，并给出贴心的健康建议。
 
@@ -1649,6 +1717,9 @@ def coach_chat():
 
 【用户今日已摄入数据】
 {meals_context}
+
+【首页同源今日结论】
+{balance_context}
 
 【回复准则】
 1. 语言亲切、专业、鼓励性强，多使用 emoji 让对话生动。
@@ -1699,7 +1770,7 @@ def profile_bmr():
             
             cursor.execute('''
                 UPDATE users 
-                SET gender = ?, age = ?, height = ?, weight = ?, activity_level = ?
+                SET gender = ?, age = ?, height = ?, weight = ?, activity_level = ?, nutrition_goal = ?
                 WHERE username = ?
             ''', (
                 profile['gender'],
@@ -1707,12 +1778,13 @@ def profile_bmr():
                 profile['height'],
                 profile['weight'],
                 profile['activity_level'],
+                profile['nutrition_goal'],
                 username
             ))
             conn.commit()
             
         row = cursor.execute('''
-            SELECT gender, age, height, weight, activity_level
+            SELECT gender, age, height, weight, activity_level, nutrition_goal
             FROM users WHERE username = ?
         ''', (username,)).fetchone()
     
@@ -1727,22 +1799,8 @@ def profile_bmr():
     a = int(row['age'])
     gender = row['gender']
     lvl = row['activity_level'] or 'sedentary'
-    
-    if gender == 'female':
-        bmr = 10 * w + 6.25 * h - 5 * a - 161
-    else:
-        bmr = 10 * w + 6.25 * h - 5 * a + 5
-        
-    multipliers = {
-        'sedentary': 1.2,
-        'lightly_active': 1.375,
-        'moderately_active': 1.55,
-        'very_active': 1.725,
-        'highly_active': 1.9
-    }
-    multiplier = multipliers.get(lvl, 1.2)
-    tdee = int(bmr * multiplier)
-    protein_target = int(w * 1.6)
+    goal = row['nutrition_goal'] if 'nutrition_goal' in row.keys() else 'maintain'
+    targets = calculate_profile_targets(gender, a, h, w, lvl, goal)
     
     return jsonify({
         "has_profile": True,
@@ -1752,9 +1810,7 @@ def profile_bmr():
             "height": h,
             "weight": w,
             "activity_level": lvl,
-            "bmr": int(bmr),
-            "tdee": tdee,
-            "protein_target": protein_target
+            **targets
         }
     })
 
@@ -1811,11 +1867,25 @@ def report_suggestions():
     meals_list = None
     exercises_list = None
     user_row = None
+    today_summary = None
+    weekly_summary = None
+    cal_target = 2000
+    pro_target = 120
+    carbs_target = None
+    fat_target = None
+    nutrition_goal = 'maintain'
     
     if request.method == 'POST':
         data = request.get_json() or {}
         meals_list = data.get('meals')
         exercises_list = data.get('exercises')
+        today_summary = data.get('todaySummary') or data.get('today_summary')
+        weekly_summary = data.get('weeklySummary') or data.get('weekly_summary')
+        cal_target = clamp_number(data.get('calTarget'), default=2000, min_value=1, max_value=10000)
+        pro_target = clamp_number(data.get('proTarget'), default=120, min_value=1, max_value=500)
+        carbs_target = clamp_number(data.get('carbsTarget'), default=0, min_value=0, max_value=1000)
+        fat_target = clamp_number(data.get('fatTarget'), default=0, min_value=0, max_value=500)
+        nutrition_goal = clean_text(data.get('nutritionGoal') or data.get('nutrition_goal') or 'maintain', default='maintain', max_len=40)
         profile_data = data.get('profile')
         if profile_data:
             user_row = {
@@ -1823,16 +1893,33 @@ def report_suggestions():
                 'age': profile_data.get('age'),
                 'height': profile_data.get('height'),
                 'weight': profile_data.get('weight'),
-                'activity_level': profile_data.get('activity_level')
+                'activity_level': profile_data.get('activity_level'),
+                'nutrition_goal': profile_data.get('nutrition_goal') or profile_data.get('goal')
             }
             
+    today_str = datetime.date.today().isoformat()
+    today_cal = 0
+    today_pro = 0
+    today_carbs = 0
+    today_fat = 0
+    today_burn = 0
+    today_duration = 0
+    active_days = 0
+    calendar_avg_cal = 0
+    calendar_avg_pro = 0
+
+    def summary_value(summary, key, default=0, max_value=100000):
+        if not isinstance(summary, dict):
+            return default
+        return clamp_number(summary.get(key), default=default, min_value=0, max_value=max_value)
+
     if meals_list is None or exercises_list is None:
         with get_db_connection() as conn:
             cursor = conn.cursor()
             
             if user_row is None:
                 user_row = cursor.execute('''
-                    SELECT gender, age, height, weight, activity_level
+                    SELECT gender, age, height, weight, activity_level, nutrition_goal
                     FROM users WHERE username = ?
                 ''', (username,)).fetchone()
                 if user_row:
@@ -1841,62 +1928,164 @@ def report_suggestions():
             # Retrieve past 7 days daily summaries
             since = (datetime.date.today() - datetime.timedelta(days=6)).isoformat()
             summaries_db = cursor.execute('''
-                SELECT total_calories, total_protein, total_burn_calories, total_exercise_duration
+                SELECT date, total_calories, total_protein, total_carbs, total_fat,
+                       total_burn_calories, total_exercise_duration
                 FROM daily_summaries
                 WHERE username = ? AND date >= ?
             ''', (username, since)).fetchall()
         
         total_cal = 0
         total_pro = 0
+        total_carbs = 0
+        total_fat = 0
         total_burn = 0
         total_duration = 0
-        days_count = len(summaries_db) or 1
+        active_days = 0
         
         for row in summaries_db:
-            total_cal += row['total_calories'] or 0
-            total_pro += row['total_protein'] or 0
-            total_burn += row['total_burn_calories'] or 0
-            total_duration += row['total_exercise_duration'] or 0
+            row_cal = row['total_calories'] or 0
+            row_pro = row['total_protein'] or 0
+            row_carbs = row['total_carbs'] or 0
+            row_fat = row['total_fat'] or 0
+            row_burn = row['total_burn_calories'] or 0
+            row_duration = row['total_exercise_duration'] or 0
+            total_cal += row_cal
+            total_pro += row_pro
+            total_carbs += row_carbs
+            total_fat += row_fat
+            total_burn += row_burn
+            total_duration += row_duration
+            if row_cal or row_pro or row_burn or row_duration:
+                active_days += 1
+            if row['date'] == today_str:
+                today_cal = row_cal
+                today_pro = row_pro
+                today_carbs = row_carbs
+                today_fat = row_fat
+                today_burn = row_burn
+                today_duration = row_duration
             
-        avg_cal = int(total_cal / days_count)
-        avg_pro = int(total_pro / days_count)
+        active_days = active_days or len(summaries_db)
+        avg_divisor = active_days or 1
+        avg_cal = int(round(total_cal / avg_divisor)) if active_days else 0
+        avg_pro = int(round(total_pro / avg_divisor)) if active_days else 0
+        calendar_avg_cal = int(round(total_cal / 7))
+        calendar_avg_pro = int(round(total_pro / 7))
         exercise_context = f"过去 7 天内累计进行了运动，共消耗运动热量 {total_burn} kcal，累计运动时间 {total_duration} 分钟。"
     else:
         # Standard client POST calculation (using client details payload)
         total_cal = 0
         total_pro = 0
+        total_carbs = 0
+        total_fat = 0
+        active_dates = set()
         for m in meals_list:
-            p = m.get('portion') or 1.0
-            total_cal += (m.get('calories') or 0) * p
-            total_pro += (m.get('protein') or 0) * p
+            p = clamp_number(m.get('portion'), default=1.0, min_value=0, max_value=10, integer=False)
+            cal = clamp_number(m.get('calories'), default=0, min_value=0, max_value=5000)
+            pro = clamp_number(m.get('protein'), default=0, min_value=0, max_value=300)
+            carbs = clamp_number(m.get('carbs'), default=0, min_value=0, max_value=500)
+            fat = clamp_number(m.get('fat'), default=0, min_value=0, max_value=300)
+            weighted_cal = int(round(cal * p))
+            weighted_pro = int(round(pro * p))
+            weighted_carbs = int(round(carbs * p))
+            weighted_fat = int(round(fat * p))
+            total_cal += weighted_cal
+            total_pro += weighted_pro
+            total_carbs += weighted_carbs
+            total_fat += weighted_fat
+            item_day = str(m.get('created_at') or m.get('date') or '')[:10]
+            if item_day:
+                active_dates.add(item_day)
+            if item_day == today_str:
+                today_cal += weighted_cal
+                today_pro += weighted_pro
+                today_carbs += weighted_carbs
+                today_fat += weighted_fat
             
-        avg_cal = int(total_cal / 7) if meals_list else 0
-        avg_pro = int(total_pro / 7) if meals_list else 0
-        
         exercise_summary = []
         total_burn = 0
+        total_duration = 0
         for ex in exercises_list:
-            total_burn += ex.get('calories') or 0
-            desc = f"- {ex.get('exercise_name')} ({ex.get('duration')}分钟, 消耗 {ex.get('calories')} kcal"
+            ex_cal = clamp_number(ex.get('calories'), default=0, min_value=0, max_value=5000)
+            ex_duration = clamp_number(ex.get('duration'), default=0, min_value=0, max_value=1000)
+            total_burn += ex_cal
+            total_duration += ex_duration
+            item_day = str(ex.get('created_at') or ex.get('date') or '')[:10]
+            if item_day:
+                active_dates.add(item_day)
+            if item_day == today_str:
+                today_burn += ex_cal
+                today_duration += ex_duration
+            desc = f"- {ex.get('exercise_name')} ({ex_duration}分钟, 消耗 {ex_cal} kcal"
             if ex.get('exercise_type') == 'strength' and ex.get('target_muscles'):
                 desc += f", 训练肌群: {ex.get('target_muscles')}"
             desc += ")"
             exercise_summary.append(desc)
-            
+
+        if isinstance(weekly_summary, dict):
+            total_cal = summary_value(weekly_summary, 'total_calories', default=total_cal)
+            total_pro = summary_value(weekly_summary, 'total_protein', default=total_pro, max_value=10000)
+            total_carbs = summary_value(weekly_summary, 'total_carbs', default=total_carbs, max_value=10000)
+            total_fat = summary_value(weekly_summary, 'total_fat', default=total_fat, max_value=10000)
+            total_burn = summary_value(weekly_summary, 'total_burn_calories', default=total_burn)
+            total_duration = summary_value(weekly_summary, 'total_exercise_duration', default=total_duration, max_value=10000)
+            active_days = summary_value(weekly_summary, 'active_days', default=len(active_dates), max_value=7)
+            avg_cal = summary_value(weekly_summary, 'avg_calories_recorded_days', default=int(round(total_cal / max(active_days or 1, 1))))
+            avg_pro = summary_value(weekly_summary, 'avg_protein_recorded_days', default=int(round(total_pro / max(active_days or 1, 1))), max_value=10000)
+            calendar_avg_cal = summary_value(weekly_summary, 'avg_calories_calendar_days', default=int(round(total_cal / 7)))
+            calendar_avg_pro = summary_value(weekly_summary, 'avg_protein_calendar_days', default=int(round(total_pro / 7)), max_value=10000)
+        else:
+            active_days = len(active_dates)
+            avg_cal = int(round(total_cal / max(active_days or 1, 1))) if active_days else 0
+            avg_pro = int(round(total_pro / max(active_days or 1, 1))) if active_days else 0
+            calendar_avg_cal = int(round(total_cal / 7))
+            calendar_avg_pro = int(round(total_pro / 7))
+
+        if isinstance(today_summary, dict):
+            today_cal = summary_value(today_summary, 'total_calories', default=today_cal)
+            today_pro = summary_value(today_summary, 'total_protein', default=today_pro, max_value=10000)
+            today_carbs = summary_value(today_summary, 'total_carbs', default=today_carbs, max_value=10000)
+            today_fat = summary_value(today_summary, 'total_fat', default=today_fat, max_value=10000)
+            today_burn = summary_value(today_summary, 'total_burn_calories', default=today_burn)
+            today_duration = summary_value(today_summary, 'total_exercise_duration', default=today_duration, max_value=10000)
+
         exercise_context = "\n".join(exercise_summary) if exercise_summary else "无运动记录"
         
     user_info = "暂无身体数据"
     if user_row and user_row.get('weight'):
         user_info = f"性别: {user_row['gender']}, 年龄: {user_row['age']}岁, 身高: {user_row['height']}cm, 体重: {user_row['weight']}kg, 活动量级别: {user_row['activity_level']}"
+    net_today_cal = today_cal - today_burn
+    remaining_today_cal = cal_target - net_today_cal
+    today_status = (
+        f"今日净摄入 {net_today_cal} kcal，距离目标还剩 {remaining_today_cal} kcal。"
+        if remaining_today_cal >= 0
+        else f"今日净摄入 {net_today_cal} kcal，已超过目标 {abs(remaining_today_cal)} kcal。"
+    )
+    protein_status = f"今日蛋白质还差 {max(pro_target - today_pro, 0)}g。"
+    macro_target_context = f"每日目标：热量 {cal_target} kcal，蛋白质 {pro_target}g"
+    if carbs_target:
+        macro_target_context += f"，碳水 {carbs_target}g"
+    if fat_target:
+        macro_target_context += f"，脂肪 {fat_target}g"
+    macro_target_context += f"；当前目标类型：{nutrition_goal}。"
     
     prompt = f"""你是一位资深的 AI 运动健身与营养教练。请根据用户过去 7 天的身体数据、饮食摄入和运动消耗，给出具体的运动训练、调整与恢复建议。
 
 【用户基本身体信息】
 {user_info}
 
-【过去 7 天平均每日摄入】
-- 热量：{avg_cal} kcal
-- 蛋白质：{avg_pro} g
+【每日目标】
+{macro_target_context}
+
+【今日真实记录（与首页同一数据源，不可被周均覆盖）】
+- 摄入：{today_cal} kcal，蛋白质 {today_pro}g，碳水 {today_carbs}g，脂肪 {today_fat}g
+- 运动：消耗 {today_burn} kcal，运动 {today_duration} 分钟
+- 结论：{today_status} {protein_status}
+
+【过去 7 天有记录日均】
+- 有记录天数：{active_days} / 7 天
+- 按有记录天数计算的日均摄入：热量 {avg_cal} kcal，蛋白质 {avg_pro}g
+- 按完整 7 天摊平的参考值：热量 {calendar_avg_cal} kcal，蛋白质 {calendar_avg_pro}g（仅作连续性参考，不能用来判断今天摄入不足）
 
 【过去 7 天已记录运动】
 共消耗运动热量：{total_burn} kcal
@@ -1904,10 +2093,11 @@ def report_suggestions():
 {exercise_context}
 
 【要求】
-1. 评估用户的运动消耗是否充足，针对他们记录的运动（如有氧与力量的比例、力量训练部位）给出专业建议。
-2. 结合饮食摄入与运动消耗，分析其是否合理，并给出接下来一周的具体训练及恢复建议。
-3. 只能回答跟运动、训练、康复、营养相关的内容。
-4. 语言亲切专业，使用列表和 Markdown 排版，字数控制在 250 字以内，多用 Emoji。"""
+1. 必须优先依据“今日真实记录”判断今天是否超标、剩余或不足；不要把 7 日摊平值当作今天事实。
+2. 评估过去 7 天运动消耗是否充足，针对他们记录的运动（如有氧与力量比例、力量训练部位）给出专业建议。
+3. 结合今日摄入、目标和过去 7 天趋势，给出接下来一周的训练、饮食调整与恢复建议。
+4. 只能回答跟运动、训练、康复、营养相关的内容。
+5. 语言亲切专业，使用列表和 Markdown 排版，字数控制在 250 字以内，多用 Emoji。"""
 
     try:
         response_text = call_llm(prompt_text=prompt)
