@@ -186,6 +186,22 @@ ai-diet-tracker/
 
 ## 6. 最近变更记录 / Recent Changes
 
+### v5.6.16 (Secondary and Tertiary Modals Bottom Sheet Consolidation)
+- **底部弹窗统一 / Bottom Sheet Pass**: 将 `exerciseLogModal` (运动记录), `waterRecordModal` (饮水记录), `weightRecordModal` (体重记录), `editMealModal` (编辑饮食), `deleteConfirmModal` (删除确认), `bmrSetupModal` (BMR设置), 以及 `loginOverlay` (登录面板) 全局改造为符合 Stitch 设计语言的底部弹窗 (Bottom Sheet)。引入了毛玻璃遮罩、拖拽手柄、底部安全区避让、统一圆角和进场动画。
+- **页面级别结构梳理 / Page Structure Rework**: `#page-history` (记录历史) 改进为带筛选条件的紧凑图文卡片列表；`#manualFoodModal` (手动补录) 改造为更直观的双列/三列营养输入网格；`#page-weight` 改造为更精美的信息图表风格。
+- **版本更新规则已执行 / Version Bump Applied**: 同步更新了 `CLIENT_VERSION`、`fallback_version`、`sw.js` 缓存版本为 `v5.6.16`，并生成了对应的 RELEASE NOTES，重新构建了 www/。
+
+### v5.6.19 (Voice STT reliability pass)
+- **语音听写修复 / Voice STT Fix**: `/api/speech-to-text` 现在优先走 OpenRouter 专用 STT 接口，失败后回退到 Google Gemini 音频转写，避免把录音硬塞进通用聊天模型导致的失败。
+- **前端鉴权补强 / Auth Header Fix**: 语音上传请求补齐显式 `Authorization` 头，减少手机端 token 状态不一致导致的失败。
+- **版本更新 / Version Bump**: 本轮手机端改动已经升到 `v5.6.19`，并同步更新 `templates/index.html` 的 `CLIENT_VERSION`、`app.py` 的 `fallback_version`、`static/sw.js` 的 `CACHE_NAME`、以及 `RELEASE_NOTES_v5.6.19.md`。
+
+### v5.6.17 (Weight page and mobile polish pass)
+- **体重页重排 / Weight Page Rework**: `#page-weight` 已改为更接近 Stitch 记录页的三段式布局，加入摘要主卡、7/30/90 天紧凑切换、短日期轴和轻量历史行，减少旧式大面板感。
+- **手动补录和图标修复 / Manual Entry and Icon Fix**: `#manualFoodModal` 的搜索区、关闭按钮和搜索结果层级继续压紧；本地图标映射补齐 `search` 与 `monitoring`，避免移动端 fallback 成 info/异常图形。
+- **版本更新 / Version Bump**: 本轮手机端 UI 改动已经升到 `v5.6.17`，并同步更新 `templates/index.html` 的 `CLIENT_VERSION`、`app.py` 的 `fallback_version`、`static/sw.js` 的 `CACHE_NAME`、以及 `RELEASE_NOTES_v5.6.17.md`。
+- **后续任务 / Remaining Work**: 继续收敛 `#page-history` 的空状态/时间线层次、`#exerciseLogModal`、`#bmrSetupModal`、`#weightRecordModal` 与设置页的细节一致性。
+
 ### v5.6.13 (Record/Report page fidelity pass)
 - **记录/报告页重构 / Record Report Alignment**: 将 `#page-report` 向 Stitch `_9` 参考稿靠齐，改为记录历史 header、横向日期条、热量收支卡、宏量营养卡、7 天趋势、今日饮食/运动时间线和 AI 洞察结构，减少旧版周报页的空白与割裂感。
 - **新卡片数据绑定 / Data Binding**: `fetchWeeklyReport()` 已补齐 `reportTargetCal`、`reportIntakeTotal`、`reportBurnTotal`、`reportNetTotal`、`reportProteinProgress`、`reportAvgCarbs`、`reportAvgFat`、`reportActiveDaysLabel` 等新 UI 字段；趋势图不再因记录不足 3 天被整块隐藏。
@@ -297,13 +313,13 @@ ai-diet-tracker/
 
 ## 8. 当前状态与待办 / Current Status & TODO
 
-- **当前本地版本 / Current Local Version**: v5.6.13，`/api/health` 已在本地返回 `version: "v5.6.13"`。
+- **当前本地版本 / Current Local Version**: v5.6.19，`/api/health` 需在重新构建/重启后返回 `version: "v5.6.19"`。
 - **本地预览地址 / Local Preview URL**: http://127.0.0.1:5000/ 。当前服务因根目录 `database.db` 只读，使用可写预览库启动；如果重启失败，优先检查是否又落回根目录只读 SQLite。
-- **已完成 / Completed**: 首页 (`#page-home`) 及底部导航栏保持 Stitch 风格；扫描页真实餐盘背景已恢复；中间记录入口弹窗中“拍照识别”和“语音记录”为同级主入口；结果页已向 Stitch `_10` 食物详情结构靠拢；记录/报告页已向 Stitch `_9` 记录历史结构靠拢；个人页已进一步向 Stitch `_8` 参考稿压紧；AI 教练页已减少首屏空白并改为紧凑快捷问题网格；AI 周报/教练接口已修复与真实记录不同源的问题。
-- **已验证 / Verified**: `python ast.parse(app.py)` 通过；`node build.js` 已同步 `www/index.html` 与 `www/sw.js`；390px、360px、320px 手机视口截图审计均为 `overflowCount=0`，`audit.json` 记录页面脚本版本为 `v5.6.13` 且无运行时错误；`scratch/mobile-audit.cjs` 在 iPhone 13、360 Android、320 窄屏布局审计结果均为 `{}`；Flask test client 已验证报告建议和教练聊天的今日汇总口径。
+- **已完成 / Completed**: 首页 (`#page-home`) 及底部导航栏保持 Stitch 风格；扫描页真实餐盘背景已恢复；中间记录入口弹窗中“拍照识别”和“语音记录”为同级主入口；结果页已向 Stitch `_10` 食物详情结构靠拢；记录/报告页已向 Stitch `_9` 记录历史结构靠拢；个人页已进一步向 Stitch `_8` 参考稿压紧；AI 教练页已减少首屏空白并改为紧凑快捷问题网格；AI 周报/教练接口已修复与真实记录不同源的问题；体重页和手动补录弹窗已开始向 Stitch 记录页与底部 Sheet 语言靠拢；语音听写链路已改为 OpenRouter STT 优先、Gemini 兜底。
+- **已验证 / Verified**: 旧版本验证链路可参考 `v5.6.13`，但 `v5.6.19` 仍需重新执行 `python ast.parse(app.py)`、`node build.js` 与手机端截图审计来确认语音修复与二/三级页面改动。
 - **截图证据 / Screenshot Evidence**: `scratch/current-mobile-ui/01-home.png`、`03-scan.png`、`04-result.png`、`05-report.png`、`06-coach.png`、`07-profile.png`、`08-bmr-goal-modal.png`，审计结果在 `scratch/current-mobile-ui/audit.json`。
 - **已完成重点 / UI Redesign Completed**: 已完成首页、扫描页、记录入口、结果页、个人页和 AI 教练页的主要手机端 UI 整改；当前截图已不再出现旧版大 Profile 布局、扫描页版本弹窗遮挡或教练页大面积空白；AI 建议不再把周均摊平值当成今日真实摄入。
-- **下一步建议 / Next Step**: 如继续追求更接近渲染图，可继续对历史详情、手动补录、体重页、设置页等二/三级页面做同一套密度和视觉语言统一；部署前再次确认版本号递增规则，并用生产 URL 做一次手机真机刷新验证。
+- **下一步建议 / Next Step**: 如继续追求更接近渲染图，可继续对历史详情、运动/体重/BMR 弹窗、设置页等二/三级页面做同一套密度和视觉语言统一；部署前再次确认版本号递增规则，并用生产 URL 做一次手机真机刷新验证；语音链路如仍异常，优先检查 OpenRouter STT 返回码与模型可用性。
 - Android APK 图标已通过 CI 替换为新 AS + 绿叶设计，需手动下载 artifact 安装
 - 体重功能已完整集成在报告页（周报）
 - 底部导航已简化为 5 项（首页 / 教练 / + / 报告 / 个人）
@@ -319,7 +335,7 @@ ai-diet-tracker/
 
 ### 重要约束 / Non-negotiable Rules
 
-1. **每次面向手机端的 UI/前端/部署改动都必须递增版本号**。当前已是 `v5.6.13`，下一次 UI 改动应从 `v5.6.14` 开始。
+1. **每次面向手机端的 UI/前端/部署改动都必须递增版本号**。当前已是 `v5.6.19`，下一次 UI 改动应从 `v5.6.20` 开始。
 2. 版本号必须同步更新：
    - `templates/index.html` 中的 `CLIENT_VERSION`
    - `app.py` 中 `fallback_version` 和附近 target regex 注释
@@ -342,33 +358,16 @@ ai-diet-tracker/
 
 按优先级继续：
 
-1. **历史页 `#page-history`**
-   - 当前仍是旧式“全部记录”列表，和 Stitch `_9` 的饮食记录卡片不完全一致。
-   - 建议做法：改为紧凑记录历史页，顶部保留返回 + 标题，增加日期/餐次筛选或汇总条；列表卡片参考 Stitch `_9` 的缩略图、时间、餐次、kcal、蛋白质信息，长食物名两行截断，编辑/删除变成右侧图标或滑入/二级操作，减少每条记录里的原始明细堆叠。
-   - 相关代码：`templates/index.html` 中 `#page-history` 静态 HTML 约 3084 行；`fetchHistory()` 约 6990 行。
+1. **整体视觉密度与对齐微调 / Final Polish Pass**
+   - 当前一级、二级、三级弹窗的 Stitch 风格重构已基本铺设完毕。
+   - 建议在真实移动设备或不同分辨率的模拟器中复查横向/纵向溢出、留白比例、阴影质感、动画流畅度。
+   - 检查组件复用的 CSS class 是否可以在 `static/index.css` 或 `<style>` 标签中进一步精简提取，降低 HTML 的类名堆叠。
 
-2. **手动补录弹窗 `#manualFoodModal`**
-   - 当前功能齐全但视觉仍偏表单堆叠，和主 UI 的大按钮/卡片语言不统一。
-   - 建议做法：改为底部 sheet 或高质感居中面板；顶部用 “Manual Entry / 手动补录” 标题、关闭圆按钮；搜索/扫码区做成一个清晰的搜索栏 + 两个 44px 图标按钮；常用食物 preset 做成 chip grid；营养输入改成“重量/热量”双列 + “蛋白/碳水/脂肪”三列小卡；底部固定取消/保存，避免键盘/底栏遮挡。
-   - 相关代码：静态 HTML 约 2610 行；`showManualFoodModal()` 约 5815 行；搜索/扫码逻辑在 9180 行附近也有重复关闭逻辑。
+2. **iOS 特定样式适配 / iOS specific tweaks**
+   - 检查刘海屏（Notch）与 Home Bar 附近的内边距（env(safe-area-inset-bottom) 和 env(safe-area-inset-top)）是否在所有的绝对定位层级中均起到了保护作用。
 
-3. **体重页 `#page-weight` 与 `#weightRecordModal`**
-   - 当前是旧 surface-panel + Chart.js，能用但视觉不像 Stitch `_8` 的个人/身体数据体系。
-   - 建议做法：把体重页改成“身体数据”二级页：顶部返回，主卡展示最新体重、7 日变化、目标/趋势；图表放在一张简洁卡片里；历史记录列表改成每条体重 + 日期 + 变化值；记录体重弹窗改成底部 sheet，输入框大号数字化。
-   - 相关代码：`#page-weight` 约 2840 行；`weightRecordModal` 约 2880 行；`loadWeightData()` 约 9243 行。
-
-4. **运动记录弹窗 `#exerciseLogModal`**
-   - 当前仍是普通表单。建议按记录入口的视觉语言统一：运动类型 segmented control、时长/消耗双列、肌群 chips、底部保存。
-   - 相关代码：约 3425 行；保存逻辑 `saveExerciseLog()` 可通过搜索定位。
-
-5. **BMR/目标设置弹窗 `#bmrSetupModal`**
-   - 已有“减脂/维持/增肌 + Mifflin”功能，但和 Stitch `_3` / `_4` 的“定制你的方案”参考还不完全一致。
-   - 建议做法：优先减少弹窗首屏拥挤，目标卡片和性别 segmented control 更贴近 Stitch；底部预览卡固定在可见区域；按钮文案保持“保存目标/生成我的方案”。
-   - 相关代码：`showBMRSetupModal()` 约 6253 行；BMR modal HTML 可搜索 `bmrSetupModal`。
-
-6. **编辑饮食、删除确认、饮水、成就、设置/通知等三级弹窗**
-   - 当前不是主痛点，但继续做高保真时需要统一圆角、标题、按钮高度、焦点环和底部安全区。
-   - 相关代码：`editMealModal` 约 3328 行；`deleteConfirmModal` 约 3348 行；`waterRecordModal` 约 3485 行；通知设置在个人页后半段。
+3. **辅助界面的补齐**
+   - 应用设置、个人信息修改、通知设置等较深层级的界面，依然存在部分旧版样式，可以作为下一步统一处理的对象。
 
 ### 当前截图/验证脚本状态 / Verification Script State
 
@@ -415,11 +414,11 @@ ai-diet-tracker/
 ### 给 Antigravity 的可复制提示词 / Copyable Prompt
 
 ```text
-请在 G:\我的云端硬盘\vibe coding\ai-diet-tracker 继续 NutriSnap AI 手机端 UI 整改。先阅读 HANDOFF.md，当前版本是 v5.6.13。不要推翻已有首页、扫描页、结果页、记录/报告页、教练页、个人页主结构；本轮优先做二/三级界面：#page-history 和 #manualFoodModal，目标是更接近 Stitch 下载稿里的 _9 记录历史与现有绿色卡片视觉语言。
+请在 G:\我的云端硬盘\vibe coding\ai-diet-tracker 继续 NutriSnap AI 手机端 UI 整改。先阅读 HANDOFF.md，当前版本是 v5.6.19。不要推翻已有首页、扫描页、结果页、记录/报告页、教练页、个人页主结构，以及刚完成的二级/三级底部弹窗 (Bottom Sheet)。本轮优先继续收敛二级页面与设置细节，尤其是记录历史、体重页、运动/体重/BMR 弹窗的视觉一致性。
 
-重要规则：任何手机端 UI/前端改动必须 bump 到 v5.6.14，并同步 templates/index.html CLIENT_VERSION、app.py fallback_version/注释、static/sw.js CACHE_NAME、新增 RELEASE_NOTES_v5.6.14.md，然后运行 node build.js。templates/index.html 是源文件，www/index.html 由 build 生成。
+重要规则：任何手机端 UI/前端改动必须 bump 到下一个版本，并同步 templates/index.html CLIENT_VERSION、app.py fallback_version/注释、static/sw.js CACHE_NAME、新增对应 RELEASE_NOTES_*.md，然后运行 node build.js。templates/index.html 是源文件，www/index.html 由 build 生成。
 
-先修或重写 scratch/cdp-secondary-capture.mjs：当前问题是 page.evaluate 不能序列化函数 isoFor，改成传入预生成时间字符串或在浏览器上下文内部定义函数。生成 history/manual/weight/exercise 的手机截图后，再按截图整改。完成后跑 app.py 语法检查、node build.js、主流程 cdp-mobile-capture、mobile-audit，并更新 HANDOFF.md。
+完成后跑 app.py 语法检查、node build.js，并更新 HANDOFF.md。
 ```
 
 ---
@@ -484,4 +483,84 @@ python update_release.py
 
 ---
 
-*最后更新：2026-05-27*
+---
+
+## 12. v5.6.28 本轮完成状态 / Current v5.6.28 Status
+
+### 本轮目标
+
+继续修复 NutriSnap AI 手机端：个人页身体数据不显示、AI 洞察刷新过频、语音听写失败、识别速度慢、中国大陆可用性，以及部署前 UI 布局风险。
+
+### 已完成
+
+- 当前版本已递增到 `v5.6.28`，并同步：
+  - `templates/index.html` 的 `CLIENT_VERSION`
+  - `app.py` 的 `fallback_version`
+  - `static/sw.js` 的 `CACHE_NAME`
+  - `package.json` / `package-lock.json`
+  - `RELEASE_NOTES_v5.6.28.md`
+  - `node build.js` 已同步 `www/index.html` 与 `www/sw.js`
+- 个人页身体数据已修复：云端 profile 为空时，优先用 `ProfileStorage.getProfile()` 的本地档案兜底，体重/身高/BMR 能正常显示。
+- AI 洞察刷新逻辑已改为：数据变化只标记 dirty，不立即请求；用户进入记录页且签名变化时才刷新。
+- 语音功能已加原生 `SpeechRecognition/webkitSpeechRecognition` 优先路径；服务端 STT 失败时保留弹窗并显示文字兜底，不再直接关闭。
+- 图片识别速度已优化：前端上传前压缩图片，后端视觉输入限制到最大边 1280，并优先调用 Flash Lite/Flash。
+- 中国大陆可用性已改善：
+  - 移除前端 Tailwind/Chart/html5-qrcode/Google Fonts CDN。
+  - 改用 `/static/vendor/` 本地资源。
+  - 移除扫描页残留的 `googleusercontent.com` 外链背景，改为本地 CSS 食物盘视觉。
+- 修复一个关键结构性 UI bug：`body` 顶部“跳过导航”链接的结束标签历史乱码为 `?/a>`，导致整个 App 被浏览器包进隐藏 `sr-only` 链接，手机端 active page 宽度变成 `0px`。已改为合法 `</a>`，页面重新成为 `body` 直接子元素。
+- BMR/体重/运动/水/成就等弹窗关闭按钮增加 `min-w-11 min-h-11`，避免 320/360px 视口下触控目标四舍五入低于 44px。
+
+### 已验证
+
+本地服务：`http://127.0.0.1:5000/`
+
+已运行并通过：
+
+```powershell
+python -c "import ast, pathlib; ast.parse(pathlib.Path('app.py').read_text(encoding='utf-8')); print('app.py syntax ok')"
+python check_js_syntax.py
+node build.js
+$env:AUDIT_URL='http://127.0.0.1:5000/'; node scratch\mobile-audit.cjs
+```
+
+`scratch/mobile-audit.cjs` 最新结果：
+
+```text
+iphone-13: {}
+android-360x800: {}
+narrow-320x720: {}
+```
+
+额外 Playwright 冒烟验证：
+
+- `CLIENT_VERSION` 为 `v5.6.28`
+- 页面不再含 `v5.6.27`
+- 页面不再含 `cdn.tailwindcss.com`、`fonts.googleapis.com`、`googleusercontent.com`
+- `page-home` 是 `body` 直接子元素，宽度为视口宽度，不再是 `0px`
+- 个人页本地 profile 兜底显示：体重 `72.5 kg`、身高 `178 cm`、BMR 正常显示、状态为 `已设置`
+- AI 洞察：标脏后进入记录页才请求 `/api/report/suggestions`，进入前请求数为 0，进入后请求数为 1
+- 语音听写失败时显示 `voiceTextFallback`，并提供文字输入兜底
+
+### 部署前注意
+
+- `www/` 是构建产物，源文件仍是 `templates/index.html`。
+- `static/vendor/` 三个本地 vendor 文件必须随提交进入仓库，否则生产/手机端会缺资源：
+  - `static/vendor/tailwindcss-forms-container-queries.js`
+  - `static/vendor/chart.umd.min.js`
+  - `static/vendor/html5-qrcode.min.js`
+- 当前工作区仍有大量历史 untracked 调试脚本和旧 release notes，提交时只加入本轮相关文件，避免把 scratch/临时脚本打包进去。
+
+### 下一步
+
+提交并推送 `main`，触发 GitHub Actions 部署 Cloud Run 和 Android APK 构建。部署后检查：
+
+```powershell
+Invoke-WebRequest -UseBasicParsing https://nutrisnap-ai-940406235442.us-central1.run.app/api/health
+```
+
+期望 `version` 返回 `v5.6.28`。
+
+---
+
+*最后更新：2026-05-29*

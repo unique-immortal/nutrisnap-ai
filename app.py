@@ -206,20 +206,20 @@ def call_llm(prompt_text, image=None, audio=None, mime_type=None, history=None, 
         is_multimodal = (image is not None) or (audio is not None)
         if is_multimodal:
             models_to_try = [
+                'google/gemini-2.5-flash-lite',
+                'google/gemini-2.5-flash',
                 'google/gemma-4-31b-it:free',
                 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',
                 'nvidia/nemotron-nano-12b-v2-vl:free',
-                'google/gemini-2.5-flash',
-                'google/gemini-2.5-flash-lite',
             ]
         else:
             models_to_try = [
+                'google/gemini-2.5-flash-lite',
+                'google/gemini-2.5-flash',
                 'meta-llama/llama-3.3-70b-instruct:free',
                 'google/gemma-4-26b-a4b-it:free',
                 'z-ai/glm-4.5-air:free',
                 'openrouter/free',
-                'google/gemini-2.5-flash',
-                'google/gemini-2.5-flash-lite',
             ]
         
         last_error = None
@@ -231,7 +231,7 @@ def call_llm(prompt_text, image=None, audio=None, mime_type=None, history=None, 
             }
             try:
                 print(f"Calling OpenRouter model: {model}")
-                res = requests.post(url, headers=headers, json=payload, timeout=45)
+                res = requests.post(url, headers=headers, json=payload, timeout=30)
                 res_json = res.json()
                 if res.status_code == 200 and 'choices' in res_json:
                     reply = res_json['choices'][0]['message']['content']
@@ -255,10 +255,8 @@ def call_llm(prompt_text, image=None, audio=None, mime_type=None, history=None, 
             raise ValueError("Google SDK Client 未初始化，且没有设置 OPENROUTER_API_KEY。")
             
         models_to_try = [
-            'gemini-3.5-flash',
-            'gemini-3.1-flash-lite',
-            'gemini-2.5-flash',
             'gemini-2.5-flash-lite',
+            'gemini-2.5-flash',
             'gemini-2.0-flash',
         ]
         
@@ -390,7 +388,7 @@ def transcribe_audio_with_openrouter(audio_bytes, mime_type, filename=''):
         "https://openrouter.ai/api/v1/audio/transcriptions",
         headers=headers,
         json=payload,
-        timeout=60
+        timeout=30
     )
     try:
         res_json = res.json()
@@ -425,6 +423,19 @@ def transcribe_audio_with_google(audio_bytes, mime_type):
         preferred_provider='google'
     )
     return (result_text or '').strip()
+
+
+def optimize_image_for_fast_vision(img, max_side=1280):
+    """Keep vision requests fast and predictable by bounding image dimensions."""
+    if not img:
+        return img
+    width, height = img.size
+    longest = max(width, height)
+    if longest <= max_side:
+        return img
+    scale = max_side / float(longest)
+    target = (max(1, int(width * scale)), max(1, int(height * scale)))
+    return img.resize(target, PIL.Image.Resampling.LANCZOS)
 
 # ==========================================
 # 2. 数据库配置
@@ -829,8 +840,8 @@ def get_db_connection():
 # ==========================================
 
 def get_latest_release_info():
-    # Target regex for update_release.py: "version": "v5.6.26"
-    fallback_version = "v5.6.26"
+    # Target regex for update_release.py: "version": "v5.6.28"
+    fallback_version = "v5.6.28"
     try:
         base_dir = os.path.dirname(os.path.abspath(__file__))
         files = glob.glob(os.path.join(base_dir, "RELEASE_NOTES_*.md"))
@@ -871,10 +882,8 @@ def health():
         "version": version,
         "architecture": "local-first + throttled-meal-sync + server-daily-summaries + OpenRouter",
         "models": [
-            'gemini-3.5-flash',
-            'gemini-3.1-flash-lite',
-            'gemini-2.5-flash',
             'gemini-2.5-flash-lite',
+            'gemini-2.5-flash',
             'gemini-2.0-flash',
         ]
     })
@@ -1245,7 +1254,7 @@ def analyze_food():
         with PIL.Image.open(filepath) as probe:
             probe.verify()
         with PIL.Image.open(filepath) as opened:
-            img = opened.convert('RGB')
+            img = optimize_image_for_fast_vision(opened.convert('RGB'))
 
         prompt = """分析这张图片中的所有食物。对每种食物分别返回以下信息，用 JSON 数组格式：
 [
@@ -1262,7 +1271,7 @@ If there are no food items in the image, return:
 {"error": "未检测到食物"}
 Strictly output JSON only, do not add any explanation or markdown formatting."""
 
-        result_text = call_llm(prompt_text=prompt, image=img)
+        result_text = call_llm(prompt_text=prompt, image=img, preferred_provider='google', temperature=0.2)
 
         foods = parse_ai_multi_result(result_text)
         if foods is None:
