@@ -1,4 +1,21 @@
-const CACHE_NAME = 'nutrisnap-cache-v5.6.16';
+const CACHE_NAME = 'nutrisnap-cache-v5.6.24';
+const CACHE_PREFIX = 'nutrisnap-cache-';
+
+self.addEventListener('install', () => {
+    self.skipWaiting();
+});
+
+self.addEventListener('activate', (event) => {
+    event.waitUntil((async () => {
+        const cacheNames = await caches.keys();
+        await Promise.all(
+            cacheNames
+                .filter((name) => name.startsWith(CACHE_PREFIX) && name !== CACHE_NAME)
+                .map((name) => caches.delete(name))
+        );
+        await self.clients.claim();
+    })());
+});
 const ASSETS_TO_CACHE = [
   '/',
   '/static/favicon.ico',

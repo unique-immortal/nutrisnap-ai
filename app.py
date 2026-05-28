@@ -33,6 +33,35 @@ import glob
 load_dotenv()
 
 app = Flask(__name__)
+
+
+@app.before_request
+def serve_latest_frontend_entry_before_legacy_routes():
+    """Force local root requests to use the current built frontend."""
+    from pathlib import Path
+    from flask import make_response, request, send_file
+
+    if request.method != "GET":
+        return None
+
+    project_root = Path(__file__).resolve().parent
+    if request.path in ("/", "/index.html"):
+        index_path = project_root / "www" / "index.html"
+        if index_path.exists():
+            response = make_response(send_file(index_path))
+            response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+            response.headers["Pragma"] = "no-cache"
+            return response
+
+    if request.path == "/sw.js":
+        sw_path = project_root / "static" / "sw.js"
+        if sw_path.exists():
+            response = make_response(send_file(sw_path, mimetype="application/javascript"))
+            response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+            response.headers["Pragma"] = "no-cache"
+            return response
+
+    return None
 default_cors_origins = [
     'http://localhost',
     'https://localhost',
@@ -98,6 +127,8 @@ import base64
 
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
 OPENROUTER_API_KEY = os.environ.get('OPENROUTER_API_KEY')
+SPEECH_TO_TEXT_MODEL = os.environ.get('OPENROUTER_STT_MODEL', 'openai/whisper-large-v3')
+SPEECH_TO_TEXT_LANGUAGE = os.environ.get('SPEECH_TO_TEXT_LANGUAGE', 'zh')
 
 if not GEMINI_API_KEY and not OPENROUTER_API_KEY:
     raise ValueError("GEMINI_API_KEY 或 OPENROUTER_API_KEY 环境变量未设置！请在本地 .env 中配置后重启应用。")
@@ -109,12 +140,13 @@ if GEMINI_API_KEY:
     except Exception as e:
         print(f"初始化 Google GenAI client 失败: {e}")
 
-def call_llm(prompt_text, image=None, audio=None, mime_type=None, history=None, system_instruction=None, temperature=0.7):
+def call_llm(prompt_text, image=None, audio=None, mime_type=None, history=None, system_instruction=None, temperature=0.7, preferred_provider='auto'):
     """
     Unified interface to call either OpenRouter API (if OPENROUTER_API_KEY is configured)
     or fall back to official Google Gemini API (using client.models.generate_content).
     """
-    if OPENROUTER_API_KEY:
+    use_openrouter = bool(OPENROUTER_API_KEY) and preferred_provider != 'google'
+    if use_openrouter:
         # ----------------------------------------------------
         # OpenRouter API Path
         # ----------------------------------------------------
@@ -292,6 +324,111 @@ def call_llm(prompt_text, image=None, audio=None, mime_type=None, history=None, 
                 continue
                 
         raise last_error or Exception("Google SDK request failed.")
+
+
+def normalize_audio_format(mime_type, filename=''):
+    raw = (mime_type or '').split(';', 1)[0].strip().lower()
+    if raw.startswith('audio/'):
+        raw = raw.split('/', 1)[1]
+    if not raw and filename:
+        lower_name = filename.lower()
+        if lower_name.endswith('.mp4') or lower_name.endswith('.m4a'):
+            raw = 'mp4'
+        elif lower_name.endswith('.wav'):
+            raw = 'wav'
+        elif lower_name.endswith('.mp3'):
+            raw = 'mp3'
+        elif lower_name.endswith('.ogg'):
+            raw = 'ogg'
+        elif lower_name.endswith('.flac'):
+            raw = 'flac'
+        elif lower_name.endswith('.aac'):
+            raw = 'aac'
+        else:
+            raw = 'webm'
+    mapping = {
+        'x-wav': 'wav',
+        'wave': 'wav',
+        'wav': 'wav',
+        'mpeg': 'mp3',
+        'mp3': 'mp3',
+        'x-m4a': 'm4a',
+        'm4a': 'm4a',
+        'mp4': 'mp4',
+        'm4v': 'mp4',
+        'webm': 'webm',
+        'ogg': 'ogg',
+        'oga': 'ogg',
+        'flac': 'flac',
+        'aac': 'aac',
+        'aiff': 'aiff',
+        'opus': 'webm',
+    }
+    return mapping.get(raw, 'webm')
+
+
+def transcribe_audio_with_openrouter(audio_bytes, mime_type, filename=''):
+    if not OPENROUTER_API_KEY:
+        raise ValueError("OPENROUTER_API_KEY 未设置")
+
+    audio_format = normalize_audio_format(mime_type, filename)
+    audio_b64 = base64.b64encode(audio_bytes).decode('utf-8')
+    headers = {
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://nutrisnap.ai",
+        "X-Title": "NutriSnap AI"
+    }
+    payload = {
+        "input_audio": {
+            "data": audio_b64,
+            "format": audio_format
+        },
+        "model": SPEECH_TO_TEXT_MODEL,
+        "temperature": 0
+    }
+    if SPEECH_TO_TEXT_LANGUAGE:
+        payload["language"] = SPEECH_TO_TEXT_LANGUAGE
+
+    res = requests.post(
+        "https://openrouter.ai/api/v1/audio/transcriptions",
+        headers=headers,
+        json=payload,
+        timeout=60
+    )
+    try:
+        res_json = res.json()
+    except Exception:
+        res_json = {}
+
+    if res.status_code == 200:
+        text = (res_json.get("text") or "").strip()
+        if text:
+            return text
+        raise RuntimeError("OpenRouter STT 返回空文本")
+
+    error_msg = None
+    if isinstance(res_json.get("error"), dict):
+        error_msg = res_json["error"].get("message")
+    elif isinstance(res_json.get("error"), str):
+        error_msg = res_json.get("error")
+    if not error_msg:
+        error_msg = (res.text or "").strip()[:500] or 'unknown'
+    raise RuntimeError(f"OpenRouter STT failed ({res.status_code}): {error_msg}")
+
+
+def transcribe_audio_with_google(audio_bytes, mime_type):
+    if not client:
+        raise ValueError("Google SDK Client 未初始化")
+    prompt = "请将这段录音直接转写成中文文本，不要包含任何额外的引导语、标点纠正解释，仅输出转写文本本身。如果是静音或没有说话，请直接返回空字符串。"
+    result_text = call_llm(
+        prompt_text=prompt,
+        audio=audio_bytes,
+        mime_type=mime_type or 'audio/webm',
+        temperature=0,
+        preferred_provider='google'
+    )
+    return (result_text or '').strip()
 
 # ==========================================
 # 2. 数据库配置
@@ -696,8 +833,8 @@ def get_db_connection():
 # ==========================================
 
 def get_latest_release_info():
-    # Target regex for update_release.py: "version": "v5.6.16"
-    fallback_version = "v5.6.16"
+    # Target regex for update_release.py: "version": "v5.6.24"
+    fallback_version = "v5.6.24"
     try:
         base_dir = os.path.dirname(os.path.abspath(__file__))
         files = glob.glob(os.path.join(base_dir, "RELEASE_NOTES_*.md"))
@@ -814,7 +951,10 @@ def parse_ai_multi_result(raw_text):
 
 @app.route('/')
 def index():
-    return render_template('index.html')
+    response = make_response(send_from_directory('www', 'index.html'))
+    response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    response.headers['Pragma'] = 'no-cache'
+    return response
 
 @app.route('/sw.js')
 def serve_sw():
@@ -1324,13 +1464,28 @@ def speech_to_text():
         if len(audio_bytes) > MAX_AUDIO_UPLOAD_BYTES:
             return jsonify({"error": "Audio file is too large"}), 413
 
-        prompt = "请将这段录音直接转写成中文文本，不要包含任何额外的引导语、标点纠正解释，仅输出转写文本本身。如果是静音或没有说话，请直接返回空字符串。"
-        result_text = call_llm(prompt_text=prompt, audio=audio_bytes, mime_type=mime_type)
+        transcription = ""
+        errors = []
+        if OPENROUTER_API_KEY:
+            try:
+                transcription = transcribe_audio_with_openrouter(audio_bytes, mime_type, audio_file.filename)
+            except Exception as openrouter_err:
+                errors.append(str(openrouter_err))
+                print(f"OpenRouter STT error: {openrouter_err}")
 
-        transcription = result_text.strip()
-        # Clean quotes or markdown from the transcription
-        transcription = re.sub(r'^["\'`]|["\'`]$', '', transcription).strip()
-        
+        if not transcription and client:
+            try:
+                transcription = transcribe_audio_with_google(audio_bytes, mime_type)
+            except Exception as google_err:
+                errors.append(str(google_err))
+                print(f"Google STT fallback error: {google_err}")
+
+        transcription = re.sub(r'^["\'`]|["\'`]$', '', (transcription or '')).strip()
+        if not transcription:
+            if errors:
+                print(f"Speech-to-text failed with errors: {' | '.join(errors)}")
+            return jsonify({"error": "语音听写失败，请稍后重试"}), 500
+
         print(f"Speech transcription result: {transcription}")
         return jsonify({"text": transcription})
 
@@ -2348,7 +2503,6 @@ def record_weight():
         conn.commit()
     
     return jsonify({"success": True, "weight": weight, "recorded_at": recorded_at})
-
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
