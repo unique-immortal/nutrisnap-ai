@@ -37,29 +37,25 @@ app = Flask(__name__)
 
 @app.before_request
 def serve_latest_frontend_entry_before_legacy_routes():
-    """Force local root requests to use the current built frontend."""
-    from pathlib import Path
-    from flask import make_response, request, send_file
+    """Serve SPA entry points with no-store headers for fresh PWA updates."""
+    from flask import make_response, request
 
     if request.method != "GET":
         return None
 
-    project_root = Path(__file__).resolve().parent
     if request.path in ("/", "/index.html"):
-        index_path = project_root / "www" / "index.html"
-        if index_path.exists():
-            response = make_response(send_file(index_path))
-            response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-            response.headers["Pragma"] = "no-cache"
-            return response
+        response = make_response(render_template("index.html"))
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        return response
 
     if request.path == "/sw.js":
-        sw_path = project_root / "static" / "sw.js"
-        if sw_path.exists():
-            response = make_response(send_file(sw_path, mimetype="application/javascript"))
-            response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-            response.headers["Pragma"] = "no-cache"
-            return response
+        response = make_response(send_from_directory("static", "sw.js"))
+        response.headers["Content-Type"] = "application/javascript"
+        response.headers["Service-Worker-Allowed"] = "/"
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        return response
 
     return None
 default_cors_origins = [
@@ -833,8 +829,8 @@ def get_db_connection():
 # ==========================================
 
 def get_latest_release_info():
-    # Target regex for update_release.py: "version": "v5.6.24"
-    fallback_version = "v5.6.24"
+    # Target regex for update_release.py: "version": "v5.6.25"
+    fallback_version = "v5.6.25"
     try:
         base_dir = os.path.dirname(os.path.abspath(__file__))
         files = glob.glob(os.path.join(base_dir, "RELEASE_NOTES_*.md"))
@@ -951,7 +947,7 @@ def parse_ai_multi_result(raw_text):
 
 @app.route('/')
 def index():
-    response = make_response(send_from_directory('www', 'index.html'))
+    response = make_response(render_template('index.html'))
     response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
     response.headers['Pragma'] = 'no-cache'
     return response
