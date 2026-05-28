@@ -840,8 +840,8 @@ def get_db_connection():
 # ==========================================
 
 def get_latest_release_info():
-    # Target regex for update_release.py: "version": "v5.6.28"
-    fallback_version = "v5.6.28"
+    # Target regex for update_release.py: "version": "v5.6.29"
+    fallback_version = "v5.6.29"
     try:
         base_dir = os.path.dirname(os.path.abspath(__file__))
         files = glob.glob(os.path.join(base_dir, "RELEASE_NOTES_*.md"))
