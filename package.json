@@ -1,6 +1,6 @@
 {
   "name": "nutrisnap-ai",
-  "version": "5.5.11",
+  "version": "5.6.26",
   "description": "NutriSnap AI Diet Tracker",
   "scripts": {
     "build": "node build.js",

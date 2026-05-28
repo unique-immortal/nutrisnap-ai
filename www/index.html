@@ -3398,29 +3398,29 @@ html.dark .history-empty-panel {
   </header>
 
   <main class="px-5 pb-32 flex flex-col gap-5 bg-[#FAFAFA]">
-    <section class="grid grid-cols-2 gap-3 min-w-0">
-      <div class="min-w-0 bg-white rounded-3xl p-4 shadow-[0_2px_12px_rgba(0,0,0,0.04)] flex flex-col items-center justify-center relative">
-        <div class="relative w-24 h-24 mb-3">
+    <section class="grid grid-cols-2 gap-3 min-w-0" aria-label="今日营养进度">
+      <div class="min-w-0 min-h-[9.75rem] bg-white rounded-3xl p-3.5 shadow-[0_2px_12px_rgba(0,0,0,0.04)] flex flex-col items-center justify-center relative">
+        <div class="relative w-20 h-20 mb-3">
           <svg viewBox="0 0 100 100" class="w-full h-full transform -rotate-90">
             <circle cx="50" cy="50" r="42" fill="none" stroke="#F0F0F0" stroke-width="8"></circle>
-            <circle id="calRing" cx="50" cy="50" r="42" fill="none" stroke="#115E41" stroke-width="8" stroke-dasharray="264" stroke-dashoffset="132" stroke-linecap="round"></circle>
+            <circle id="calRing" cx="50" cy="50" r="42" fill="none" stroke="#115E41" stroke-width="8" stroke-dasharray="264" stroke-dashoffset="264" stroke-linecap="round"></circle>
           </svg>
           <div class="absolute inset-0 flex flex-col items-center justify-center">
-            <span class="text-[26px] font-black text-gray-900 leading-none" id="totalCal">0</span>
+            <span class="text-[23px] font-black text-gray-900 leading-none" id="totalCal">0</span>
             <span class="text-[10px] text-gray-400 font-bold mt-1">/ <span id="calTargetLabel">2,000</span></span>
           </div>
         </div>
         <h2 class="text-sm font-bold text-gray-900">热量</h2>
       </div>
 
-      <div class="min-w-0 bg-white rounded-3xl p-4 shadow-[0_2px_12px_rgba(0,0,0,0.04)] flex flex-col items-center justify-center relative">
-        <div class="relative w-24 h-24 mb-3">
+      <div class="min-w-0 min-h-[9.75rem] bg-white rounded-3xl p-3.5 shadow-[0_2px_12px_rgba(0,0,0,0.04)] flex flex-col items-center justify-center relative">
+        <div class="relative w-20 h-20 mb-3">
           <svg viewBox="0 0 100 100" class="w-full h-full transform -rotate-90">
             <circle cx="50" cy="50" r="42" fill="none" stroke="#F0F0F0" stroke-width="8"></circle>
-            <circle id="proRing" cx="50" cy="50" r="42" fill="none" stroke="#3B82F6" stroke-width="8" stroke-dasharray="264" stroke-dashoffset="100" stroke-linecap="round"></circle>
+            <circle id="proRing" cx="50" cy="50" r="42" fill="none" stroke="#3B82F6" stroke-width="8" stroke-dasharray="264" stroke-dashoffset="264" stroke-linecap="round"></circle>
           </svg>
           <div class="absolute inset-0 flex flex-col items-center justify-center">
-            <span class="text-[26px] font-black text-gray-900 leading-none stitch-ring-number-inline"><span id="totalPro">0</span><span class="stitch-ring-unit text-gray-900">g</span></span>
+            <span class="text-[23px] font-black text-gray-900 leading-none stitch-ring-number-inline"><span id="totalPro">0</span><span class="stitch-ring-unit text-gray-900">g</span></span>
             <span class="text-[10px] text-gray-400 font-bold mt-1">/ <span id="proTargetLabel">120</span>g</span>
           </div>
         </div>
@@ -3428,17 +3428,37 @@ html.dark .history-empty-panel {
           <span class="material-symbols-outlined text-[#3B82F6] text-[16px] leading-none">bolt</span>蛋白质
         </h2>
       </div>
-    </section>
 
-    <section class="bg-white rounded-[2rem] py-4 px-6 shadow-[0_2px_12px_rgba(0,0,0,0.04)] flex justify-between items-center text-sm font-bold text-gray-500">
-      <div class="flex gap-2 items-center flex-1 justify-center">
-        <span>碳水</span>
-        <span class="text-gray-900 text-base stitch-ring-number-inline"><span id="totalCarbs">0</span><span class="stitch-ring-unit text-gray-900">g</span></span>
+      <div class="min-w-0 min-h-[9.75rem] bg-white rounded-3xl p-3.5 shadow-[0_2px_12px_rgba(0,0,0,0.04)] flex flex-col items-center justify-center relative">
+        <div class="relative w-20 h-20 mb-3">
+          <svg viewBox="0 0 100 100" class="w-full h-full transform -rotate-90">
+            <circle cx="50" cy="50" r="42" fill="none" stroke="#F0F0F0" stroke-width="8"></circle>
+            <circle id="carbsRing" cx="50" cy="50" r="42" fill="none" stroke="#0EA5A4" stroke-width="8" stroke-dasharray="264" stroke-dashoffset="264" stroke-linecap="round"></circle>
+          </svg>
+          <div class="absolute inset-0 flex flex-col items-center justify-center">
+            <span class="text-[23px] font-black text-gray-900 leading-none stitch-ring-number-inline"><span id="totalCarbs">0</span><span class="stitch-ring-unit text-gray-900">g</span></span>
+            <span class="text-[10px] text-gray-400 font-bold mt-1">/ <span id="carbsTargetLabel">250</span>g</span>
+          </div>
+        </div>
+        <h2 class="text-sm font-bold text-gray-900 flex items-center gap-1 justify-center">
+          <span class="inline-block w-2 h-2 rounded-full bg-[#0EA5A4]"></span>碳水
+        </h2>
       </div>
-      <div class="w-px h-6 bg-gray-200"></div>
-      <div class="flex gap-2 items-center flex-1 justify-center">
-        <span>脂肪</span>
-        <span class="text-gray-900 text-base stitch-ring-number-inline"><span id="totalFat">0</span><span class="stitch-ring-unit text-gray-900">g</span></span>
+
+      <div class="min-w-0 min-h-[9.75rem] bg-white rounded-3xl p-3.5 shadow-[0_2px_12px_rgba(0,0,0,0.04)] flex flex-col items-center justify-center relative">
+        <div class="relative w-20 h-20 mb-3">
+          <svg viewBox="0 0 100 100" class="w-full h-full transform -rotate-90">
+            <circle cx="50" cy="50" r="42" fill="none" stroke="#F0F0F0" stroke-width="8"></circle>
+            <circle id="fatRing" cx="50" cy="50" r="42" fill="none" stroke="#D97706" stroke-width="8" stroke-dasharray="264" stroke-dashoffset="264" stroke-linecap="round"></circle>
+          </svg>
+          <div class="absolute inset-0 flex flex-col items-center justify-center">
+            <span class="text-[23px] font-black text-gray-900 leading-none stitch-ring-number-inline"><span id="totalFat">0</span><span class="stitch-ring-unit text-gray-900">g</span></span>
+            <span class="text-[10px] text-gray-400 font-bold mt-1">/ <span id="fatTargetLabel">66</span>g</span>
+          </div>
+        </div>
+        <h2 class="text-sm font-bold text-gray-900 flex items-center gap-1 justify-center">
+          <span class="inline-block w-2 h-2 rounded-full bg-[#D97706]"></span>脂肪
+        </h2>
       </div>
     </section>
 
@@ -4368,7 +4388,7 @@ html.dark .history-empty-panel {
       </div>
       <div>
         <h3 class="font-headline-md text-headline-md text-on-background">NutriSnap AI</h3>
-        <p class="font-label-md text-label-md text-outline" id="aboutAppVersion">v5.5.8</p>
+          <p class="font-label-md text-label-md text-outline" id="aboutAppVersion">v5.6.26</p>
       </div>
     </div>
     <p class="font-body-md text-body-md text-on-surface-variant mb-6">基于 Gemini AI 的智能饮食记录工具。支持拍照多食物识别、语音输入、分量调节、每周营养报告。</p>
@@ -4718,7 +4738,7 @@ html.dark .history-empty-panel {
 <script>
 // ===================== CONFIG =====================
 const API_BASE = "";
-const CLIENT_VERSION = "v5.6.25";
+const CLIENT_VERSION = "v5.6.26";
 
 // Native preferences helper to survive app process kills on mobile
 const NativeStorage = {
@@ -5634,6 +5654,56 @@ const ProfileStorage = {
   saveProfile(profile) {
     const user = getCurrentUser() || 'anonymous';
     localStorage.setItem('profile_' + user, JSON.stringify(profile));
+  }
+};
+
+// ===================== WEIGHT STORAGE (LOCAL MODE) =====================
+const WeightStorage = {
+  getKey() {
+    return 'weight_logs_' + (getCurrentUser() || 'anonymous');
+  },
+  getLogs() {
+    try {
+      const rows = JSON.parse(localStorage.getItem(this.getKey()) || '[]');
+      return Array.isArray(rows)
+        ? rows
+            .map((row, index) => ({
+              id: row.id || `${row.recorded_at || 'weight'}_${index}`,
+              weight: finiteNumber(row.weight, 0),
+              recorded_at: String(row.recorded_at || '').slice(0, 10)
+            }))
+            .filter(row => row.weight >= 20 && row.weight <= 300 && /^\d{4}-\d{2}-\d{2}$/.test(row.recorded_at))
+            .sort((a, b) => a.recorded_at.localeCompare(b.recorded_at))
+        : [];
+    } catch (e) {
+      console.warn('Failed to parse local weight logs:', e);
+      return [];
+    }
+  },
+  saveLogs(logs) {
+    localStorage.setItem(this.getKey(), JSON.stringify(logs));
+  },
+  upsertLog(record) {
+    const date = String(record.recorded_at || new Date().toISOString().slice(0, 10)).slice(0, 10);
+    const logs = this.getLogs().filter(row => row.recorded_at !== date);
+    logs.push({
+      id: record.id || `local_weight_${date}`,
+      weight: Number(Number(record.weight).toFixed(1)),
+      recorded_at: date
+    });
+    logs.sort((a, b) => a.recorded_at.localeCompare(b.recorded_at));
+    this.saveLogs(logs);
+    return logs;
+  },
+  getLogsForDays(days = 90) {
+    const safeDays = Math.max(1, finiteNumber(days, 90));
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    start.setDate(start.getDate() - safeDays + 1);
+    return this.getLogs().filter(row => {
+      const date = new Date(row.recorded_at + 'T00:00:00');
+      return Number.isFinite(date.getTime()) && date >= start;
+    });
   }
 };
 
@@ -7592,7 +7662,9 @@ async function saveBMRProfile() {
 
   await withActionLock('bmr-save', 'btnBMRSave', async () => {
     // Save locally first (always!)
-    ProfileStorage.saveProfile({ ...payload, ...calcs });
+    const savedProfile = { ...payload, ...calcs };
+    currentBMRProfile = savedProfile;
+    ProfileStorage.saveProfile(savedProfile);
     const user = getCurrentUser() || 'guest';
     persistNutritionTargets(user, calcs);
     applyTargets();
@@ -7614,13 +7686,12 @@ async function saveBMRProfile() {
     }
 
     // Update bento card immediately (before async updateProfileUI)
-    const summary = document.getElementById('bmrSummaryText');
-    if (summary) {
+    document.querySelectorAll('[id="bmrSummaryText"]').forEach(summary => {
       summary.textContent = `${calcs.goal_label} \u00b7 \u57fa\u7840\u4ee3\u8c22 ${calcs.bmr} kcal \u00b7 TDEE ${calcs.tdee} kcal \u00b7 \u76ee\u6807 ${calcs.calorie_target} kcal \u00b7 P ${calcs.protein_target}g / C ${calcs.carbs_target}g / F ${calcs.fat_target}g`;
-    }
+    });
 
     closeBMRSetupModal();
-    updateProfileUI();
+    await updateProfileUI();
     fetchTodayData();
     fetchWeeklyReport();
     fetchAISuggestions();
@@ -8035,18 +8106,23 @@ function updateRings(cal, pro, carbs, fat, burn = 0) {
   
   const calRing = document.getElementById('calRing');
   const proRing = document.getElementById('proRing');
+  const carbsRing = document.getElementById('carbsRing');
+  const fatRing = document.getElementById('fatRing');
   const proteinProgress = document.getElementById('proteinProgress');
   const carbsProgress = document.getElementById('carbsProgress');
   const fatProgress = document.getElementById('fatProgress');
+  const ringDash = 264;
   
   if (calRing) {
     if (calRing.tagName && calRing.tagName.toLowerCase() === 'span') {
       calRing.style.width = Math.round(calPct * 100) + '%';
     } else {
-      calRing.style.strokeDashoffset = 251.2 * (1 - calPct);
+      calRing.style.strokeDashoffset = ringDash * (1 - calPct);
     }
   }
-  if (proRing) proRing.style.strokeDashoffset = 251.2 * (1 - proPct);
+  if (proRing) proRing.style.strokeDashoffset = ringDash * (1 - proPct);
+  if (carbsRing) carbsRing.style.strokeDashoffset = ringDash * (1 - carbsPct);
+  if (fatRing) fatRing.style.strokeDashoffset = ringDash * (1 - fatPct);
   if (proteinProgress) proteinProgress.style.width = Math.round(proPct * 100) + '%';
   if (carbsProgress) carbsProgress.style.width = Math.round(carbsPct * 100) + '%';
   if (fatProgress) fatProgress.style.width = Math.round(fatPct * 100) + '%';
@@ -8058,10 +8134,13 @@ function updateRings(cal, pro, carbs, fat, burn = 0) {
 
   const remaining = calTarget - netCal;
   const proteinGap = Math.max(proTarget - pro, 0);
-  document.getElementById('headerCalBadge').textContent = (remaining >= 0 ? '' : '-') + Math.abs(remaining).toLocaleString() + ' kcal';
-  document.getElementById('headerCalBadge').className = remaining >= 0 
-    ? 'font-label-md text-label-md text-primary'
-    : 'font-label-md text-label-md text-error';
+  const headerCalBadge = document.getElementById('headerCalBadge');
+  if (headerCalBadge) {
+    headerCalBadge.textContent = (remaining >= 0 ? '' : '-') + Math.abs(remaining).toLocaleString() + ' kcal';
+    headerCalBadge.className = remaining >= 0 
+      ? 'font-label-md text-label-md text-primary'
+      : 'font-label-md text-label-md text-error';
+  }
   
   document.getElementById('calTargetLabel').textContent = calTarget.toLocaleString();
   document.getElementById('proTargetLabel').textContent = proTarget;
@@ -8917,20 +8996,13 @@ function toggleStorageMode() {
 async function updateProfileUI() {
   const user = getCurrentUser() || 'guest';
   const displayUser = getCurrentUserDisplayName(user);
-  const profileUsername = document.getElementById('profileUsername');
-  if (profileUsername) {
-    profileUsername.textContent = user === 'local_user' ? '\u79bb\u7ebf\u4f53\u9a8c\u7528\u6237' : displayUser;
-  }
-  const profileStorageMode = document.getElementById('profileStorageMode');
-  if (profileStorageMode) {
-    profileStorageMode.textContent = isLocalMode() ? '\u6570\u636e\u5b58\u50a8\u6a21\u5f0f: \u672c\u5730\u79bb\u7ebf' : '\u6570\u636e\u5b58\u50a8\u6a21\u5f0f: \u996e\u98df\u4e0e\u6c47\u603b\u540c\u6b65';
-  }
-  const storageModeDisplay = document.getElementById('storageModeDisplay');
-  if (storageModeDisplay) {
-    storageModeDisplay.textContent = isLocalMode() ? '\u672c\u5730\u79bb\u7ebf' : '\u5df2\u540c\u6b65';
-  }
-  const profileModeShort = document.getElementById('profileModeShort');
-  if (profileModeShort) profileModeShort.textContent = isLocalMode() ? '\u672c\u5730\u79bb\u7ebf' : '\u4e91\u7aef\u540c\u6b65';
+  const setTextAllIfExists = (id, value) => {
+    document.querySelectorAll(`[id="${id}"]`).forEach(el => { el.textContent = value; });
+  };
+  setTextAllIfExists('profileUsername', user === 'local_user' ? '\u79bb\u7ebf\u4f53\u9a8c\u7528\u6237' : displayUser);
+  setTextAllIfExists('profileStorageMode', isLocalMode() ? '数据存储模式: 本地离线' : '数据存储模式: 饮食与汇总同步');
+  setTextAllIfExists('storageModeDisplay', isLocalMode() ? '\u672c\u5730\u79bb\u7ebf' : '\u5df2\u540c\u6b65');
+  setTextAllIfExists('profileModeShort', isLocalMode() ? '\u672c\u5730\u79bb\u7ebf' : '\u4e91\u7aef\u540c\u6b65');
   const profileTargetSummary = document.getElementById('profileTargetSummary');
   if (profileTargetSummary) profileTargetSummary.textContent = formatNutritionSummary(false);
 
@@ -8978,55 +9050,48 @@ async function updateProfileUI() {
   };
 
   if (hasProfile && profile) {
-    const setTextIfExists = (id, value) => {
-      const el = document.getElementById(id);
-      if (el) el.textContent = value;
-    };
-    setTextIfExists('profileGender', profile.gender === 'female' ? '\u5973' : '\u7537');
-    setTextIfExists('profileAge', profile.age + ' \u5c81');
-    setTextIfExists('profileHeight', profile.height + ' cm');
-    setTextIfExists('profileWeight', profile.weight + ' kg');
-    setTextIfExists('profileActivity', actMap[profile.activity_level] || '\u4e2d\u5ea6\u8fd0\u52a8');
-    setTextIfExists('profileGoalLabel', getNutritionGoalConfig(profile.nutrition_goal || profile.goal || nutritionGoal).label);
-    setTextIfExists('profileBMR', profile.bmr + ' kcal');
-    setTextIfExists('profileTDEE', profile.tdee + ' kcal');
+    setTextAllIfExists('profileGender', profile.gender === 'female' ? '\u5973' : '\u7537');
+    setTextAllIfExists('profileAge', profile.age + ' \u5c81');
+    setTextAllIfExists('profileHeight', profile.height + ' cm');
+    setTextAllIfExists('profileWeight', profile.weight + ' kg');
+    setTextAllIfExists('profileActivity', actMap[profile.activity_level] || '\u4e2d\u5ea6\u8fd0\u52a8');
+    setTextAllIfExists('profileGoalLabel', getNutritionGoalConfig(profile.nutrition_goal || profile.goal || nutritionGoal).label);
+    setTextAllIfExists('profileBMR', profile.bmr + ' kcal');
+    setTextAllIfExists('profileTDEE', profile.tdee + ' kcal');
 
     // Update the bento card summary text
-    const bmrSummary = document.getElementById('bmrSummaryText');
-    if (bmrSummary) {
-      const goalLabel = getNutritionGoalConfig(profile.nutrition_goal || profile.goal || nutritionGoal).label;
-      bmrSummary.textContent = `${goalLabel} \u00b7 \u57fa\u7840\u4ee3\u8c22 ${profile.bmr} kcal \u00b7 TDEE ${profile.tdee} kcal \u00b7 \u76ee\u6807 ${(profile.calorie_target || profile.target_calories || profile.tdee).toLocaleString()} kcal \u00b7 P ${profile.protein_target}g / C ${profile.carbs_target || carbsTarget}g / F ${profile.fat_target || fatTarget}g`;
-    }
+    const goalLabel = getNutritionGoalConfig(profile.nutrition_goal || profile.goal || nutritionGoal).label;
+    setTextAllIfExists('bmrSummaryText', `${goalLabel} \u00b7 \u57fa\u7840\u4ee3\u8c22 ${profile.bmr} kcal \u00b7 TDEE ${profile.tdee} kcal \u00b7 \u76ee\u6807 ${(profile.calorie_target || profile.target_calories || profile.tdee).toLocaleString()} kcal \u00b7 P ${profile.protein_target}g / C ${profile.carbs_target || carbsTarget}g / F ${profile.fat_target || fatTarget}g`);
     const bmrIndicator = document.getElementById('bmrSetupIndicator');
     if (bmrIndicator) {
       bmrIndicator.textContent = '\u5df2\u8ba1\u7b97';
       bmrIndicator.className = 'status-pill';
     }
-    const profileBmrStatus = document.getElementById('profileBmrStatus');
-    if (profileBmrStatus) profileBmrStatus.textContent = '\u5df2\u8bbe\u7f6e';
-    const bmrSetupCta = document.getElementById('bmrSetupCta');
-    if (bmrSetupCta) bmrSetupCta.textContent = '\u66f4\u65b0\u8eab\u4f53\u6570\u636e';
+    setTextAllIfExists('profileBmrStatus', '\u5df2\u8bbe\u7f6e');
+    setTextAllIfExists('bmrSetupCta', '\u66f4\u65b0\u8eab\u4f53\u6570\u636e');
 
     setNutritionTargetGlobals(profile);
     persistNutritionTargets(user, profile);
     applyTargets();
   } else {
-    const bmrSummary = document.getElementById('bmrSummaryText');
-    if (bmrSummary) {
-      bmrSummary.textContent = `\u5c1a\u672a\u8bbe\u7f6e\u8eab\u4f53\u6570\u636e\uff0c\u5f53\u524d\u4f7f\u7528 ${formatNutritionSummary(true)} \u4f5c\u4e3a\u9ed8\u8ba4\u76ee\u6807\u3002`;
-    }
+    setTextAllIfExists('profileGender', '--');
+    setTextAllIfExists('profileAge', '--');
+    setTextAllIfExists('profileHeight', '-- cm');
+    setTextAllIfExists('profileWeight', '-- kg');
+    setTextAllIfExists('profileActivity', '--');
+    setTextAllIfExists('profileBMR', '-- kcal');
+    setTextAllIfExists('profileTDEE', '-- kcal');
+    setTextAllIfExists('bmrSummaryText', `\u5c1a\u672a\u8bbe\u7f6e\u8eab\u4f53\u6570\u636e\uff0c\u5f53\u524d\u4f7f\u7528 ${formatNutritionSummary(true)} \u4f5c\u4e3a\u9ed8\u8ba4\u76ee\u6807\u3002`);
     const bmrIndicator = document.getElementById('bmrSetupIndicator');
     if (bmrIndicator) {
       bmrIndicator.textContent = '\u9ed8\u8ba4\u76ee\u6807';
       bmrIndicator.className = 'status-pill';
     }
-    const profileBmrStatus = document.getElementById('profileBmrStatus');
-    if (profileBmrStatus) profileBmrStatus.textContent = '\u5c1a\u672a\u8bbe\u7f6e';
-    const bmrSetupCta = document.getElementById('bmrSetupCta');
-    if (bmrSetupCta) bmrSetupCta.textContent = '\u8bbe\u7f6e\u8eab\u4f53\u6570\u636e\uff0c\u81ea\u52a8\u8ba1\u7b97\u70ed\u91cf\u76ee\u6807';
+    setTextAllIfExists('profileBmrStatus', '\u5c1a\u672a\u8bbe\u7f6e');
+    setTextAllIfExists('bmrSetupCta', '\u8bbe\u7f6e\u8eab\u4f53\u6570\u636e\uff0c\u81ea\u52a8\u8ba1\u7b97\u70ed\u91cf\u76ee\u6807');
     applyTargets();
   }
-  if (profileTargetSummary) profileTargetSummary.textContent = formatNutritionSummary(false);
+  setTextAllIfExists('profileTargetSummary', formatNutritionSummary(false));
 }
 
 function showAbout() {
@@ -10440,27 +10505,34 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     const btn = document.getElementById('btnWeightSave');
-    btn.disabled = true;
-    btn.textContent = '保存中...';
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = '保存中...';
+    }
 
     try {
-      const json = await safeFetchJSON('/api/weight', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ weight, recorded_at })
-      });
+      const json = isLocalMode()
+        ? { success: true, data: WeightStorage.upsertLog({ weight, recorded_at }) }
+        : await safeFetchJSON(API_BASE + '/api/weight', {
+            method: 'POST',
+            headers: getAuthHeaders(),
+            body: JSON.stringify({ weight, recorded_at })
+          });
       if (json.success) {
         closeWeightRecordModal();
         weightEl.value = '';
         await loadWeightData(currentWeightDays || 90);
+        showToast('体重记录已保存', 'success');
       } else {
         alert(json.error || '保存失败');
       }
     } catch (e) {
       alert(normalizeErrorMessage(e, '保存失败,请稍后重试'));
     } finally {
-      btn.disabled = false;
-      btn.textContent = '保存';
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = '保存';
+      }
     }
   }
 
@@ -10474,6 +10546,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Update tab buttons
     [7, 30, 90].forEach(d => {
       const btn = document.getElementById(`weightBtn${d}`);
+      if (!btn) return;
       if (d === days) {
         btn.className = 'weight-range-tab active';
       } else {
@@ -10485,7 +10558,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (rangeLabel) rangeLabel.textContent = `最近${days}天`;
 
     try {
-      const json = await safeFetchJSON(`/api/weight?days=${days}`);
+      const json = isLocalMode()
+        ? { success: true, days, data: WeightStorage.getLogsForDays(days) }
+        : await safeFetchJSON(API_BASE + `/api/weight?days=${days}`, { headers: getAuthHeaders() });
       if (!json.success || !json.data || json.data.length === 0) {
         document.getElementById('weightLatest').innerHTML = '<p class="text-on-surface-variant text-sm">暂无体重记录</p>';
         document.getElementById('weightHistoryList').innerHTML = '<div class="weight-empty-state"><span class="material-symbols-outlined text-3xl text-primary">schedule</span><p class="font-semibold text-on-background mt-2">暂无历史记录</p><p class="text-sm text-on-surface-variant mt-1">完成第一次记录后，这里会按日期展示你的体重变化。</p></div>';
@@ -10557,15 +10632,85 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
+  function drawWeightChartFallback(canvas, data, colors) {
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    const parent = canvas.parentElement;
+    const rect = canvas.getBoundingClientRect();
+    const width = Math.max(260, rect.width || (parent ? parent.clientWidth : 320));
+    const height = Math.max(180, rect.height || (parent ? parent.clientHeight : 220));
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = width * dpr;
+    canvas.height = height * dpr;
+    canvas.style.width = '100%';
+    canvas.style.height = height + 'px';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, width, height);
+
+    const pad = { left: 38, right: 14, top: 18, bottom: 30 };
+    const weights = data.map(row => finiteNumber(row.weight, 0));
+    const min = Math.floor(Math.min(...weights) - 1);
+    const max = Math.ceil(Math.max(...weights) + 1);
+    const range = Math.max(1, max - min);
+    const plotW = width - pad.left - pad.right;
+    const plotH = height - pad.top - pad.bottom;
+    const xFor = index => pad.left + (data.length === 1 ? plotW / 2 : (plotW * index) / (data.length - 1));
+    const yFor = value => pad.top + plotH - ((value - min) / range) * plotH;
+
+    ctx.strokeStyle = colors.gridColor;
+    ctx.lineWidth = 1;
+    ctx.font = '11px Inter, sans-serif';
+    ctx.fillStyle = colors.textColor;
+    for (let i = 0; i <= 3; i++) {
+      const y = pad.top + (plotH * i) / 3;
+      const value = Math.round(max - (range * i) / 3);
+      ctx.beginPath();
+      ctx.moveTo(pad.left, y);
+      ctx.lineTo(width - pad.right, y);
+      ctx.stroke();
+      ctx.fillText(`${value}kg`, 4, y + 4);
+    }
+
+    ctx.beginPath();
+    data.forEach((row, index) => {
+      const x = xFor(index);
+      const y = yFor(finiteNumber(row.weight, 0));
+      if (index === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.strokeStyle = colors.primaryColor;
+    ctx.lineWidth = 2.5;
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    ctx.stroke();
+
+    data.forEach((row, index) => {
+      const x = xFor(index);
+      const y = yFor(finiteNumber(row.weight, 0));
+      ctx.beginPath();
+      ctx.arc(x, y, 3.5, 0, Math.PI * 2);
+      ctx.fillStyle = colors.primaryColor;
+      ctx.fill();
+    });
+  }
+
   function renderWeightChart(data) {
-    const ctx = document.getElementById('weightChart').getContext('2d');
-    if (weightChartInstance) weightChartInstance.destroy();
+    const canvas = document.getElementById('weightChart');
+    if (!canvas || !Array.isArray(data) || data.length === 0) return;
 
     const isDark = document.documentElement.classList.contains('dark');
     const style = getComputedStyle(document.documentElement);
     const gridColor = style.getPropertyValue('--outline-variant').trim() || (isDark ? '#404943' : '#bfc9c1');
     const textColor = style.getPropertyValue('--on-surface-variant').trim() || (isDark ? '#bfc9c1' : '#404943');
     const primaryColor = style.getPropertyValue('--primary').trim() || (isDark ? '#86d4a8' : '#2d6a4f');
+    if (!window.Chart) {
+      console.warn('Chart.js is not ready; using canvas fallback for weight chart.');
+      drawWeightChartFallback(canvas, data, { gridColor, textColor, primaryColor });
+      return;
+    }
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    if (weightChartInstance) weightChartInstance.destroy();
 
     const parseHexToRgba = (hex, alpha) => {
       hex = hex.trim().replace('#', '');
