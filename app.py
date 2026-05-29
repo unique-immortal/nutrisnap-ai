@@ -168,6 +168,15 @@ def fit_timeouts_to_deadline(timeouts, deadline, minimum_slot=0.5):
 class NonRetryableLLMError(Exception):
     """Raised when a request is malformed and should not fall through the retry chain."""
 
+
+class LLMChainExhaustedError(Exception):
+    """Raised when a provider/model chain is exhausted without a usable result."""
+
+    def __init__(self, message, fallback_trace=None, last_error=None):
+        super().__init__(message)
+        self.fallback_trace = list(fallback_trace or [])
+        self.last_error = last_error
+
 def openrouter_provider_config():
     return {
         "sort": OPENROUTER_PROVIDER_SORT,
@@ -176,14 +185,13 @@ def openrouter_provider_config():
     }
 
 OPENROUTER_NUTRITION_MODELS = parse_model_list(os.environ.get('OPENROUTER_NUTRITION_MODELS'), [
-    'openai/gpt-oss-120b:free',
     'deepseek/deepseek-v4-flash:free',
-    'z-ai/glm-4.5-air:free',
-    'nvidia/nemotron-nano-9b-v2:free',
+    'qwen/qwen3-next-80b-a3b-instruct:free',
+    'minimax/minimax-m2.5:free',
 ])
 OPENROUTER_NUTRITION_TIMEOUTS = parse_timeout_list(
     os.environ.get('OPENROUTER_NUTRITION_TIMEOUTS'),
-    [6, 5, 5, 4]
+    [5, 5, 5]
 )
 OPENROUTER_NUTRITION_HARD_DEADLINE_SECONDS = float(
     os.environ.get('OPENROUTER_NUTRITION_HARD_DEADLINE_SECONDS', '15')
@@ -394,6 +402,7 @@ def call_llm(
     premium=False,
     premium_models=None,
     premium_timeout=None,
+    allow_google_fallback=True,
     return_metadata=False,
 ):
     """
@@ -547,10 +556,14 @@ def call_llm(
                     fallback_trace.append(f"{model}:error")
                 last_error = e
                 
-        if client:
+        if client and allow_google_fallback:
             print(f"OpenRouter models failed, falling back to Google SDK: {last_error}")
         else:
-            raise last_error or Exception("OpenRouter request failed.")
+            raise LLMChainExhaustedError(
+                "OpenRouter model chain exhausted.",
+                fallback_trace=fallback_trace,
+                last_error=last_error,
+            )
         
     # ----------------------------------------------------
     # Google SDK Path (Fallback)
@@ -1198,8 +1211,8 @@ def get_db_connection():
 # ==========================================
 
 def get_latest_release_info():
-    # Target regex for update_release.py: "version": "v5.6.39"
-    fallback_version = "v5.6.39"
+    # Target regex for update_release.py: "version": "v5.6.40"
+    fallback_version = "v5.6.40"
     try:
         base_dir = os.path.dirname(os.path.abspath(__file__))
         files = glob.glob(os.path.join(base_dir, "RELEASE_NOTES_*.md"))
@@ -1659,6 +1672,85 @@ def build_nutrition_per_100g(food):
         'fat_g': clamp_number(clamp_number(food.get('fat'), default=0, min_value=0, max_value=300) * factor, default=0, min_value=0, max_value=300),
     }
 
+
+def attempted_statuses_for_models(fallback_trace, models):
+    statuses = []
+    for entry in list(fallback_trace or []):
+        for model in list(models or []):
+            prefix = f"{model}:"
+            if entry.startswith(prefix):
+                statuses.append(entry[len(prefix):])
+                break
+    return statuses
+
+
+def all_model_attempts_timed_out(fallback_trace, models):
+    expected = len(list(models or []))
+    statuses = attempted_statuses_for_models(fallback_trace, models)
+    return bool(statuses) and len(statuses) >= expected and all(status == 'timeout' for status in statuses[:expected])
+
+
+def build_structured_nutrition_degraded_foods(visual_data):
+    visual_items = list((visual_data or {}).get('foods') or [])
+    if not visual_items:
+        return [], False
+
+    nutrition_label = (visual_data or {}).get('nutrition_label') or {}
+    per_100g = {
+        'calories': clamp_number(nutrition_label.get('calories'), default=0, min_value=0, max_value=5000),
+        'protein': clamp_number(nutrition_label.get('protein'), default=0, min_value=0, max_value=300),
+        'carbs': clamp_number(nutrition_label.get('carbs'), default=0, min_value=0, max_value=500),
+        'fat': clamp_number(nutrition_label.get('fat'), default=0, min_value=0, max_value=300),
+    }
+    used_printed_label = any(value > 0 for value in per_100g.values())
+
+    foods = []
+    for item in visual_items:
+        weight = clamp_number(item.get('estimated_weight_g'), default=100, min_value=1, max_value=2000)
+        factor = weight / 100.0
+        foods.append({
+            'food_name': clean_text(item.get('name'), default='待确认食物', max_len=120),
+            'calories': clamp_number(per_100g['calories'] * factor, default=0, min_value=0, max_value=5000),
+            'protein': clamp_number(per_100g['protein'] * factor, default=0, min_value=0, max_value=300),
+            'carbs': clamp_number(per_100g['carbs'] * factor, default=0, min_value=0, max_value=500),
+            'fat': clamp_number(per_100g['fat'] * factor, default=0, min_value=0, max_value=300),
+            'weight': weight,
+            'sodium_mg': 0,
+            'sugar_g': 0,
+            'fiber_g': 0,
+        })
+    return foods, used_printed_label
+
+
+def build_structured_nutrition_degraded_result(visual_data, visual_meta, nutrition_meta, pipeline_latency_ms, reason):
+    foods, used_printed_label = build_structured_nutrition_degraded_foods(visual_data)
+    if not foods:
+        return None
+
+    disclaimer = (
+        '营养计算模型暂时不可用，当前结果为结构化降级估算；'
+        '若包装营养标示不完整或未识别到，请保存前手动确认。不可用于医疗诊断。'
+    )
+    enriched, analysis_meta = enrich_foods_with_analysis_metadata(
+        foods,
+        visual_data,
+        visual_meta,
+        nutrition_meta,
+        pipeline_latency_ms,
+    )
+    for item in enriched:
+        item['needs_user_confirmation'] = True
+        item['disclaimer'] = disclaimer
+    analysis_meta['needs_user_confirmation'] = True
+    analysis_meta['nutrition_degraded'] = True
+    analysis_meta['nutrition_degraded_reason'] = reason
+    analysis_meta['nutrition_degraded_used_label'] = used_printed_label
+    analysis_meta['disclaimer'] = disclaimer
+    return {
+        'foods': enriched,
+        'analysis_meta': analysis_meta,
+    }
+
 def enrich_foods_with_analysis_metadata(foods, visual_data, visual_meta, nutrition_meta, pipeline_latency_ms):
     visual_items = visual_data.get('foods') or []
     has_label = bool(visual_data.get('is_packaged_food') or visual_data.get('package_text') or visual_data.get('nutrition_label'))
@@ -1725,6 +1817,7 @@ def analyze_food_with_two_stage_pipeline(img, use_premium=False):
         OPENROUTER_NUTRITION_TIMEOUTS,
         OPENROUTER_NUTRITION_HARD_DEADLINE_SECONDS
     )
+    nutrition_models = OPENROUTER_NUTRITION_MODELS[:len(nutrition_timeouts) or len(OPENROUTER_NUTRITION_MODELS)]
     visual_prompt = build_visual_prompt()
     visual_response = call_llm(
         prompt_text=visual_prompt,
@@ -1761,25 +1854,66 @@ def analyze_food_with_two_stage_pipeline(img, use_premium=False):
             print(f"Packaged food name refinement failed: {refine_err}")
 
     nutrition_prompt = build_nutrition_from_visual_prompt(visual_data)
-    nutrition_response = call_llm(
-        prompt_text=nutrition_prompt,
-        temperature=0.1,
-        openrouter_models=OPENROUTER_NUTRITION_MODELS,
-        openrouter_max_attempts=len(nutrition_timeouts) or len(OPENROUTER_NUTRITION_MODELS),
-        openrouter_timeout=nutrition_timeouts[0] if nutrition_timeouts else OPENROUTER_CHAT_TIMEOUT_SECONDS,
-        openrouter_timeouts=nutrition_timeouts,
-        premium=use_premium,
-        premium_models=PREMIUM_NUTRITION_MODELS,
-        premium_timeout=PREMIUM_AI_TIMEOUT_SECONDS,
-        return_metadata=True,
-    )
-    nutrition_meta = {k: nutrition_response.get(k) for k in ('provider', 'model', 'latency_ms', 'fallback_trace')}
-    foods = parse_ai_multi_result(nutrition_response.get('text'))
-    if foods is None and client and OPENROUTER_API_KEY and USE_OPENROUTER_LLM:
-        print("Nutrition JSON parse failed with OpenRouter result, retrying Google SDK once")
-        nutrition_response = call_llm(prompt_text=nutrition_prompt, preferred_provider='google', temperature=0.1, return_metadata=True)
+    try:
+        nutrition_response = call_llm(
+            prompt_text=nutrition_prompt,
+            temperature=0.1,
+            openrouter_models=nutrition_models,
+            openrouter_max_attempts=len(nutrition_timeouts) or len(nutrition_models),
+            openrouter_timeout=nutrition_timeouts[0] if nutrition_timeouts else OPENROUTER_CHAT_TIMEOUT_SECONDS,
+            openrouter_timeouts=nutrition_timeouts,
+            premium=use_premium,
+            premium_models=PREMIUM_NUTRITION_MODELS,
+            premium_timeout=PREMIUM_AI_TIMEOUT_SECONDS,
+            allow_google_fallback=False,
+            return_metadata=True,
+        )
         nutrition_meta = {k: nutrition_response.get(k) for k in ('provider', 'model', 'latency_ms', 'fallback_trace')}
         foods = parse_ai_multi_result(nutrition_response.get('text'))
+    except LLMChainExhaustedError as nutrition_err:
+        fallback_trace = list(nutrition_err.fallback_trace or [])
+        reason = 'all_timeouts' if all_model_attempts_timed_out(fallback_trace, nutrition_models) else 'model_chain_exhausted'
+        nutrition_meta = {
+            'provider': 'degraded',
+            'model': reason,
+            'latency_ms': 0,
+            'fallback_trace': fallback_trace,
+        }
+        pipeline_latency_ms = int((time.perf_counter() - pipeline_started_at) * 1000)
+        degraded_result = build_structured_nutrition_degraded_result(
+            visual_data,
+            visual_meta,
+            nutrition_meta,
+            pipeline_latency_ms,
+            reason,
+        )
+        if degraded_result:
+            degraded_result['analysis_meta']['premium_requested'] = bool(use_premium)
+            degraded_result['analysis_meta']['premium_used'] = visual_meta.get('provider') == 'openai_compatible'
+            return degraded_result
+        raise
+    if foods is None:
+        fallback_trace = list((nutrition_meta or {}).get('fallback_trace') or [])
+        fallback_trace.append('parse:invalid_json')
+        nutrition_meta = {
+            'provider': 'degraded',
+            'model': 'invalid_json_fallback',
+            'latency_ms': nutrition_meta.get('latency_ms', 0),
+            'fallback_trace': fallback_trace,
+        }
+        pipeline_latency_ms = int((time.perf_counter() - pipeline_started_at) * 1000)
+        degraded_result = build_structured_nutrition_degraded_result(
+            visual_data,
+            visual_meta,
+            nutrition_meta,
+            pipeline_latency_ms,
+            'invalid_json_fallback',
+        )
+        if degraded_result:
+            degraded_result['analysis_meta']['premium_requested'] = bool(use_premium)
+            degraded_result['analysis_meta']['premium_used'] = visual_meta.get('provider') == 'openai_compatible'
+            return degraded_result
+        return None
     if foods is None:
         return None
     pipeline_latency_ms = int((time.perf_counter() - pipeline_started_at) * 1000)
