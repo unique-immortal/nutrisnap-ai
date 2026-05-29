@@ -138,6 +138,36 @@ def parse_model_list(value, default_models):
     models = [m.strip() for m in (value or '').split(',') if m.strip()]
     return models or default_models
 
+def parse_timeout_list(value, default_timeouts):
+    if not value:
+        return list(default_timeouts)
+    parsed = []
+    for part in str(value).split(','):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            parsed.append(float(part))
+        except ValueError:
+            continue
+    return parsed or list(default_timeouts)
+
+def fit_timeouts_to_deadline(timeouts, deadline, minimum_slot=0.5):
+    remaining = max(0.0, float(deadline or 0))
+    fitted = []
+    for raw_value in list(timeouts or []):
+        if remaining <= 0:
+            break
+        value = max(float(raw_value), minimum_slot)
+        slot = min(value, remaining)
+        fitted.append(slot)
+        remaining -= slot
+    return fitted
+
+
+class NonRetryableLLMError(Exception):
+    """Raised when a request is malformed and should not fall through the retry chain."""
+
 def openrouter_provider_config():
     return {
         "sort": OPENROUTER_PROVIDER_SORT,
@@ -146,30 +176,45 @@ def openrouter_provider_config():
     }
 
 OPENROUTER_NUTRITION_MODELS = parse_model_list(os.environ.get('OPENROUTER_NUTRITION_MODELS'), [
+    'openai/gpt-oss-120b:free',
     'deepseek/deepseek-v4-flash:free',
-    'qwen/qwen3-next-80b-a3b-instruct:free',
+    'z-ai/glm-4.5-air:free',
+    'nvidia/nemotron-nano-9b-v2:free',
 ])
+OPENROUTER_NUTRITION_TIMEOUTS = parse_timeout_list(
+    os.environ.get('OPENROUTER_NUTRITION_TIMEOUTS'),
+    [6, 5, 5, 4]
+)
+OPENROUTER_NUTRITION_HARD_DEADLINE_SECONDS = float(
+    os.environ.get('OPENROUTER_NUTRITION_HARD_DEADLINE_SECONDS', '15')
+)
 
 OPENROUTER_TEXT_MODELS = parse_model_list(os.environ.get('OPENROUTER_TEXT_MODELS'), [
-    'z-ai/glm-4.5-air:free',
-    'deepseek/deepseek-v4-flash:free',
-    'openai/gpt-oss-20b:free',
-    'moonshotai/kimi-k2.6:free',
-    'qwen/qwen3-next-80b-a3b-instruct:free',
     'openai/gpt-oss-120b:free',
-    'meta-llama/llama-3.3-70b-instruct:free',
-    'google/gemma-4-26b-a4b-it:free',
-    'openrouter/free',
+    'deepseek/deepseek-v4-flash:free',
+    'z-ai/glm-4.5-air:free',
+    'nvidia/nemotron-nano-9b-v2:free',
 ])
+OPENROUTER_TEXT_TIMEOUTS = parse_timeout_list(
+    os.environ.get('OPENROUTER_TEXT_TIMEOUTS'),
+    [6, 5, 5, 4]
+)
+OPENROUTER_TEXT_HARD_DEADLINE_SECONDS = float(
+    os.environ.get('OPENROUTER_TEXT_HARD_DEADLINE_SECONDS', '15')
+)
 
 OPENROUTER_VISION_MODELS = parse_model_list(os.environ.get('OPENROUTER_VISION_MODELS'), [
-    'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',
     'google/gemma-4-31b-it:free',
-    'nvidia/nemotron-nano-12b-v2-vl:free',
     'google/gemma-4-26b-a4b-it:free',
-    'moonshotai/kimi-k2.6:free',
-    'openrouter/free',
+    'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',
 ])
+OPENROUTER_VISION_TIMEOUTS = parse_timeout_list(
+    os.environ.get('OPENROUTER_VISION_TIMEOUTS'),
+    [8, 6, 6]
+)
+OPENROUTER_VISION_HARD_DEADLINE_SECONDS = float(
+    os.environ.get('OPENROUTER_VISION_HARD_DEADLINE_SECONDS', '20')
+)
 
 def truthy_env(name, default='false'):
     return os.environ.get(name, default).strip().lower() in ('1', 'true', 'yes', 'on')
@@ -345,6 +390,7 @@ def call_llm(
     openrouter_models=None,
     openrouter_max_attempts=None,
     openrouter_timeout=None,
+    openrouter_timeouts=None,
     premium=False,
     premium_models=None,
     premium_timeout=None,
@@ -354,6 +400,7 @@ def call_llm(
     Unified interface to call either OpenRouter API (if OPENROUTER_API_KEY is configured)
     or fall back to official Google Gemini API (using client.models.generate_content).
     """
+    fallback_trace = []
     if premium and preferred_provider != 'google' and audio is None and premium_provider_available():
         try:
             return call_openai_compatible_llm(
@@ -368,6 +415,7 @@ def call_llm(
             )
         except Exception as premium_err:
             print(f"Premium provider failed, falling back to free chain: {premium_err}")
+            fallback_trace.append("premium:error")
 
     use_openrouter = (
         bool(OPENROUTER_API_KEY)
@@ -439,9 +487,11 @@ def call_llm(
         attempt_limit = max(1, openrouter_max_attempts or OPENROUTER_MAX_MODEL_ATTEMPTS)
         timeout_seconds = openrouter_timeout or OPENROUTER_CHAT_TIMEOUT_SECONDS
         models_to_try = (openrouter_models or default_models)[:attempt_limit]
-        
+        timeout_schedule = list(openrouter_timeouts or [])
+
         last_error = None
-        for model in models_to_try:
+        for idx, model in enumerate(models_to_try):
+            model_timeout = timeout_schedule[idx] if idx < len(timeout_schedule) else timeout_seconds
             payload = {
                 "model": model,
                 "messages": messages,
@@ -449,9 +499,9 @@ def call_llm(
                 "provider": openrouter_provider_config()
             }
             try:
-                print(f"Calling OpenRouter model: {model}")
+                print(f"Calling OpenRouter model: {model} (timeout={model_timeout}s)")
                 started_at = time.perf_counter()
-                res = requests.post(url, headers=headers, json=payload, timeout=timeout_seconds)
+                res = requests.post(url, headers=headers, json=payload, timeout=model_timeout)
                 latency_ms = int((time.perf_counter() - started_at) * 1000)
                 res_json = res.json()
                 if res.status_code == 200 and 'choices' in res_json:
@@ -466,20 +516,35 @@ def call_llm(
                     if not reply:
                         raise RuntimeError(f"OpenRouter model {model} returned empty content")
                     print(f"Success with OpenRouter model: {model}")
+                    fallback_trace.append(f"{model}:ok")
                     if return_metadata:
                         return {
                             "text": reply,
                             "provider": "openrouter",
                             "model": model,
                             "latency_ms": latency_ms,
+                            "fallback_trace": fallback_trace,
                         }
                     return reply
                 else:
                     error_msg = res_json.get('error', {}).get('message', res.text)
+                    if res.status_code == 400:
+                        fallback_trace.append(f"{model}:http_400")
+                        raise NonRetryableLLMError(f"OpenRouter bad request on {model}: {error_msg}")
+                    status_label = f"http_{res.status_code}"
+                    fallback_trace.append(f"{model}:{status_label}")
                     print(f"OpenRouter model {model} failed: {error_msg}")
                     last_error = Exception(f"OpenRouter error: {error_msg}")
+            except requests.exceptions.Timeout as e:
+                print(f"OpenRouter timeout with model {model}: {e}")
+                fallback_trace.append(f"{model}:timeout")
+                last_error = e
+            except NonRetryableLLMError:
+                raise
             except Exception as e:
                 print(f"OpenRouter network/request error with model {model}: {e}")
+                if not any(str(item).startswith(f"{model}:") for item in fallback_trace):
+                    fallback_trace.append(f"{model}:error")
                 last_error = e
                 
         if client:
@@ -548,12 +613,15 @@ def call_llm(
             )
             latency_ms = int((time.perf_counter() - started_at) * 1000)
             print(f"Success with Google SDK model: {model}")
+            google_trace = list(fallback_trace)
+            google_trace.append(f"google:{model}:ok")
             if return_metadata:
                 return {
                     "text": response.text,
                     "provider": "google",
                     "model": model,
                     "latency_ms": latency_ms,
+                    "fallback_trace": google_trace,
                 }
             return response.text
         except Exception as api_err:
@@ -561,8 +629,10 @@ def call_llm(
             err_str = str(api_err)
             if '429' in err_str or 'RESOURCE_EXHAUSTED' in err_str or 'quota' in err_str.lower():
                 print(f"Google SDK model {model} quota exhausted, skipping...")
+                fallback_trace.append(f"google:{model}:quota")
                 continue
             print(f"Google SDK model {model} failed: {api_err}")
+            fallback_trace.append(f"google:{model}:error")
             continue
 
     raise last_error or Exception("Google SDK request failed.")
@@ -1128,8 +1198,8 @@ def get_db_connection():
 # ==========================================
 
 def get_latest_release_info():
-    # Target regex for update_release.py: "version": "v5.6.37"
-    fallback_version = "v5.6.37"
+    # Target regex for update_release.py: "version": "v5.6.38"
+    fallback_version = "v5.6.38"
     try:
         base_dir = os.path.dirname(os.path.abspath(__file__))
         files = glob.glob(os.path.join(base_dir, "RELEASE_NOTES_*.md"))
@@ -1176,8 +1246,14 @@ def health():
         ],
         "openrouter_llm_enabled": bool(OPENROUTER_API_KEY and USE_OPENROUTER_LLM),
         "openrouter_text_models": OPENROUTER_TEXT_MODELS,
+        "openrouter_text_timeouts": OPENROUTER_TEXT_TIMEOUTS,
+        "openrouter_text_hard_deadline_seconds": OPENROUTER_TEXT_HARD_DEADLINE_SECONDS,
         "openrouter_nutrition_models": OPENROUTER_NUTRITION_MODELS,
+        "openrouter_nutrition_timeouts": OPENROUTER_NUTRITION_TIMEOUTS,
+        "openrouter_nutrition_hard_deadline_seconds": OPENROUTER_NUTRITION_HARD_DEADLINE_SECONDS,
         "openrouter_vision_models": OPENROUTER_VISION_MODELS,
+        "openrouter_vision_timeouts": OPENROUTER_VISION_TIMEOUTS,
+        "openrouter_vision_hard_deadline_seconds": OPENROUTER_VISION_HARD_DEADLINE_SECONDS,
         "openrouter_chat_timeout_seconds": OPENROUTER_CHAT_TIMEOUT_SECONDS,
         "openrouter_max_model_attempts": OPENROUTER_MAX_MODEL_ATTEMPTS,
         "premium_ai_enabled": PREMIUM_AI_ENABLED,
@@ -1430,6 +1506,8 @@ def enrich_foods_with_analysis_metadata(foods, visual_data, visual_meta, nutriti
         'nutrition_model': nutrition_meta.get('model') if nutrition_meta else '',
         'visual_latency_ms': visual_meta.get('latency_ms') if visual_meta else 0,
         'nutrition_latency_ms': nutrition_meta.get('latency_ms') if nutrition_meta else 0,
+        'visual_fallback_trace': visual_meta.get('fallback_trace') if visual_meta else [],
+        'nutrition_fallback_trace': nutrition_meta.get('fallback_trace') if nutrition_meta else [],
         'latency_ms': pipeline_latency_ms,
         'needs_user_confirmation': any(item.get('needs_user_confirmation') for item in enriched),
         'disclaimer': '营养数据为估算值，仅供参考，不可用于医疗诊断。',
@@ -1437,24 +1515,34 @@ def enrich_foods_with_analysis_metadata(foods, visual_data, visual_meta, nutriti
 
 def analyze_food_with_two_stage_pipeline(img, use_premium=False):
     pipeline_started_at = time.perf_counter()
+    visual_timeouts = fit_timeouts_to_deadline(
+        OPENROUTER_VISION_TIMEOUTS,
+        OPENROUTER_VISION_HARD_DEADLINE_SECONDS
+    )
+    nutrition_timeouts = fit_timeouts_to_deadline(
+        OPENROUTER_NUTRITION_TIMEOUTS,
+        OPENROUTER_NUTRITION_HARD_DEADLINE_SECONDS
+    )
     visual_prompt = build_visual_prompt()
     visual_response = call_llm(
         prompt_text=visual_prompt,
         image=img,
         temperature=0.1,
-        openrouter_max_attempts=1,
-        openrouter_timeout=6,
+        openrouter_models=OPENROUTER_VISION_MODELS,
+        openrouter_max_attempts=len(visual_timeouts) or len(OPENROUTER_VISION_MODELS),
+        openrouter_timeout=visual_timeouts[0] if visual_timeouts else OPENROUTER_CHAT_TIMEOUT_SECONDS,
+        openrouter_timeouts=visual_timeouts,
         premium=use_premium,
         premium_models=PREMIUM_VISION_MODELS,
         premium_timeout=PREMIUM_AI_TIMEOUT_SECONDS,
         return_metadata=True,
     )
-    visual_meta = {k: visual_response.get(k) for k in ('provider', 'model', 'latency_ms')}
+    visual_meta = {k: visual_response.get(k) for k in ('provider', 'model', 'latency_ms', 'fallback_trace')}
     visual_data = normalize_visual_observations(parse_json_payload(visual_response.get('text')))
     if not visual_data and client and OPENROUTER_API_KEY and USE_OPENROUTER_LLM:
         print("Vision observation parse failed with OpenRouter result, retrying Google SDK once")
         visual_response = call_llm(prompt_text=visual_prompt, image=img, preferred_provider='google', temperature=0.1, return_metadata=True)
-        visual_meta = {k: visual_response.get(k) for k in ('provider', 'model', 'latency_ms')}
+        visual_meta = {k: visual_response.get(k) for k in ('provider', 'model', 'latency_ms', 'fallback_trace')}
         visual_data = normalize_visual_observations(parse_json_payload(visual_response.get('text')))
     if not visual_data:
         return None
@@ -1464,19 +1552,20 @@ def analyze_food_with_two_stage_pipeline(img, use_premium=False):
         prompt_text=nutrition_prompt,
         temperature=0.1,
         openrouter_models=OPENROUTER_NUTRITION_MODELS,
-        openrouter_max_attempts=1,
-        openrouter_timeout=5,
+        openrouter_max_attempts=len(nutrition_timeouts) or len(OPENROUTER_NUTRITION_MODELS),
+        openrouter_timeout=nutrition_timeouts[0] if nutrition_timeouts else OPENROUTER_CHAT_TIMEOUT_SECONDS,
+        openrouter_timeouts=nutrition_timeouts,
         premium=use_premium,
         premium_models=PREMIUM_NUTRITION_MODELS,
         premium_timeout=PREMIUM_AI_TIMEOUT_SECONDS,
         return_metadata=True,
     )
-    nutrition_meta = {k: nutrition_response.get(k) for k in ('provider', 'model', 'latency_ms')}
+    nutrition_meta = {k: nutrition_response.get(k) for k in ('provider', 'model', 'latency_ms', 'fallback_trace')}
     foods = parse_ai_multi_result(nutrition_response.get('text'))
     if foods is None and client and OPENROUTER_API_KEY and USE_OPENROUTER_LLM:
         print("Nutrition JSON parse failed with OpenRouter result, retrying Google SDK once")
         nutrition_response = call_llm(prompt_text=nutrition_prompt, preferred_provider='google', temperature=0.1, return_metadata=True)
-        nutrition_meta = {k: nutrition_response.get(k) for k in ('provider', 'model', 'latency_ms')}
+        nutrition_meta = {k: nutrition_response.get(k) for k in ('provider', 'model', 'latency_ms', 'fallback_trace')}
         foods = parse_ai_multi_result(nutrition_response.get('text'))
     if foods is None:
         return None
@@ -2232,28 +2321,36 @@ Strictly output JSON only, do not add any explanation or markdown formatting."""
 
     try:
         parse_meta = {}
+        text_timeouts = fit_timeouts_to_deadline(
+            OPENROUTER_TEXT_TIMEOUTS,
+            OPENROUTER_TEXT_HARD_DEADLINE_SECONDS
+        )
         try:
             voice_response = call_llm(
                 prompt_text=prompt,
                 openrouter_models=OPENROUTER_TEXT_MODELS,
-                openrouter_max_attempts=1,
-                openrouter_timeout=5,
+                openrouter_max_attempts=len(text_timeouts) or len(OPENROUTER_TEXT_MODELS),
+                openrouter_timeout=text_timeouts[0] if text_timeouts else OPENROUTER_CHAT_TIMEOUT_SECONDS,
+                openrouter_timeouts=text_timeouts,
                 premium=use_premium,
                 premium_models=PREMIUM_TEXT_MODELS,
                 premium_timeout=PREMIUM_AI_TIMEOUT_SECONDS,
                 return_metadata=True,
             )
             result_text = voice_response.get('text', '')
-            parse_meta = {k: voice_response.get(k) for k in ('provider', 'model', 'latency_ms')}
+            parse_meta = {k: voice_response.get(k) for k in ('provider', 'model', 'latency_ms', 'fallback_trace')}
         except Exception as openrouter_first_err:
             print(f"Voice OpenRouter-first parse failed, trying Google SDK: {openrouter_first_err}")
-            result_text = call_llm(prompt_text=prompt, preferred_provider='google')
+            voice_response = call_llm(prompt_text=prompt, preferred_provider='google', return_metadata=True)
+            result_text = voice_response.get('text', '')
+            parse_meta = {k: voice_response.get(k) for k in ('provider', 'model', 'latency_ms', 'fallback_trace')}
         parsed = parse_voice_input_result(result_text)
         if parsed is None or (not parsed['foods'] and not parsed['exercises']):
             print("Voice JSON parse failed, retrying Google SDK once")
             try:
-                result_text = call_llm(prompt_text=prompt, preferred_provider='google')
-                parse_meta = {"provider": "google_retry"}
+                voice_response = call_llm(prompt_text=prompt, preferred_provider='google', return_metadata=True)
+                result_text = voice_response.get('text', '')
+                parse_meta = {k: voice_response.get(k) for k in ('provider', 'model', 'latency_ms', 'fallback_trace')}
                 parsed = parse_voice_input_result(result_text)
             except Exception as google_retry_err:
                 print(f"Voice Google retry failed: {google_retry_err}")
