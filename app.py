@@ -919,8 +919,8 @@ def get_db_connection():
 # ==========================================
 
 def get_latest_release_info():
-    # Target regex for update_release.py: "version": "v5.6.33"
-    fallback_version = "v5.6.33"
+    # Target regex for update_release.py: "version": "v5.6.34"
+    fallback_version = "v5.6.34"
     try:
         base_dir = os.path.dirname(os.path.abspath(__file__))
         files = glob.glob(os.path.join(base_dir, "RELEASE_NOTES_*.md"))
@@ -986,6 +986,12 @@ def update_info():
 def download_update():
     return send_from_directory('static', 'app-debug.apk', as_attachment=True)
 
+def first_present(data, *keys, default=None):
+    for key in keys:
+        if key in data and data.get(key) not in (None, ''):
+            return data.get(key)
+    return default
+
 def parse_ai_multi_result(raw_text):
     """解析 AI JSON 输出，返回食物列表"""
     if not raw_text:
@@ -1031,15 +1037,15 @@ def parse_ai_multi_result(raw_text):
         if not isinstance(item, dict):
             continue
         normalized.append({
-            'food_name': clean_text(item.get('food_name'), default='Unknown food', max_len=120),
-            'calories': clamp_number(item.get('calories'), default=0, min_value=0, max_value=5000),
-            'protein': clamp_number(item.get('protein'), default=0, min_value=0, max_value=300),
-            'carbs': clamp_number(item.get('carbs'), default=0, min_value=0, max_value=500),
-            'fat': clamp_number(item.get('fat'), default=0, min_value=0, max_value=300),
-            'weight': clamp_number(item.get('weight'), default=100, min_value=1, max_value=2000),
-            'sodium_mg': clamp_number(item.get('sodium_mg'), default=0, min_value=0, max_value=100000),
-            'sugar_g': clamp_number(item.get('sugar_g'), default=0, min_value=0, max_value=500),
-            'fiber_g': clamp_number(item.get('fiber_g'), default=0, min_value=0, max_value=200),
+            'food_name': clean_text(first_present(item, 'food_name', 'name', 'food', 'label'), default='Unknown food', max_len=120),
+            'calories': clamp_number(first_present(item, 'calories', 'calories_kcal', 'kcal'), default=0, min_value=0, max_value=5000),
+            'protein': clamp_number(first_present(item, 'protein', 'protein_g'), default=0, min_value=0, max_value=300),
+            'carbs': clamp_number(first_present(item, 'carbs', 'carbs_g', 'carbohydrates', 'carbohydrates_g'), default=0, min_value=0, max_value=500),
+            'fat': clamp_number(first_present(item, 'fat', 'fat_g'), default=0, min_value=0, max_value=300),
+            'weight': clamp_number(first_present(item, 'weight', 'estimated_grams', 'grams', 'weight_g'), default=100, min_value=1, max_value=2000),
+            'sodium_mg': clamp_number(first_present(item, 'sodium_mg', 'sodium'), default=0, min_value=0, max_value=100000),
+            'sugar_g': clamp_number(first_present(item, 'sugar_g', 'sugar'), default=0, min_value=0, max_value=500),
+            'fiber_g': clamp_number(first_present(item, 'fiber_g', 'fiber'), default=0, min_value=0, max_value=200),
         })
     return normalized or None
 
@@ -1644,12 +1650,12 @@ def parse_voice_input_result(raw_text):
         for f in foods:
             if isinstance(f, dict):
                 normalized_foods.append({
-                    'food_name': clean_text(f.get('food_name'), default='Unknown food', max_len=120),
-                    'calories': clamp_number(f.get('calories'), default=0, min_value=0, max_value=5000),
-                    'protein': clamp_number(f.get('protein'), default=0, min_value=0, max_value=300),
-                    'carbs': clamp_number(f.get('carbs'), default=0, min_value=0, max_value=500),
-                    'fat': clamp_number(f.get('fat'), default=0, min_value=0, max_value=300),
-                    'weight': clamp_number(f.get('weight'), default=100, min_value=1, max_value=2000)
+                    'food_name': clean_text(first_present(f, 'food_name', 'name', 'food', 'label'), default='Unknown food', max_len=120),
+                    'calories': clamp_number(first_present(f, 'calories', 'calories_kcal', 'kcal'), default=0, min_value=0, max_value=5000),
+                    'protein': clamp_number(first_present(f, 'protein', 'protein_g'), default=0, min_value=0, max_value=300),
+                    'carbs': clamp_number(first_present(f, 'carbs', 'carbs_g', 'carbohydrates', 'carbohydrates_g'), default=0, min_value=0, max_value=500),
+                    'fat': clamp_number(first_present(f, 'fat', 'fat_g'), default=0, min_value=0, max_value=300),
+                    'weight': clamp_number(first_present(f, 'weight', 'estimated_grams', 'grams', 'weight_g'), default=100, min_value=1, max_value=2000)
                 })
                 
         # 规范化运动列表
@@ -1663,9 +1669,9 @@ def parse_voice_input_result(raw_text):
                 else:
                     muscles_str = str(muscles).strip()
                 normalized_exercises.append({
-                    'exercise_name': clean_text(ex.get('exercise_name'), default='Unknown exercise', max_len=120),
-                    'calories': clamp_number(ex.get('calories'), default=0, min_value=0, max_value=5000),
-                    'duration': clamp_number(ex.get('duration'), default=0, min_value=0, max_value=600),
+                    'exercise_name': clean_text(first_present(ex, 'exercise_name', 'name', 'exercise'), default='Unknown exercise', max_len=120),
+                    'calories': clamp_number(first_present(ex, 'calories', 'calories_kcal', 'kcal', 'calories_burned'), default=0, min_value=0, max_value=5000),
+                    'duration': clamp_number(first_present(ex, 'duration', 'duration_min', 'minutes'), default=0, min_value=0, max_value=600),
                     'exercise_type': ex.get('exercise_type', 'aerobic'),
                     'target_muscles': muscles_str
                 })
