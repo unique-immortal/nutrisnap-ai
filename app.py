@@ -125,6 +125,7 @@ GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
 OPENROUTER_API_KEY = os.environ.get('OPENROUTER_API_KEY')
 SPEECH_TO_TEXT_MODEL = os.environ.get('OPENROUTER_STT_MODEL', 'openai/whisper-large-v3')
 SPEECH_TO_TEXT_LANGUAGE = os.environ.get('SPEECH_TO_TEXT_LANGUAGE', 'zh')
+USE_OPENROUTER_LLM = os.environ.get('USE_OPENROUTER_LLM', 'false').strip().lower() in ('1', 'true', 'yes', 'on')
 
 if not GEMINI_API_KEY and not OPENROUTER_API_KEY:
     raise ValueError("GEMINI_API_KEY 或 OPENROUTER_API_KEY 环境变量未设置！请在本地 .env 中配置后重启应用。")
@@ -141,7 +142,11 @@ def call_llm(prompt_text, image=None, audio=None, mime_type=None, history=None, 
     Unified interface to call either OpenRouter API (if OPENROUTER_API_KEY is configured)
     or fall back to official Google Gemini API (using client.models.generate_content).
     """
-    use_openrouter = bool(OPENROUTER_API_KEY) and preferred_provider != 'google'
+    use_openrouter = (
+        bool(OPENROUTER_API_KEY)
+        and preferred_provider != 'google'
+        and (preferred_provider == 'openrouter' or USE_OPENROUTER_LLM or not client)
+    )
     if use_openrouter:
         # ----------------------------------------------------
         # OpenRouter API Path
@@ -840,8 +845,8 @@ def get_db_connection():
 # ==========================================
 
 def get_latest_release_info():
-    # Target regex for update_release.py: "version": "v5.6.29"
-    fallback_version = "v5.6.29"
+    # Target regex for update_release.py: "version": "v5.6.30"
+    fallback_version = "v5.6.30"
     try:
         base_dir = os.path.dirname(os.path.abspath(__file__))
         files = glob.glob(os.path.join(base_dir, "RELEASE_NOTES_*.md"))
@@ -1009,6 +1014,38 @@ def token_required(f):
         except jwt.InvalidTokenError:
             return jsonify({"error": "无效的认证令牌"}), 401
         
+        return f(*args, **kwargs)
+    return decorated
+
+def request_has_local_app_marker():
+    if str(request.args.get('is_app', '')).lower() == 'true':
+        return True
+    if str(request.form.get('is_app', '')).lower() == 'true':
+        return True
+    if request.is_json:
+        data = request.get_json(silent=True) or {}
+        return data.get('is_app') is True or str(data.get('is_app', '')).lower() == 'true'
+    return False
+
+def token_or_local_app_required(f):
+    """Allow signed-in users and local mobile/offline voice flows."""
+    @functools.wraps(f)
+    def decorated(*args, **kwargs):
+        token = get_bearer_token()
+        if not token:
+            if request_has_local_app_marker():
+                request.current_user = 'local_user'
+                return f(*args, **kwargs)
+            return jsonify({"error": "未提供认证令牌"}), 401
+
+        try:
+            data = jwt.decode(token, JWT_SECRET_KEY, algorithms=['HS256'])
+            request.current_user = data['username']
+        except jwt.ExpiredSignatureError:
+            return jsonify({"error": "令牌已过期，请重新登录"}), 401
+        except jwt.InvalidTokenError:
+            return jsonify({"error": "无效的认证令牌"}), 401
+
         return f(*args, **kwargs)
     return decorated
 
@@ -1363,7 +1400,7 @@ def parse_voice_input_result(raw_text):
         }
 
 @app.route('/api/voice-input', methods=['POST'])
-@token_required
+@token_or_local_app_required
 @limiter.limit("10 per minute", key_func=user_or_ip_limit_key)
 def voice_input():
     """语音输入：用 Gemini 自动分辨运动与食物并解析提取"""
@@ -1441,7 +1478,7 @@ Strictly output JSON only, do not add any explanation or markdown formatting."""
 
 
 @app.route('/api/speech-to-text', methods=['POST'])
-@token_required
+@token_or_local_app_required
 @limiter.limit("10 per minute", key_func=user_or_ip_limit_key)
 def speech_to_text():
     """将上传的语音文件通过 Gemini 2.5/2.0 转写为文字"""

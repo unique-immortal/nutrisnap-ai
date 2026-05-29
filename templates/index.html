@@ -4400,7 +4400,7 @@ html.dark .history-empty-panel {
       </div>
         <div>
           <h3 class="font-headline-md text-headline-md text-on-background">NutriSnap AI</h3>
-          <p class="font-label-md text-label-md text-outline" id="aboutAppVersion">v5.6.29</p>
+          <p class="font-label-md text-label-md text-outline" id="aboutAppVersion">v5.6.30</p>
         </div>
       </div>
     <p class="font-body-md text-body-md text-on-surface-variant mb-6">基于 Gemini AI 的智能饮食记录工具。支持拍照多食物识别、语音输入、分量调节、每周营养报告。</p>
@@ -4750,7 +4750,7 @@ html.dark .history-empty-panel {
 <script>
 // ===================== CONFIG =====================
 const API_BASE = "";
-const CLIENT_VERSION = "v5.6.29";
+const CLIENT_VERSION = "v5.6.30";
 
 // Native preferences helper to survive app process kills on mobile
 const NativeStorage = {
@@ -7408,9 +7408,92 @@ let currentRecordingSession = 0;
 let speechRecognition = null;
 let speechRecognitionText = "";
 let speechRecognitionFinal = false;
+let capacitorSpeechActive = false;
 
 function getNativeSpeechRecognition() {
   return window.SpeechRecognition || window.webkitSpeechRecognition || null;
+}
+
+function getCapacitorSpeechRecognition() {
+  const plugin = window.Capacitor?.Plugins?.SpeechRecognition;
+  return plugin && typeof plugin.start === 'function' ? plugin : null;
+}
+
+function isNativeCapacitorApp() {
+  try {
+    if (window.Capacitor?.isNativePlatform?.()) return true;
+    const platform = window.Capacitor?.getPlatform?.();
+    return platform === 'android' || platform === 'ios';
+  } catch (e) {
+    return false;
+  }
+}
+
+async function stopCapacitorSpeechRecognition() {
+  const plugin = getCapacitorSpeechRecognition();
+  if (!plugin) return;
+  try {
+    if (typeof plugin.stop === 'function') await plugin.stop();
+  } catch (e) {
+    console.warn('Failed to stop native speech recognition:', e);
+  } finally {
+    capacitorSpeechActive = false;
+  }
+}
+
+async function tryStartCapacitorSpeechRecognition(sessionId) {
+  const plugin = getCapacitorSpeechRecognition();
+  if (!plugin || !isNativeCapacitorApp()) return false;
+  try {
+    const availability = typeof plugin.available === 'function'
+      ? await plugin.available()
+      : { available: true };
+    if (availability && availability.available === false) return false;
+
+    if (typeof plugin.checkPermissions === 'function') {
+      let permissions = await plugin.checkPermissions();
+      if (permissions?.speechRecognition !== 'granted' && typeof plugin.requestPermissions === 'function') {
+        permissions = await plugin.requestPermissions();
+      }
+      if (permissions?.speechRecognition === 'denied') {
+        showVoiceFallback('手机系统未授予语音识别权限，请在系统设置中允许麦克风/语音识别权限。');
+        return true;
+      }
+    }
+
+    capacitorSpeechActive = true;
+    const voiceText = document.getElementById('voiceText');
+    if (voiceText) voiceText.textContent = '正在调用手机系统语音识别...';
+    const result = await plugin.start({
+      language: 'zh-CN',
+      maxResults: 3,
+      prompt: '请说出你吃了什么，或做了什么运动',
+      popup: false,
+      partialResults: false
+    });
+    capacitorSpeechActive = false;
+    if (sessionId !== currentRecordingSession) return true;
+
+    const matches = Array.isArray(result?.matches) ? result.matches : [];
+    const text = (matches.find(Boolean) || '').trim();
+    if (text) {
+      speechRecognitionText = text;
+      speechRecognitionFinal = true;
+      document.getElementById('voiceListening')?.classList.add('hidden');
+      document.getElementById('voiceProcessing')?.classList.remove('hidden');
+      document.getElementById('voiceFinalText').textContent = '"' + text + '"';
+      voiceTextForDisplay = text;
+      isVoiceRecording = false;
+      setTimeout(() => sendVoiceText(text), 250);
+    } else {
+      showVoiceFallback('手机系统没有听清内容，请重试语音或改用文字记录。');
+    }
+    return true;
+  } catch (e) {
+    capacitorSpeechActive = false;
+    console.warn('Native app speech recognition unavailable:', e);
+    return false;
+  }
 }
 
 function hideVoiceFallback() {
@@ -7513,7 +7596,7 @@ function submitVoiceFallbackText() {
   sendVoiceText(text);
 }
 
-function startVoiceInput() {
+async function startVoiceInput() {
   if (!navigator.onLine) {
     const m = document.getElementById('voiceModal');
     m.style.display = 'flex';
@@ -7543,6 +7626,8 @@ function startVoiceInput() {
   document.getElementById('voiceProcessing').classList.add('hidden');
   document.getElementById('voiceStatusTitle').textContent = '\u6b63\u5728\u8046\u542c';
   document.getElementById('voiceText').textContent = '\u8bf7\u8bf4\u51fa\u4f60\u5403\u4e86\u4ec0\u4e48...';
+  const handledByNativeApp = await tryStartCapacitorSpeechRecognition(sessionId);
+  if (handledByNativeApp) return;
   tryStartNativeSpeechRecognition(sessionId);
 
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) {
@@ -7623,6 +7708,7 @@ function startVoiceInput() {
 function handleVoiceCaptureError(err) {
   console.error('Microphone capture error:', err);
   currentRecordingSession++;
+  stopCapacitorSpeechRecognition();
   stopNativeSpeechRecognition();
   if (voiceIntervalId) {
     clearInterval(voiceIntervalId);
@@ -7640,6 +7726,7 @@ function handleVoiceCaptureError(err) {
 }
 
 function stopVoiceInput() {
+  stopCapacitorSpeechRecognition();
   stopNativeSpeechRecognition({ clearHandlers: false });
   if (voiceIntervalId) {
     clearInterval(voiceIntervalId);
@@ -7667,6 +7754,9 @@ async function transcribeAudio(blob, mimeType) {
   const formData = new FormData();
   const filename = mimeType.includes('mp4') ? 'audio.mp4' : 'audio.webm';
   formData.append('audio', blob, filename);
+  if (isLocalMode()) {
+    formData.append('is_app', 'true');
+  }
 
   try {
     const json = await safeFetchJSON(API_BASE + '/api/speech-to-text', {
@@ -7706,10 +7796,11 @@ async function sendVoiceText(text) {
       headers: getAuthHeaders(),
       body: JSON.stringify(payload)
     });
-    closeVoiceModal();
     if (json.success) {
+      closeVoiceModal();
       showResult(json);
     } else {
+      isVoiceRecording = false;
       showVoiceFallback(json.error || '分析食物失败，请调整文字后再试。');
     }
   } catch (err) {
@@ -7720,6 +7811,7 @@ async function sendVoiceText(text) {
 function closeVoiceModal() {
   isVoiceRecording = false;
   currentRecordingSession++; 
+  stopCapacitorSpeechRecognition();
   stopNativeSpeechRecognition();
   hideVoiceFallback();
   if (voiceIntervalId) {
