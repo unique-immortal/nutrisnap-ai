@@ -171,7 +171,40 @@ OPENROUTER_VISION_MODELS = parse_model_list(os.environ.get('OPENROUTER_VISION_MO
     'openrouter/free',
 ])
 
-if not GEMINI_API_KEY and not OPENROUTER_API_KEY:
+def truthy_env(name, default='false'):
+    return os.environ.get(name, default).strip().lower() in ('1', 'true', 'yes', 'on')
+
+def normalize_openai_compat_base_url(base_url):
+    base = (base_url or '').strip().rstrip('/')
+    if not base:
+        return ''
+    parsed = urlparse(base)
+    if not parsed.path or parsed.path == '/':
+        return base + '/v1'
+    return base
+
+OPENAI_COMPAT_API_KEY = os.environ.get('OPENAI_COMPAT_API_KEY') or os.environ.get('OPENAI_API_KEY')
+OPENAI_COMPAT_BASE_URL = normalize_openai_compat_base_url(
+    os.environ.get('OPENAI_COMPAT_BASE_URL') or os.environ.get('OPENAI_BASE_URL')
+)
+PREMIUM_AI_ENABLED = truthy_env('PREMIUM_AI_ENABLED', 'true')
+PREMIUM_AI_TIMEOUT_SECONDS = float(os.environ.get('PREMIUM_AI_TIMEOUT_SECONDS', '6'))
+PREMIUM_AI_MAX_MODEL_ATTEMPTS = max(1, int(os.environ.get('PREMIUM_AI_MAX_MODEL_ATTEMPTS', '1')))
+PREMIUM_ADMIN_TOKEN = os.environ.get('PREMIUM_ADMIN_TOKEN', '')
+ACTIVATION_CODE_SECRET = os.environ.get('ACTIVATION_CODE_SECRET') or JWT_SECRET_KEY
+
+PREMIUM_TEXT_MODELS = parse_model_list(os.environ.get('PREMIUM_TEXT_MODELS'), [
+    'gpt-5.4-mini',
+])
+PREMIUM_NUTRITION_MODELS = parse_model_list(os.environ.get('PREMIUM_NUTRITION_MODELS'), PREMIUM_TEXT_MODELS)
+PREMIUM_VISION_MODELS = parse_model_list(os.environ.get('PREMIUM_VISION_MODELS'), [
+    'gpt-5.4-mini',
+])
+
+def premium_provider_available():
+    return bool(PREMIUM_AI_ENABLED and OPENAI_COMPAT_API_KEY and OPENAI_COMPAT_BASE_URL)
+
+if not GEMINI_API_KEY and not OPENROUTER_API_KEY and not OPENAI_COMPAT_API_KEY:
     raise ValueError("GEMINI_API_KEY 或 OPENROUTER_API_KEY 环境变量未设置！请在本地 .env 中配置后重启应用。")
 
 client = None
@@ -180,6 +213,125 @@ if GEMINI_API_KEY:
         client = genai.Client(api_key=GEMINI_API_KEY)
     except Exception as e:
         print(f"初始化 Google GenAI client 失败: {e}")
+
+def build_openai_chat_messages(prompt_text, image=None, history=None, system_instruction=None):
+    messages = []
+    if system_instruction:
+        messages.append({"role": "system", "content": system_instruction})
+
+    if history:
+        for h in history:
+            role = 'user' if h.get('role') == 'user' else 'assistant'
+            content = h.get('content', '')
+            if isinstance(content, list):
+                text_parts = [
+                    item.get('text', '')
+                    for item in content
+                    if isinstance(item, dict) and item.get('type') == 'text'
+                ]
+                content = ' '.join(text_parts) if text_parts else ''
+            messages.append({"role": role, "content": content})
+
+    user_content = []
+    if prompt_text:
+        user_content.append({"type": "text", "text": prompt_text})
+
+    if image:
+        buffer = io.BytesIO()
+        image.save(buffer, format="JPEG")
+        img_b64 = base64.b64encode(buffer.getvalue()).decode('utf-8')
+        user_content.append({
+            "type": "image_url",
+            "image_url": {"url": f"data:image/jpeg;base64,{img_b64}"}
+        })
+
+    if user_content:
+        messages.append({"role": "user", "content": user_content})
+
+    return messages
+
+def extract_chat_completion_text(res_json):
+    choices = res_json.get('choices') if isinstance(res_json, dict) else None
+    if not choices:
+        return ''
+    message = choices[0].get('message', {}) if isinstance(choices[0], dict) else {}
+    reply = message.get('content', '')
+    if isinstance(reply, list):
+        reply = ''.join(
+            part.get('text', '')
+            for part in reply
+            if isinstance(part, dict) and part.get('type') in ('text', 'output_text')
+        )
+    return (reply or '').strip()
+
+def call_openai_compatible_llm(
+    prompt_text,
+    image=None,
+    history=None,
+    system_instruction=None,
+    temperature=0.7,
+    models=None,
+    timeout=None,
+    return_metadata=False,
+):
+    if not premium_provider_available():
+        raise RuntimeError("Premium OpenAI-compatible provider is not configured.")
+
+    url = OPENAI_COMPAT_BASE_URL.rstrip('/') + '/chat/completions'
+    headers = {
+        "Authorization": f"Bearer {OPENAI_COMPAT_API_KEY}",
+        "Content-Type": "application/json",
+    }
+    messages = build_openai_chat_messages(
+        prompt_text=prompt_text,
+        image=image,
+        history=history,
+        system_instruction=system_instruction,
+    )
+    default_models = PREMIUM_VISION_MODELS if image is not None else PREMIUM_TEXT_MODELS
+    models_to_try = (models or default_models)[:PREMIUM_AI_MAX_MODEL_ATTEMPTS]
+    timeout_seconds = timeout or PREMIUM_AI_TIMEOUT_SECONDS
+    last_error = None
+
+    for model in models_to_try:
+        payload = {
+            "model": model,
+            "messages": messages,
+            "temperature": temperature,
+        }
+        try:
+            print(f"Calling premium OpenAI-compatible model: {model}")
+            started_at = time.perf_counter()
+            res = requests.post(url, headers=headers, json=payload, timeout=timeout_seconds)
+            latency_ms = int((time.perf_counter() - started_at) * 1000)
+            try:
+                res_json = res.json()
+            except Exception:
+                res_json = {}
+
+            if res.status_code == 200:
+                reply = extract_chat_completion_text(res_json)
+                if not reply:
+                    raise RuntimeError(f"Premium model {model} returned empty content")
+                print(f"Success with premium OpenAI-compatible model: {model}")
+                if return_metadata:
+                    return {
+                        "text": reply,
+                        "provider": "openai_compatible",
+                        "model": model,
+                        "latency_ms": latency_ms,
+                    }
+                return reply
+
+            error_msg = res_json.get('error', {}).get('message') if isinstance(res_json.get('error'), dict) else ''
+            error_msg = error_msg or res.text[:500]
+            last_error = RuntimeError(f"Premium OpenAI-compatible error {res.status_code}: {error_msg}")
+            print(f"Premium model {model} failed: {error_msg}")
+        except Exception as e:
+            print(f"Premium OpenAI-compatible request error with model {model}: {e}")
+            last_error = e
+
+    raise last_error or RuntimeError("Premium OpenAI-compatible request failed.")
 
 def call_llm(
     prompt_text,
@@ -193,12 +345,30 @@ def call_llm(
     openrouter_models=None,
     openrouter_max_attempts=None,
     openrouter_timeout=None,
+    premium=False,
+    premium_models=None,
+    premium_timeout=None,
     return_metadata=False,
 ):
     """
     Unified interface to call either OpenRouter API (if OPENROUTER_API_KEY is configured)
     or fall back to official Google Gemini API (using client.models.generate_content).
     """
+    if premium and preferred_provider != 'google' and audio is None and premium_provider_available():
+        try:
+            return call_openai_compatible_llm(
+                prompt_text=prompt_text,
+                image=image,
+                history=history,
+                system_instruction=system_instruction,
+                temperature=temperature,
+                models=premium_models,
+                timeout=premium_timeout,
+                return_metadata=return_metadata,
+            )
+        except Exception as premium_err:
+            print(f"Premium provider failed, falling back to free chain: {premium_err}")
+
     use_openrouter = (
         bool(OPENROUTER_API_KEY)
         and preferred_provider != 'google'
@@ -810,7 +980,11 @@ def init_db():
         ('height', 'REAL' if not is_postgres else 'DOUBLE PRECISION'),
         ('weight', 'REAL' if not is_postgres else 'DOUBLE PRECISION'),
         ('activity_level', 'TEXT'),
-        ('nutrition_goal', 'TEXT')
+        ('nutrition_goal', 'TEXT'),
+        ('premium_enabled', 'INTEGER DEFAULT 0'),
+        ('premium_expires_at', 'TEXT'),
+        ('premium_source', 'TEXT'),
+        ('premium_model_opt_in', 'INTEGER DEFAULT 0')
     ]:
         if not column_exists(cursor, 'users', col, is_postgres):
             try:
@@ -881,10 +1055,36 @@ def init_db():
         )
     ''')
 
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS activation_codes (
+            code_hash TEXT PRIMARY KEY,
+            plan TEXT DEFAULT 'premium',
+            duration_days INTEGER DEFAULT 30,
+            max_uses INTEGER DEFAULT 1,
+            used_count INTEGER DEFAULT 0,
+            expires_at TEXT,
+            created_by TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
+    cursor.execute(f'''
+        CREATE TABLE IF NOT EXISTS activation_redemptions (
+            id {id_type},
+            code_hash TEXT,
+            username TEXT,
+            redeemed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
     # 6. Index
     cursor.execute('''
         CREATE UNIQUE INDEX IF NOT EXISTS idx_meals_username_client_id
         ON meals(username, client_id)
+    ''')
+    cursor.execute('''
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_activation_redemptions_code_user
+        ON activation_redemptions(code_hash, username)
     ''')
 
     conn.commit()
@@ -892,6 +1092,15 @@ def init_db():
 
 if os.environ.get('RUN_DB_MIGRATIONS') == 'true' or not os.environ.get('K_SERVICE'):
     init_db()
+
+PREMIUM_SCHEMA_READY = False
+
+def ensure_premium_schema():
+    global PREMIUM_SCHEMA_READY
+    if PREMIUM_SCHEMA_READY:
+        return
+    init_db()
+    PREMIUM_SCHEMA_READY = True
 
 @app.errorhandler(404)
 def not_found(e):
@@ -919,8 +1128,8 @@ def get_db_connection():
 # ==========================================
 
 def get_latest_release_info():
-    # Target regex for update_release.py: "version": "v5.6.35"
-    fallback_version = "v5.6.35"
+    # Target regex for update_release.py: "version": "v5.6.36"
+    fallback_version = "v5.6.36"
     try:
         base_dir = os.path.dirname(os.path.abspath(__file__))
         files = glob.glob(os.path.join(base_dir, "RELEASE_NOTES_*.md"))
@@ -971,6 +1180,12 @@ def health():
         "openrouter_vision_models": OPENROUTER_VISION_MODELS,
         "openrouter_chat_timeout_seconds": OPENROUTER_CHAT_TIMEOUT_SECONDS,
         "openrouter_max_model_attempts": OPENROUTER_MAX_MODEL_ATTEMPTS,
+        "premium_ai_enabled": PREMIUM_AI_ENABLED,
+        "premium_provider_configured": premium_provider_available(),
+        "premium_text_models": PREMIUM_TEXT_MODELS,
+        "premium_nutrition_models": PREMIUM_NUTRITION_MODELS,
+        "premium_vision_models": PREMIUM_VISION_MODELS,
+        "premium_timeout_seconds": PREMIUM_AI_TIMEOUT_SECONDS,
     })
 
 @app.route('/api/update/info')
@@ -1220,7 +1435,7 @@ def enrich_foods_with_analysis_metadata(foods, visual_data, visual_meta, nutriti
         'disclaimer': '营养数据为估算值，仅供参考，不可用于医疗诊断。',
     }
 
-def analyze_food_with_two_stage_pipeline(img):
+def analyze_food_with_two_stage_pipeline(img, use_premium=False):
     pipeline_started_at = time.perf_counter()
     visual_prompt = build_visual_prompt()
     visual_response = call_llm(
@@ -1229,6 +1444,9 @@ def analyze_food_with_two_stage_pipeline(img):
         temperature=0.1,
         openrouter_max_attempts=1,
         openrouter_timeout=6,
+        premium=use_premium,
+        premium_models=PREMIUM_VISION_MODELS,
+        premium_timeout=PREMIUM_AI_TIMEOUT_SECONDS,
         return_metadata=True,
     )
     visual_meta = {k: visual_response.get(k) for k in ('provider', 'model', 'latency_ms')}
@@ -1248,6 +1466,9 @@ def analyze_food_with_two_stage_pipeline(img):
         openrouter_models=OPENROUTER_NUTRITION_MODELS,
         openrouter_max_attempts=1,
         openrouter_timeout=5,
+        premium=use_premium,
+        premium_models=PREMIUM_NUTRITION_MODELS,
+        premium_timeout=PREMIUM_AI_TIMEOUT_SECONDS,
         return_metadata=True,
     )
     nutrition_meta = {k: nutrition_response.get(k) for k in ('provider', 'model', 'latency_ms')}
@@ -1261,6 +1482,11 @@ def analyze_food_with_two_stage_pipeline(img):
         return None
     pipeline_latency_ms = int((time.perf_counter() - pipeline_started_at) * 1000)
     enriched, analysis_meta = enrich_foods_with_analysis_metadata(foods, visual_data, visual_meta, nutrition_meta, pipeline_latency_ms)
+    analysis_meta['premium_requested'] = bool(use_premium)
+    analysis_meta['premium_used'] = (
+        visual_meta.get('provider') == 'openai_compatible'
+        or nutrition_meta.get('provider') == 'openai_compatible'
+    )
     return {'foods': enriched, 'analysis_meta': analysis_meta}
 
 
@@ -1360,6 +1586,104 @@ def get_current_username():
     if hasattr(request, 'current_user'):
         return request.current_user
     return None
+
+def row_value(row, key, default=None):
+    if row is None:
+        return default
+    try:
+        return row[key]
+    except Exception:
+        return default
+
+def parse_iso_datetime(value):
+    if not value:
+        return None
+    if isinstance(value, datetime.datetime):
+        return value
+    try:
+        return datetime.datetime.fromisoformat(str(value).replace('Z', '+00:00')).replace(tzinfo=None)
+    except Exception:
+        return None
+
+def utcnow():
+    return datetime.datetime.utcnow()
+
+def iso_utc(dt):
+    if not dt:
+        return None
+    return dt.replace(microsecond=0).isoformat() + 'Z'
+
+def is_premium_active_values(enabled, expires_at):
+    if not bool(int(enabled or 0)):
+        return False
+    expires = parse_iso_datetime(expires_at)
+    return expires is None or expires > utcnow()
+
+def hash_activation_code(code):
+    normalized = re.sub(r'\s+', '', str(code or '').upper())
+    return hmac.new(
+        ACTIVATION_CODE_SECRET.encode('utf-8'),
+        normalized.encode('utf-8'),
+        hashlib.sha256
+    ).hexdigest()
+
+def generate_activation_code():
+    raw = uuid.uuid4().hex[:16].upper()
+    return 'NSP-' + '-'.join(raw[i:i + 4] for i in range(0, len(raw), 4))
+
+def get_user_premium_status(username):
+    status = {
+        "is_premium": False,
+        "premium_model_opt_in": False,
+        "premium_expires_at": None,
+        "premium_source": "",
+        "premium_provider_available": premium_provider_available(),
+        "payment_enabled": False,
+    }
+    if not username or username in ('local_user', 'anonymous', 'guest'):
+        return status
+    try:
+        ensure_premium_schema()
+        with get_db_connection() as conn:
+            row = conn.execute('''
+                SELECT premium_enabled, premium_expires_at, premium_source, premium_model_opt_in
+                FROM users WHERE username = ?
+            ''', (username,)).fetchone()
+    except Exception as e:
+        print(f"Premium status lookup failed: {e}")
+        return status
+
+    if not row:
+        return status
+    enabled = row_value(row, 'premium_enabled', 0)
+    expires_at = row_value(row, 'premium_expires_at')
+    is_active = is_premium_active_values(enabled, expires_at)
+    status.update({
+        "is_premium": is_active,
+        "premium_model_opt_in": bool(int(row_value(row, 'premium_model_opt_in', 0) or 0)) and is_active,
+        "premium_expires_at": expires_at,
+        "premium_source": row_value(row, 'premium_source', '') or '',
+    })
+    return status
+
+def request_premium_enabled(username, data=None):
+    if not username or username in ('local_user', 'anonymous', 'guest'):
+        return False
+    requested = False
+    if data is not None:
+        requested = str(data.get('premium_ai', '')).lower() in ('1', 'true', 'yes', 'on') or data.get('premium_ai') is True
+    if request.form:
+        requested = requested or str(request.form.get('premium_ai', '')).lower() in ('1', 'true', 'yes', 'on')
+    if not requested:
+        return False
+    status = get_user_premium_status(username)
+    return bool(status.get('is_premium') and status.get('premium_model_opt_in') and status.get('premium_provider_available'))
+
+def require_admin_token():
+    token = request.headers.get('X-Admin-Token') or request.args.get('admin_token')
+    if not PREMIUM_ADMIN_TOKEN or not token or not hmac.compare_digest(token, PREMIUM_ADMIN_TOKEN):
+        return False
+    return True
 
 def validate_profile_payload(data):
     try:
@@ -1567,6 +1891,177 @@ def login():
 # 5. 核心 API
 # ==========================================
 
+@app.route('/api/premium/status', methods=['GET'])
+@token_required
+def premium_status():
+    return jsonify({
+        "success": True,
+        **get_user_premium_status(get_current_username())
+    })
+
+@app.route('/api/premium/toggle', methods=['POST'])
+@token_required
+def premium_toggle():
+    username = get_current_username()
+    data = request.get_json() or {}
+    enabled = data.get('enabled') is True or str(data.get('enabled', '')).lower() in ('1', 'true', 'yes', 'on')
+    status = get_user_premium_status(username)
+    if enabled and not status.get('is_premium'):
+        return jsonify({"error": "Premium is not active for this account."}), 403
+
+    with get_db_connection() as conn:
+        conn.execute(
+            'UPDATE users SET premium_model_opt_in = ? WHERE username = ?',
+            (1 if enabled else 0, username)
+        )
+        conn.commit()
+
+    return jsonify({
+        "success": True,
+        **get_user_premium_status(username)
+    })
+
+@app.route('/api/premium/redeem', methods=['POST'])
+@token_required
+@limiter.limit("6 per hour", key_func=user_or_ip_limit_key)
+def premium_redeem():
+    username = get_current_username()
+    data = request.get_json() or {}
+    code = str(data.get('code', '')).strip()
+    if len(code) < 8:
+        return jsonify({"error": "Invalid activation code."}), 400
+
+    code_hash = hash_activation_code(code)
+    now = utcnow()
+    ensure_premium_schema()
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        row = cursor.execute('''
+            SELECT code_hash, plan, duration_days, max_uses, used_count, expires_at
+            FROM activation_codes WHERE code_hash = ?
+        ''', (code_hash,)).fetchone()
+        if not row:
+            return jsonify({"error": "Activation code is invalid."}), 404
+
+        code_expires = parse_iso_datetime(row_value(row, 'expires_at'))
+        if code_expires and code_expires < now:
+            return jsonify({"error": "Activation code has expired."}), 410
+        if int(row_value(row, 'used_count', 0) or 0) >= int(row_value(row, 'max_uses', 1) or 1):
+            return jsonify({"error": "Activation code has already been used."}), 409
+
+        existing = cursor.execute('''
+            SELECT 1 FROM activation_redemptions
+            WHERE code_hash = ? AND username = ?
+        ''', (code_hash, username)).fetchone()
+        if existing:
+            return jsonify({"error": "This account has already redeemed this code."}), 409
+
+        user_row = cursor.execute('''
+            SELECT premium_enabled, premium_expires_at FROM users WHERE username = ?
+        ''', (username,)).fetchone()
+        if not user_row:
+            return jsonify({"error": "User does not exist."}), 404
+
+        current_expiry = parse_iso_datetime(row_value(user_row, 'premium_expires_at'))
+        base_time = current_expiry if current_expiry and current_expiry > now else now
+        duration_days = max(1, int(row_value(row, 'duration_days', 30) or 30))
+        new_expiry = base_time + datetime.timedelta(days=duration_days)
+
+        cursor.execute('''
+            UPDATE users
+            SET premium_enabled = 1,
+                premium_expires_at = ?,
+                premium_source = ?,
+                premium_model_opt_in = 1
+            WHERE username = ?
+        ''', (iso_utc(new_expiry), row_value(row, 'plan', 'premium') or 'premium', username))
+        cursor.execute('''
+            UPDATE activation_codes SET used_count = used_count + 1 WHERE code_hash = ?
+        ''', (code_hash,))
+        cursor.execute('''
+            INSERT INTO activation_redemptions (code_hash, username) VALUES (?, ?)
+        ''', (code_hash, username))
+        conn.commit()
+
+    return jsonify({
+        "success": True,
+        "message": "Premium activated.",
+        **get_user_premium_status(username)
+    })
+
+@app.route('/api/admin/premium/codes', methods=['POST'])
+@limiter.limit("20 per hour")
+def admin_create_activation_code():
+    if not require_admin_token():
+        return jsonify({"error": "Admin token required."}), 401
+    data = request.get_json() or {}
+    ensure_premium_schema()
+    code = str(data.get('code') or generate_activation_code()).strip().upper()
+    duration_days = max(1, min(3650, int(data.get('duration_days') or 30)))
+    max_uses = max(1, min(10000, int(data.get('max_uses') or 1)))
+    plan = clean_text(data.get('plan'), default='premium', max_len=40)
+    expires_at = data.get('expires_at')
+    code_hash = hash_activation_code(code)
+
+    with get_db_connection() as conn:
+        try:
+            conn.execute('''
+                INSERT INTO activation_codes
+                (code_hash, plan, duration_days, max_uses, used_count, expires_at, created_by)
+                VALUES (?, ?, ?, ?, 0, ?, ?)
+            ''', (code_hash, plan, duration_days, max_uses, expires_at, 'admin'))
+            conn.commit()
+        except INTEGRITY_ERRORS:
+            return jsonify({"error": "Activation code already exists."}), 409
+
+    return jsonify({
+        "success": True,
+        "code": code,
+        "duration_days": duration_days,
+        "max_uses": max_uses,
+        "expires_at": expires_at
+    })
+
+@app.route('/api/admin/premium/grant', methods=['POST'])
+@limiter.limit("30 per hour")
+def admin_grant_premium():
+    if not require_admin_token():
+        return jsonify({"error": "Admin token required."}), 401
+    data = request.get_json() or {}
+    ensure_premium_schema()
+    username = clean_text(data.get('username'), default='', max_len=120)
+    if not username:
+        return jsonify({"error": "username is required."}), 400
+    duration_days = max(1, min(3650, int(data.get('duration_days') or 30)))
+    source = clean_text(data.get('source'), default='admin_grant', max_len=40)
+    now = utcnow()
+
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        row = cursor.execute('''
+            SELECT premium_expires_at FROM users WHERE username = ?
+        ''', (username,)).fetchone()
+        if not row:
+            return jsonify({"error": "User does not exist."}), 404
+        current_expiry = parse_iso_datetime(row_value(row, 'premium_expires_at'))
+        base_time = current_expiry if current_expiry and current_expiry > now else now
+        new_expiry = base_time + datetime.timedelta(days=duration_days)
+        cursor.execute('''
+            UPDATE users
+            SET premium_enabled = 1,
+                premium_expires_at = ?,
+                premium_source = ?,
+                premium_model_opt_in = 1
+            WHERE username = ?
+        ''', (iso_utc(new_expiry), source, username))
+        conn.commit()
+
+    return jsonify({
+        "success": True,
+        "username": username,
+        **get_user_premium_status(username)
+    })
+
 @app.route('/api/analyze', methods=['POST'])
 @token_required
 @limiter.limit("10 per minute", key_func=user_or_ip_limit_key)
@@ -1580,6 +2075,7 @@ def analyze_food():
 
     is_app = request.form.get('is_app') == 'true' or request.args.get('is_app') == 'true'
     username = get_current_username()
+    use_premium = request_premium_enabled(username)
 
     if not file.mimetype or not file.mimetype.startswith('image/'):
         return jsonify({"error": "Only image uploads are supported"}), 400
@@ -1598,7 +2094,7 @@ def analyze_food():
         with PIL.Image.open(filepath) as opened:
             img = optimize_image_for_fast_vision(opened.convert('RGB'))
 
-        analysis_result = analyze_food_with_two_stage_pipeline(img)
+        analysis_result = analyze_food_with_two_stage_pipeline(img, use_premium=use_premium)
         if not analysis_result or not analysis_result.get('foods'):
             return jsonify({"error": "AI未检测到食物，请重新拍摄"}), 400
         foods = analysis_result.get('foods', [])
@@ -1699,6 +2195,7 @@ def voice_input():
     text = data.get('text', '')
     is_app = data.get('is_app') == True
     username = get_current_username()
+    use_premium = request_premium_enabled(username, data)
 
     if not text:
         return jsonify({"error": "语音文本为空"}), 400
@@ -1734,13 +2231,20 @@ def voice_input():
 Strictly output JSON only, do not add any explanation or markdown formatting."""
 
     try:
+        parse_meta = {}
         try:
-            result_text = call_llm(
+            voice_response = call_llm(
                 prompt_text=prompt,
                 openrouter_models=OPENROUTER_TEXT_MODELS,
                 openrouter_max_attempts=1,
                 openrouter_timeout=5,
+                premium=use_premium,
+                premium_models=PREMIUM_TEXT_MODELS,
+                premium_timeout=PREMIUM_AI_TIMEOUT_SECONDS,
+                return_metadata=True,
             )
+            result_text = voice_response.get('text', '')
+            parse_meta = {k: voice_response.get(k) for k in ('provider', 'model', 'latency_ms')}
         except Exception as openrouter_first_err:
             print(f"Voice OpenRouter-first parse failed, trying Google SDK: {openrouter_first_err}")
             result_text = call_llm(prompt_text=prompt, preferred_provider='google')
@@ -1749,6 +2253,7 @@ Strictly output JSON only, do not add any explanation or markdown formatting."""
             print("Voice JSON parse failed, retrying Google SDK once")
             try:
                 result_text = call_llm(prompt_text=prompt, preferred_provider='google')
+                parse_meta = {"provider": "google_retry"}
                 parsed = parse_voice_input_result(result_text)
             except Exception as google_retry_err:
                 print(f"Voice Google retry failed: {google_retry_err}")
@@ -1775,7 +2280,12 @@ Strictly output JSON only, do not add any explanation or markdown formatting."""
             "session_id": session_id,
             "foods": saved_foods,
             "exercises": saved_exercises,
-            "image_url": ""
+            "image_url": "",
+            "analysis_meta": {
+                **parse_meta,
+                "premium_requested": bool(use_premium),
+                "premium_used": parse_meta.get('provider') == 'openai_compatible'
+            }
         })
 
     except Exception as e:

@@ -4400,7 +4400,7 @@ html.dark .history-empty-panel {
       </div>
         <div>
           <h3 class="font-headline-md text-headline-md text-on-background">NutriSnap AI</h3>
-          <p class="font-label-md text-label-md text-outline" id="aboutAppVersion">v5.6.35</p>
+          <p class="font-label-md text-label-md text-outline" id="aboutAppVersion">v5.6.36</p>
         </div>
       </div>
     <p class="font-body-md text-body-md text-on-surface-variant mb-6">基于 Gemini AI 的智能饮食记录工具。支持拍照多食物识别、语音输入、分量调节、每周营养报告。</p>
@@ -4750,7 +4750,7 @@ html.dark .history-empty-panel {
 <script>
 // ===================== CONFIG =====================
 const API_BASE = "";
-const CLIENT_VERSION = "v5.6.35";
+const CLIENT_VERSION = "v5.6.36";
 
 // Native preferences helper to survive app process kills on mobile
 const NativeStorage = {
@@ -5385,6 +5385,104 @@ function getAuthHeaders() {
   const token = localStorage.getItem('authToken');
   if (token) headers['Authorization'] = `Bearer ${token}`;
   return headers;
+}
+
+let premiumStatusCache = null;
+
+function premiumStorageKey() {
+  return 'premiumAiEnabled_' + (getCurrentUser() || 'anonymous');
+}
+
+function wantsPremiumAI() {
+  return localStorage.getItem(premiumStorageKey()) === 'true' && !!(premiumStatusCache && premiumStatusCache.is_premium && premiumStatusCache.premium_provider_available);
+}
+
+function updatePremiumUI(status = premiumStatusCache) {
+  const isSignedIn = !!localStorage.getItem('authToken') && !isLocalMode();
+  const isPremium = !!(status && status.is_premium);
+  const providerReady = !!(status && status.premium_provider_available);
+  const optIn = !!(status && status.premium_model_opt_in);
+  const statusEl = document.getElementById('premiumStatusLabel');
+  const expiryEl = document.getElementById('premiumExpiryLabel');
+  const providerEl = document.getElementById('premiumProviderLabel');
+  const toggle = document.getElementById('premiumModelToggle');
+  const redeemBtn = document.getElementById('premiumRedeemBtn');
+
+  if (statusEl) {
+    statusEl.textContent = !isSignedIn ? '登录后可用' : isPremium ? '已开通' : '未开通';
+    statusEl.className = 'font-black ' + (isPremium ? 'text-primary' : 'text-on-surface-variant');
+  }
+  if (expiryEl) {
+    expiryEl.textContent = isPremium && status.premium_expires_at ? status.premium_expires_at.slice(0, 10) : '--';
+  }
+  if (providerEl) {
+    providerEl.textContent = providerReady ? '已配置' : '未配置';
+    providerEl.className = providerReady ? 'text-primary font-bold' : 'text-error font-bold';
+  }
+  if (toggle) {
+    toggle.checked = isPremium && optIn;
+    toggle.disabled = !isSignedIn || !isPremium || !providerReady;
+    localStorage.setItem(premiumStorageKey(), toggle.checked ? 'true' : 'false');
+  }
+  if (redeemBtn) redeemBtn.disabled = !isSignedIn;
+}
+
+async function loadPremiumStatus() {
+  if (!localStorage.getItem('authToken') || isLocalMode()) {
+    premiumStatusCache = { is_premium: false, premium_model_opt_in: false, premium_provider_available: false };
+    updatePremiumUI(premiumStatusCache);
+    return premiumStatusCache;
+  }
+  try {
+    const json = await safeFetchJSON(API_BASE + '/api/premium/status', {
+      headers: getAuthHeaders()
+    });
+    premiumStatusCache = json;
+    updatePremiumUI(json);
+    return json;
+  } catch (err) {
+    console.warn('Premium status failed:', err);
+    updatePremiumUI(premiumStatusCache);
+    return premiumStatusCache;
+  }
+}
+
+async function togglePremiumAI(checked) {
+  try {
+    const json = await safeFetchJSON(API_BASE + '/api/premium/toggle', {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ enabled: !!checked })
+    });
+    premiumStatusCache = json;
+    updatePremiumUI(json);
+    showToast(checked ? '高级模型已开启' : '已切回免费模型', 'success');
+  } catch (err) {
+    showToast(normalizeErrorMessage(err, '高级模型开关更新失败'), 'error');
+    loadPremiumStatus();
+  }
+}
+
+async function redeemPremiumCode() {
+  const input = document.getElementById('premiumActivationInput');
+  const code = input ? input.value.trim() : '';
+  if (!code) {
+    showToast('请输入激活码', 'info');
+    return;
+  }
+  await withActionLock('premium-redeem', 'premiumRedeemBtn', async () => {
+    const json = await safeFetchJSON(API_BASE + '/api/premium/redeem', {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ code })
+    });
+    premiumStatusCache = json;
+    updatePremiumUI(json);
+    if (input) input.value = '';
+    showToast('高级功能已开通', 'success');
+  }, '兑换中...').catch(err => {
+    showToast(normalizeErrorMessage(err, '激活码兑换失败'), 'error');
+  });
 }
 
 function canSyncUserData() {
@@ -6382,6 +6480,7 @@ async function initializeSignedInSession() {
   loadTargets();
   applyTargets();
   updateProfileUI();
+  loadPremiumStatus();
   switchTab('home');
   if (canSyncUserData()) {
     await syncMealRecordsFromServer();
@@ -6459,6 +6558,7 @@ async function loginAsGuest() {
   loadTargets();
   applyTargets();
   updateProfileUI();
+  loadPremiumStatus();
   switchTab('home');
 }
 
@@ -6653,6 +6753,9 @@ async function doAnalyze() {
   fd.append('image', analyzeFile);
   if (isLocalMode()) {
     fd.append('is_app', 'true');
+  }
+  if (wantsPremiumAI()) {
+    fd.append('premium_ai', 'true');
   }
   
   const headers = {};
@@ -7790,6 +7893,9 @@ async function sendVoiceText(text) {
     const payload = { text: text };
     if (isLocalMode()) {
       payload.is_app = true;
+    }
+    if (wantsPremiumAI()) {
+      payload.premium_ai = true;
     }
     const json = await safeFetchJSON(API_BASE + '/api/voice-input', {
       method: 'POST',
@@ -10450,7 +10556,37 @@ function applyStitchV564Alignment() {
 
         <button onclick="logout()" class="mx-auto w-[72%] border border-error/60 text-error rounded-xl px-6 py-3 font-black text-lg">退出登录 (Logout)</button>
       </main>`;
+    if (!profile.querySelector('#premiumModelToggle')) {
+      const logoutButton = profile.querySelector('button[onclick="logout()"]');
+      const premiumPanel = `
+        <section>
+          <h2 class="text-[22px] leading-7 font-black text-on-background mb-3">高级能力 <span class="text-[14px] font-bold text-on-surface-variant">(Premium)</span></h2>
+          <div class="bg-surface-container-lowest rounded-xl shadow-[0_4px_15px_rgba(27,38,59,0.05)] border border-outline-variant/30 divide-y divide-outline-variant/30 overflow-hidden">
+            <div class="flex items-center justify-between gap-4 p-4">
+              <div class="flex items-center gap-3"><span class="material-symbols-outlined text-primary">workspace_premium</span><span class="font-bold">会员状态</span></div>
+              <span id="premiumStatusLabel" class="font-black text-on-surface-variant">加载中</span>
+            </div>
+            <div class="flex items-center justify-between gap-4 p-4">
+              <div><p class="font-bold">高级模型</p><p class="text-xs text-on-surface-variant">开启后优先走高级接口，失败自动回落免费模型</p></div>
+              <label class="relative inline-flex items-center cursor-pointer">
+                <input type="checkbox" id="premiumModelToggle" role="switch" aria-label="高级模型" onchange="togglePremiumAI(this.checked)" class="sr-only switch-input">
+                <span class="switch-slider"></span>
+              </label>
+            </div>
+            <div class="grid grid-cols-2 gap-0 divide-x divide-outline-variant/30">
+              <div class="p-4"><p class="text-xs text-on-surface-variant">到期</p><p class="font-black text-on-background" id="premiumExpiryLabel">--</p></div>
+              <div class="p-4"><p class="text-xs text-on-surface-variant">高级接口</p><p id="premiumProviderLabel" class="font-bold text-on-surface-variant">--</p></div>
+            </div>
+            <div class="p-4 flex gap-2">
+              <input id="premiumActivationInput" class="min-w-0 flex-1 rounded-xl border border-outline-variant bg-surface-container-lowest px-3 py-3 text-sm focus:border-primary focus:outline-none" placeholder="输入激活码">
+              <button id="premiumRedeemBtn" onclick="redeemPremiumCode()" class="rounded-xl bg-primary px-4 py-3 text-sm font-black text-on-primary disabled:opacity-50">兑换</button>
+            </div>
+          </div>
+        </section>`;
+      if (logoutButton) logoutButton.insertAdjacentHTML('beforebegin', premiumPanel);
+    }
     hydrateIcons(profile);
+    updatePremiumUI();
   }
 }
 
