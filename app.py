@@ -126,8 +126,9 @@ OPENROUTER_API_KEY = os.environ.get('OPENROUTER_API_KEY')
 SPEECH_TO_TEXT_MODEL = os.environ.get('OPENROUTER_STT_MODEL', 'openai/whisper-large-v3')
 SPEECH_TO_TEXT_LANGUAGE = os.environ.get('SPEECH_TO_TEXT_LANGUAGE', 'zh')
 USE_OPENROUTER_LLM = os.environ.get('USE_OPENROUTER_LLM', 'false').strip().lower() in ('1', 'true', 'yes', 'on')
-OPENROUTER_CHAT_TIMEOUT_SECONDS = float(os.environ.get('OPENROUTER_CHAT_TIMEOUT_SECONDS', '12'))
+OPENROUTER_CHAT_TIMEOUT_SECONDS = float(os.environ.get('OPENROUTER_CHAT_TIMEOUT_SECONDS', '8'))
 OPENROUTER_STT_TIMEOUT_SECONDS = float(os.environ.get('OPENROUTER_STT_TIMEOUT_SECONDS', '20'))
+OPENROUTER_MAX_MODEL_ATTEMPTS = max(1, int(os.environ.get('OPENROUTER_MAX_MODEL_ATTEMPTS', '2')))
 OPENROUTER_PROVIDER_SORT = os.environ.get('OPENROUTER_PROVIDER_SORT', 'latency').strip().lower()
 if OPENROUTER_PROVIDER_SORT not in ('latency', 'throughput', 'price'):
     OPENROUTER_PROVIDER_SORT = 'latency'
@@ -143,12 +144,17 @@ def openrouter_provider_config():
         "data_collection": "allow",
     }
 
-OPENROUTER_TEXT_MODELS = parse_model_list(os.environ.get('OPENROUTER_TEXT_MODELS'), [
-    'qwen/qwen3-next-80b-a3b-instruct:free',
+OPENROUTER_NUTRITION_MODELS = parse_model_list(os.environ.get('OPENROUTER_NUTRITION_MODELS'), [
     'deepseek/deepseek-v4-flash:free',
+    'qwen/qwen3-next-80b-a3b-instruct:free',
+])
+
+OPENROUTER_TEXT_MODELS = parse_model_list(os.environ.get('OPENROUTER_TEXT_MODELS'), [
     'z-ai/glm-4.5-air:free',
-    'moonshotai/kimi-k2.6:free',
+    'deepseek/deepseek-v4-flash:free',
     'openai/gpt-oss-20b:free',
+    'moonshotai/kimi-k2.6:free',
+    'qwen/qwen3-next-80b-a3b-instruct:free',
     'openai/gpt-oss-120b:free',
     'meta-llama/llama-3.3-70b-instruct:free',
     'google/gemma-4-26b-a4b-it:free',
@@ -156,11 +162,11 @@ OPENROUTER_TEXT_MODELS = parse_model_list(os.environ.get('OPENROUTER_TEXT_MODELS
 ])
 
 OPENROUTER_VISION_MODELS = parse_model_list(os.environ.get('OPENROUTER_VISION_MODELS'), [
-    'google/gemma-4-26b-a4b-it:free',
-    'moonshotai/kimi-k2.6:free',
-    'nvidia/nemotron-nano-12b-v2-vl:free',
     'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',
     'google/gemma-4-31b-it:free',
+    'nvidia/nemotron-nano-12b-v2-vl:free',
+    'google/gemma-4-26b-a4b-it:free',
+    'moonshotai/kimi-k2.6:free',
     'openrouter/free',
 ])
 
@@ -174,7 +180,7 @@ if GEMINI_API_KEY:
     except Exception as e:
         print(f"初始化 Google GenAI client 失败: {e}")
 
-def call_llm(prompt_text, image=None, audio=None, mime_type=None, history=None, system_instruction=None, temperature=0.7, preferred_provider='auto'):
+def call_llm(prompt_text, image=None, audio=None, mime_type=None, history=None, system_instruction=None, temperature=0.7, preferred_provider='auto', openrouter_models=None):
     """
     Unified interface to call either OpenRouter API (if OPENROUTER_API_KEY is configured)
     or fall back to official Google Gemini API (using client.models.generate_content).
@@ -245,7 +251,8 @@ def call_llm(prompt_text, image=None, audio=None, mime_type=None, history=None, 
         if user_content:
             messages.append({"role": "user", "content": user_content})
             
-        models_to_try = OPENROUTER_VISION_MODELS if image is not None else OPENROUTER_TEXT_MODELS
+        default_models = OPENROUTER_VISION_MODELS if image is not None else OPENROUTER_TEXT_MODELS
+        models_to_try = (openrouter_models or default_models)[:OPENROUTER_MAX_MODEL_ATTEMPTS]
         
         last_error = None
         for model in models_to_try:
@@ -878,8 +885,8 @@ def get_db_connection():
 # ==========================================
 
 def get_latest_release_info():
-    # Target regex for update_release.py: "version": "v5.6.31"
-    fallback_version = "v5.6.31"
+    # Target regex for update_release.py: "version": "v5.6.32"
+    fallback_version = "v5.6.32"
     try:
         base_dir = os.path.dirname(os.path.abspath(__file__))
         files = glob.glob(os.path.join(base_dir, "RELEASE_NOTES_*.md"))
@@ -926,7 +933,10 @@ def health():
         ],
         "openrouter_llm_enabled": bool(OPENROUTER_API_KEY and USE_OPENROUTER_LLM),
         "openrouter_text_models": OPENROUTER_TEXT_MODELS,
+        "openrouter_nutrition_models": OPENROUTER_NUTRITION_MODELS,
         "openrouter_vision_models": OPENROUTER_VISION_MODELS,
+        "openrouter_chat_timeout_seconds": OPENROUTER_CHAT_TIMEOUT_SECONDS,
+        "openrouter_max_model_attempts": OPENROUTER_MAX_MODEL_ATTEMPTS,
     })
 
 @app.route('/api/update/info')
@@ -993,6 +1003,121 @@ def parse_ai_multi_result(raw_text):
             'weight': clamp_number(item.get('weight'), default=100, min_value=1, max_value=2000),
         })
     return normalized or None
+
+def parse_json_payload(raw_text):
+    if not raw_text:
+        return None
+    text = re.sub(r'^```(?:json)?\s*', '', raw_text.strip())
+    text = re.sub(r'\s*```$', '', text.strip())
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        match = re.search(r'(\{.*\}|\[.*\])', text, re.S)
+        if not match:
+            return None
+        try:
+            return json.loads(match.group(1))
+        except json.JSONDecodeError:
+            return None
+
+def normalize_visual_observations(payload):
+    if not isinstance(payload, dict):
+        return None
+    foods = payload.get('foods') or payload.get('items') or []
+    if isinstance(foods, dict):
+        foods = [foods]
+    normalized_foods = []
+    for item in foods:
+        if not isinstance(item, dict):
+            continue
+        normalized_foods.append({
+            'name': clean_text(item.get('name') or item.get('food_name') or item.get('label'), default='Unknown food', max_len=120),
+            'visible_ingredients': item.get('visible_ingredients') or item.get('ingredients') or [],
+            'portion_visual': clean_text(item.get('portion_visual') or item.get('portion') or item.get('amount_description'), max_len=160),
+            'estimated_weight_g': clamp_number(item.get('estimated_weight_g') or item.get('weight'), default=100, min_value=1, max_value=2000),
+            'confidence': clamp_number(item.get('confidence'), default=0.65, min_value=0, max_value=1, integer=False),
+        })
+    if not normalized_foods:
+        return None
+    return {
+        'scene_type': clean_text(payload.get('scene_type'), default='prepared_food', max_len=80),
+        'is_packaged_food': bool(payload.get('is_packaged_food')),
+        'package_text': clean_text(payload.get('package_text') or payload.get('ocr_text'), max_len=2000),
+        'nutrition_label': payload.get('nutrition_label') if isinstance(payload.get('nutrition_label'), dict) else {},
+        'foods': normalized_foods,
+        'notes': clean_text(payload.get('notes'), max_len=300),
+    }
+
+def build_visual_prompt():
+    return """You are the vision layer for a food photo logging app.
+Only inspect the image. Do not calculate calories or macro nutrients unless they are explicitly printed on a package label.
+Return strict JSON in this schema:
+{
+  "scene_type": "prepared_food | packaged_food | mixed | not_food",
+  "is_packaged_food": true/false,
+  "package_text": "visible OCR text from packaging or nutrition label, empty if none",
+  "nutrition_label": {
+    "serving_size": "printed serving size if visible",
+    "calories": number_or_null,
+    "protein": number_or_null,
+    "carbs": number_or_null,
+    "fat": number_or_null
+  },
+  "foods": [
+    {
+      "name": "Chinese food name if possible",
+      "visible_ingredients": ["ingredient names visible in the photo"],
+      "portion_visual": "short visual portion description",
+      "estimated_weight_g": number,
+      "confidence": 0.0
+    }
+  ],
+  "notes": "important uncertainty or missing context"
+}
+If no food is visible, return {"scene_type":"not_food","foods":[]}."""
+
+def build_nutrition_from_visual_prompt(visual_data):
+    return f"""You are the nutrition reasoning layer for a food photo logging app.
+Use the visual observation JSON below to estimate realistic nutrition. If a packaging nutrition label is present, prefer the printed label over visual estimation. Output strict JSON array only. No markdown.
+
+Visual observation JSON:
+{json.dumps(visual_data, ensure_ascii=False)}
+
+Required output schema:
+[
+  {{
+    "food_name": "食物名称",
+    "calories": 热量数字(大卡),
+    "protein": 蛋白质数字(克),
+    "carbs": 碳水数字(克),
+    "fat": 脂肪数字(克),
+    "weight": 估计重量数字(克)
+  }}
+]"""
+
+def analyze_food_with_two_stage_pipeline(img):
+    visual_prompt = build_visual_prompt()
+    visual_text = call_llm(prompt_text=visual_prompt, image=img, temperature=0.1)
+    visual_data = normalize_visual_observations(parse_json_payload(visual_text))
+    if not visual_data and client and OPENROUTER_API_KEY and USE_OPENROUTER_LLM:
+        print("Vision observation parse failed with OpenRouter result, retrying Google SDK once")
+        visual_text = call_llm(prompt_text=visual_prompt, image=img, preferred_provider='google', temperature=0.1)
+        visual_data = normalize_visual_observations(parse_json_payload(visual_text))
+    if not visual_data:
+        return None
+
+    nutrition_prompt = build_nutrition_from_visual_prompt(visual_data)
+    nutrition_text = call_llm(
+        prompt_text=nutrition_prompt,
+        temperature=0.1,
+        openrouter_models=OPENROUTER_NUTRITION_MODELS,
+    )
+    foods = parse_ai_multi_result(nutrition_text)
+    if foods is None and client and OPENROUTER_API_KEY and USE_OPENROUTER_LLM:
+        print("Nutrition JSON parse failed with OpenRouter result, retrying Google SDK once")
+        nutrition_text = call_llm(prompt_text=nutrition_prompt, preferred_provider='google', temperature=0.1)
+        foods = parse_ai_multi_result(nutrition_text)
+    return foods
 
 
 @app.route('/')
@@ -1329,24 +1454,7 @@ def analyze_food():
         with PIL.Image.open(filepath) as opened:
             img = optimize_image_for_fast_vision(opened.convert('RGB'))
 
-        prompt = """分析这张图片中的所有食物。对每种食物分别返回以下信息，用 JSON 数组格式：
-[
-  {
-    "food_name": "食物名称",
-    "calories": 热量数字(大卡),
-    "protein": 蛋白质数字(克),
-    "carbs": 碳水数字(克),
-    "fat": 脂肪数字(克),
-    "weight": 估计重量数字(克)
-  }
-]
-If there are no food items in the image, return:
-{"error": "未检测到食物"}
-Strictly output JSON only, do not add any explanation or markdown formatting."""
-
-        result_text = call_llm(prompt_text=prompt, image=img, temperature=0.2)
-
-        foods = parse_ai_multi_result(result_text)
+        foods = analyze_food_with_two_stage_pipeline(img)
         if foods is None:
             return jsonify({"error": "AI未检测到食物，请重新拍摄"}), 400
 
@@ -1480,8 +1588,11 @@ Strictly output JSON only, do not add any explanation or markdown formatting."""
 
     try:
         result_text = call_llm(prompt_text=prompt)
-
         parsed = parse_voice_input_result(result_text)
+        if (parsed is None or (not parsed['foods'] and not parsed['exercises'])) and client and OPENROUTER_API_KEY and USE_OPENROUTER_LLM:
+            print("Voice JSON parse failed with OpenRouter result, retrying Google SDK once")
+            result_text = call_llm(prompt_text=prompt, preferred_provider='google')
+            parsed = parse_voice_input_result(result_text)
         if parsed is None or (not parsed['foods'] and not parsed['exercises']):
             return jsonify({"error": "未能提取出任何有效的食物或运动信息，请重新描述"}), 400
 
