@@ -1128,8 +1128,8 @@ def get_db_connection():
 # ==========================================
 
 def get_latest_release_info():
-    # Target regex for update_release.py: "version": "v5.6.36"
-    fallback_version = "v5.6.36"
+    # Target regex for update_release.py: "version": "v5.6.37"
+    fallback_version = "v5.6.37"
     try:
         base_dir = os.path.dirname(os.path.abspath(__file__))
         files = glob.glob(os.path.join(base_dir, "RELEASE_NOTES_*.md"))
@@ -2342,14 +2342,14 @@ def speech_to_text():
         if not transcription:
             if errors:
                 print(f"Speech-to-text failed with errors: {' | '.join(errors)}")
-            return jsonify({"error": "语音听写失败，请稍后重试"}), 500
+            return jsonify({"error": "当前语音转写暂不可用，可直接改用文字记录。"}), 500
 
         print(f"Speech transcription result: {transcription}")
         return jsonify({"text": transcription})
 
     except Exception as e:
         print(f"Speech to text API error: {e}")
-        return jsonify({"error": "语音听写失败，请稍后重试"}), 500
+        return jsonify({"error": "当前语音转写暂不可用，可直接改用文字记录。"}), 500
 
 
 @app.route('/api/meals', methods=['GET'])

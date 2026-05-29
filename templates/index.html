@@ -4400,7 +4400,7 @@ html.dark .history-empty-panel {
       </div>
         <div>
           <h3 class="font-headline-md text-headline-md text-on-background">NutriSnap AI</h3>
-          <p class="font-label-md text-label-md text-outline" id="aboutAppVersion">v5.6.36</p>
+          <p class="font-label-md text-label-md text-outline" id="aboutAppVersion">v5.6.37</p>
         </div>
       </div>
     <p class="font-body-md text-body-md text-on-surface-variant mb-6">基于 Gemini AI 的智能饮食记录工具。支持拍照多食物识别、语音输入、分量调节、每周营养报告。</p>
@@ -4750,7 +4750,7 @@ html.dark .history-empty-panel {
 <script>
 // ===================== CONFIG =====================
 const API_BASE = "";
-const CLIENT_VERSION = "v5.6.36";
+const CLIENT_VERSION = "v5.6.37";
 
 // Native preferences helper to survive app process kills on mobile
 const NativeStorage = {
@@ -7512,14 +7512,33 @@ let speechRecognition = null;
 let speechRecognitionText = "";
 let speechRecognitionFinal = false;
 let capacitorSpeechActive = false;
+let capacitorSpeechPlugin = null;
 
 function getNativeSpeechRecognition() {
   return window.SpeechRecognition || window.webkitSpeechRecognition || null;
 }
 
 function getCapacitorSpeechRecognition() {
+  if (capacitorSpeechPlugin && typeof capacitorSpeechPlugin.start === 'function') {
+    return capacitorSpeechPlugin;
+  }
   const plugin = window.Capacitor?.Plugins?.SpeechRecognition;
-  return plugin && typeof plugin.start === 'function' ? plugin : null;
+  if (plugin && typeof plugin.start === 'function') {
+    capacitorSpeechPlugin = plugin;
+    return plugin;
+  }
+  if (window.Capacitor && typeof window.Capacitor.registerPlugin === 'function') {
+    try {
+      const registered = window.Capacitor.registerPlugin('SpeechRecognition');
+      if (registered && typeof registered.start === 'function') {
+        capacitorSpeechPlugin = registered;
+        return registered;
+      }
+    } catch (e) {
+      console.warn('Failed to register SpeechRecognition plugin:', e);
+    }
+  }
+  return null;
 }
 
 function isNativeCapacitorApp() {
@@ -7571,7 +7590,7 @@ async function tryStartCapacitorSpeechRecognition(sessionId) {
       language: 'zh-CN',
       maxResults: 3,
       prompt: '请说出你吃了什么，或做了什么运动',
-      popup: false,
+      popup: true,
       partialResults: false
     });
     capacitorSpeechActive = false;
@@ -7846,7 +7865,7 @@ async function transcribeAudio(blob, mimeType) {
   hideVoiceFallback();
   document.getElementById('voiceFinalText').textContent = '\u6b63\u5728\u8bc6\u522b\u5e76\u63d0\u53d6\u98df\u7269\u4fe1\u606f...';
   const localText = (speechRecognitionText || '').trim();
-  if (localText && (speechRecognitionFinal || localText.length >= 4)) {
+  if (localText && (speechRecognitionFinal || localText.length >= 2)) {
     document.getElementById('voiceFinalText').textContent = '"' + localText + '"';
     voiceTextForDisplay = localText;
     isVoiceRecording = false;
@@ -7874,14 +7893,26 @@ async function transcribeAudio(blob, mimeType) {
       document.getElementById('voiceFinalText').textContent = '"' + json.text + '"';
       voiceTextForDisplay = json.text;
       setTimeout(() => sendVoiceText(json.text), 1000);
+    } else if (localText && localText.length >= 2) {
+      document.getElementById('voiceFinalText').textContent = '"' + localText + '"';
+      voiceTextForDisplay = localText;
+      isVoiceRecording = false;
+      setTimeout(() => sendVoiceText(localText), 350);
     } else {
       isVoiceRecording = false;
-      showVoiceFallback(json.error || '语音听写失败，请改用文字记录。');
+      showVoiceFallback(json.error || '当前语音转写暂不可用，可直接改用文字记录。');
     }
   } catch (err) {
     console.error('Speech upload error:', err);
+    if (localText && localText.length >= 2) {
+      document.getElementById('voiceFinalText').textContent = '"' + localText + '"';
+      voiceTextForDisplay = localText;
+      isVoiceRecording = false;
+      setTimeout(() => sendVoiceText(localText), 350);
+      return;
+    }
     isVoiceRecording = false;
-    showVoiceFallback(normalizeErrorMessage(err, '语音上传失败，请改用文字记录。'));
+    showVoiceFallback(normalizeErrorMessage(err, '当前语音转写暂不可用，可直接改用文字记录。'));
   }
 }
 
@@ -10567,7 +10598,7 @@ function applyStitchV564Alignment() {
               <span id="premiumStatusLabel" class="font-black text-on-surface-variant">加载中</span>
             </div>
             <div class="flex items-center justify-between gap-4 p-4">
-              <div><p class="font-bold">高级模型</p><p class="text-xs text-on-surface-variant">开启后优先走高级接口，失败自动回落免费模型</p></div>
+              <div><p class="font-bold">高级模型</p><p class="text-xs text-on-surface-variant">开启后可获得更稳定的语音理解，以及更强的食物识别与营养分析能力</p></div>
               <label class="relative inline-flex items-center cursor-pointer">
                 <input type="checkbox" id="premiumModelToggle" role="switch" aria-label="高级模型" onchange="togglePremiumAI(this.checked)" class="sr-only switch-input">
                 <span class="switch-slider"></span>
