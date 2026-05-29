@@ -10,6 +10,7 @@ except ImportError:
     psycopg2 = None
 
 import datetime
+import time
 import re
 import hashlib
 import hmac
@@ -180,7 +181,20 @@ if GEMINI_API_KEY:
     except Exception as e:
         print(f"初始化 Google GenAI client 失败: {e}")
 
-def call_llm(prompt_text, image=None, audio=None, mime_type=None, history=None, system_instruction=None, temperature=0.7, preferred_provider='auto', openrouter_models=None):
+def call_llm(
+    prompt_text,
+    image=None,
+    audio=None,
+    mime_type=None,
+    history=None,
+    system_instruction=None,
+    temperature=0.7,
+    preferred_provider='auto',
+    openrouter_models=None,
+    openrouter_max_attempts=None,
+    openrouter_timeout=None,
+    return_metadata=False,
+):
     """
     Unified interface to call either OpenRouter API (if OPENROUTER_API_KEY is configured)
     or fall back to official Google Gemini API (using client.models.generate_content).
@@ -252,7 +266,9 @@ def call_llm(prompt_text, image=None, audio=None, mime_type=None, history=None, 
             messages.append({"role": "user", "content": user_content})
             
         default_models = OPENROUTER_VISION_MODELS if image is not None else OPENROUTER_TEXT_MODELS
-        models_to_try = (openrouter_models or default_models)[:OPENROUTER_MAX_MODEL_ATTEMPTS]
+        attempt_limit = max(1, openrouter_max_attempts or OPENROUTER_MAX_MODEL_ATTEMPTS)
+        timeout_seconds = openrouter_timeout or OPENROUTER_CHAT_TIMEOUT_SECONDS
+        models_to_try = (openrouter_models or default_models)[:attempt_limit]
         
         last_error = None
         for model in models_to_try:
@@ -264,7 +280,9 @@ def call_llm(prompt_text, image=None, audio=None, mime_type=None, history=None, 
             }
             try:
                 print(f"Calling OpenRouter model: {model}")
-                res = requests.post(url, headers=headers, json=payload, timeout=OPENROUTER_CHAT_TIMEOUT_SECONDS)
+                started_at = time.perf_counter()
+                res = requests.post(url, headers=headers, json=payload, timeout=timeout_seconds)
+                latency_ms = int((time.perf_counter() - started_at) * 1000)
                 res_json = res.json()
                 if res.status_code == 200 and 'choices' in res_json:
                     message = res_json['choices'][0].get('message', {})
@@ -278,6 +296,13 @@ def call_llm(prompt_text, image=None, audio=None, mime_type=None, history=None, 
                     if not reply:
                         raise RuntimeError(f"OpenRouter model {model} returned empty content")
                     print(f"Success with OpenRouter model: {model}")
+                    if return_metadata:
+                        return {
+                            "text": reply,
+                            "provider": "openrouter",
+                            "model": model,
+                            "latency_ms": latency_ms,
+                        }
                     return reply
                 else:
                     error_msg = res_json.get('error', {}).get('message', res.text)
@@ -345,12 +370,21 @@ def call_llm(prompt_text, image=None, audio=None, mime_type=None, history=None, 
     for model in models_to_try:
         try:
             print(f"Calling Google SDK model: {model}")
+            started_at = time.perf_counter()
             response = client.models.generate_content(
                 model=model,
                 contents=contents,
                 config=config
             )
+            latency_ms = int((time.perf_counter() - started_at) * 1000)
             print(f"Success with Google SDK model: {model}")
+            if return_metadata:
+                return {
+                    "text": response.text,
+                    "provider": "google",
+                    "model": model,
+                    "latency_ms": latency_ms,
+                }
             return response.text
         except Exception as api_err:
             last_error = api_err
@@ -885,8 +919,8 @@ def get_db_connection():
 # ==========================================
 
 def get_latest_release_info():
-    # Target regex for update_release.py: "version": "v5.6.32"
-    fallback_version = "v5.6.32"
+    # Target regex for update_release.py: "version": "v5.6.33"
+    fallback_version = "v5.6.33"
     try:
         base_dir = os.path.dirname(os.path.abspath(__file__))
         files = glob.glob(os.path.join(base_dir, "RELEASE_NOTES_*.md"))
@@ -954,6 +988,8 @@ def download_update():
 
 def parse_ai_multi_result(raw_text):
     """解析 AI JSON 输出，返回食物列表"""
+    if not raw_text:
+        return None
     # Clean markdown wrappers
     text = re.sub(r'^```(?:json)?\s*', '', raw_text.strip())
     text = re.sub(r'\s*```$', '', text.strip())
@@ -1001,6 +1037,9 @@ def parse_ai_multi_result(raw_text):
             'carbs': clamp_number(item.get('carbs'), default=0, min_value=0, max_value=500),
             'fat': clamp_number(item.get('fat'), default=0, min_value=0, max_value=300),
             'weight': clamp_number(item.get('weight'), default=100, min_value=1, max_value=2000),
+            'sodium_mg': clamp_number(item.get('sodium_mg'), default=0, min_value=0, max_value=100000),
+            'sugar_g': clamp_number(item.get('sugar_g'), default=0, min_value=0, max_value=500),
+            'fiber_g': clamp_number(item.get('fiber_g'), default=0, min_value=0, max_value=200),
         })
     return normalized or None
 
@@ -1095,29 +1134,128 @@ Required output schema:
   }}
 ]"""
 
+def confidence_label(score):
+    try:
+        value = float(score)
+    except (TypeError, ValueError):
+        value = 0.55
+    if value >= 0.78:
+        return 'high'
+    if value >= 0.52:
+        return 'medium'
+    return 'low'
+
+def build_weight_range(weight, confidence):
+    grams = clamp_number(weight, default=100, min_value=1, max_value=2000)
+    spread = 0.2 if confidence == 'high' else 0.32 if confidence == 'medium' else 0.5
+    return {
+        'min': max(1, int(round(grams * (1 - spread)))),
+        'max': max(1, int(round(grams * (1 + spread)))),
+    }
+
+def build_nutrition_per_100g(food):
+    weight = clamp_number(food.get('weight'), default=100, min_value=1, max_value=2000)
+    factor = 100.0 / weight
+    return {
+        'calories_kcal': clamp_number(clamp_number(food.get('calories'), default=0, min_value=0, max_value=5000) * factor, default=0, min_value=0, max_value=5000),
+        'carbs_g': clamp_number(clamp_number(food.get('carbs'), default=0, min_value=0, max_value=500) * factor, default=0, min_value=0, max_value=500),
+        'protein_g': clamp_number(clamp_number(food.get('protein'), default=0, min_value=0, max_value=300) * factor, default=0, min_value=0, max_value=300),
+        'fat_g': clamp_number(clamp_number(food.get('fat'), default=0, min_value=0, max_value=300) * factor, default=0, min_value=0, max_value=300),
+    }
+
+def enrich_foods_with_analysis_metadata(foods, visual_data, visual_meta, nutrition_meta, pipeline_latency_ms):
+    visual_items = visual_data.get('foods') or []
+    has_label = bool(visual_data.get('is_packaged_food') or visual_data.get('package_text') or visual_data.get('nutrition_label'))
+    data_source = 'package_ocr' if has_label else 'vision_estimate'
+    model_parts = []
+    if visual_meta:
+        model_parts.append(f"vision:{visual_meta.get('provider')}/{visual_meta.get('model')}")
+    if nutrition_meta:
+        model_parts.append(f"nutrition:{nutrition_meta.get('provider')}/{nutrition_meta.get('model')}")
+    model_used = ';'.join(model_parts)
+    enriched = []
+    for idx, food in enumerate(foods or []):
+        visual_item = visual_items[idx] if idx < len(visual_items) else {}
+        confidence = confidence_label(visual_item.get('confidence'))
+        weight = clamp_number(food.get('weight') or visual_item.get('estimated_weight_g'), default=100, min_value=1, max_value=2000)
+        item = dict(food)
+        item['weight'] = weight
+        item['estimated_grams'] = weight
+        item['ingredients'] = visual_item.get('visible_ingredients') or []
+        item['portion_visual'] = visual_item.get('portion_visual') or ''
+        item['weight_range'] = build_weight_range(weight, confidence)
+        item['confidence'] = confidence
+        item['needs_user_confirmation'] = confidence == 'low'
+        item['data_source'] = data_source
+        item['nutrition_per_100g'] = build_nutrition_per_100g(item)
+        item['nutrition_total'] = {
+            'calories_kcal': clamp_number(item.get('calories'), default=0, min_value=0, max_value=5000),
+            'carbs_g': clamp_number(item.get('carbs'), default=0, min_value=0, max_value=500),
+            'protein_g': clamp_number(item.get('protein'), default=0, min_value=0, max_value=300),
+            'fat_g': clamp_number(item.get('fat'), default=0, min_value=0, max_value=300),
+            'sodium_mg': clamp_number(item.get('sodium_mg'), default=0, min_value=0, max_value=100000),
+            'sugar_g': clamp_number(item.get('sugar_g'), default=0, min_value=0, max_value=500),
+            'fiber_g': clamp_number(item.get('fiber_g'), default=0, min_value=0, max_value=200),
+        }
+        item['model_used'] = model_used
+        item['latency_ms'] = pipeline_latency_ms
+        item['disclaimer'] = '营养数据为估算值，仅供参考，不可用于医疗诊断。'
+        enriched.append(item)
+
+    return enriched, {
+        'data_source': data_source,
+        'model_used': model_used,
+        'visual_model': visual_meta.get('model') if visual_meta else '',
+        'nutrition_model': nutrition_meta.get('model') if nutrition_meta else '',
+        'visual_latency_ms': visual_meta.get('latency_ms') if visual_meta else 0,
+        'nutrition_latency_ms': nutrition_meta.get('latency_ms') if nutrition_meta else 0,
+        'latency_ms': pipeline_latency_ms,
+        'needs_user_confirmation': any(item.get('needs_user_confirmation') for item in enriched),
+        'disclaimer': '营养数据为估算值，仅供参考，不可用于医疗诊断。',
+    }
+
 def analyze_food_with_two_stage_pipeline(img):
+    pipeline_started_at = time.perf_counter()
     visual_prompt = build_visual_prompt()
-    visual_text = call_llm(prompt_text=visual_prompt, image=img, temperature=0.1)
-    visual_data = normalize_visual_observations(parse_json_payload(visual_text))
+    visual_response = call_llm(
+        prompt_text=visual_prompt,
+        image=img,
+        temperature=0.1,
+        openrouter_max_attempts=1,
+        openrouter_timeout=6,
+        return_metadata=True,
+    )
+    visual_meta = {k: visual_response.get(k) for k in ('provider', 'model', 'latency_ms')}
+    visual_data = normalize_visual_observations(parse_json_payload(visual_response.get('text')))
     if not visual_data and client and OPENROUTER_API_KEY and USE_OPENROUTER_LLM:
         print("Vision observation parse failed with OpenRouter result, retrying Google SDK once")
-        visual_text = call_llm(prompt_text=visual_prompt, image=img, preferred_provider='google', temperature=0.1)
-        visual_data = normalize_visual_observations(parse_json_payload(visual_text))
+        visual_response = call_llm(prompt_text=visual_prompt, image=img, preferred_provider='google', temperature=0.1, return_metadata=True)
+        visual_meta = {k: visual_response.get(k) for k in ('provider', 'model', 'latency_ms')}
+        visual_data = normalize_visual_observations(parse_json_payload(visual_response.get('text')))
     if not visual_data:
         return None
 
     nutrition_prompt = build_nutrition_from_visual_prompt(visual_data)
-    nutrition_text = call_llm(
+    nutrition_response = call_llm(
         prompt_text=nutrition_prompt,
         temperature=0.1,
         openrouter_models=OPENROUTER_NUTRITION_MODELS,
+        openrouter_max_attempts=1,
+        openrouter_timeout=5,
+        return_metadata=True,
     )
-    foods = parse_ai_multi_result(nutrition_text)
+    nutrition_meta = {k: nutrition_response.get(k) for k in ('provider', 'model', 'latency_ms')}
+    foods = parse_ai_multi_result(nutrition_response.get('text'))
     if foods is None and client and OPENROUTER_API_KEY and USE_OPENROUTER_LLM:
         print("Nutrition JSON parse failed with OpenRouter result, retrying Google SDK once")
-        nutrition_text = call_llm(prompt_text=nutrition_prompt, preferred_provider='google', temperature=0.1)
-        foods = parse_ai_multi_result(nutrition_text)
-    return foods
+        nutrition_response = call_llm(prompt_text=nutrition_prompt, preferred_provider='google', temperature=0.1, return_metadata=True)
+        nutrition_meta = {k: nutrition_response.get(k) for k in ('provider', 'model', 'latency_ms')}
+        foods = parse_ai_multi_result(nutrition_response.get('text'))
+    if foods is None:
+        return None
+    pipeline_latency_ms = int((time.perf_counter() - pipeline_started_at) * 1000)
+    enriched, analysis_meta = enrich_foods_with_analysis_metadata(foods, visual_data, visual_meta, nutrition_meta, pipeline_latency_ms)
+    return {'foods': enriched, 'analysis_meta': analysis_meta}
 
 
 @app.route('/')
@@ -1454,9 +1592,11 @@ def analyze_food():
         with PIL.Image.open(filepath) as opened:
             img = optimize_image_for_fast_vision(opened.convert('RGB'))
 
-        foods = analyze_food_with_two_stage_pipeline(img)
-        if foods is None:
+        analysis_result = analyze_food_with_two_stage_pipeline(img)
+        if not analysis_result or not analysis_result.get('foods'):
             return jsonify({"error": "AI未检测到食物，请重新拍摄"}), 400
+        foods = analysis_result.get('foods', [])
+        analysis_meta = analysis_result.get('analysis_meta', {})
 
         # Return food data; frontend stores locally via MealStorage (localStorage).
         # Daily aggregated summaries are synced to server via /api/daily-summaries.
@@ -1471,7 +1611,8 @@ def analyze_food():
             "success": True,
             "session_id": session_id,
             "foods": saved,
-            "image_url": ""
+            "image_url": "",
+            "analysis_meta": analysis_meta
         })
 
     except UnidentifiedImageError:
@@ -1587,10 +1728,19 @@ def voice_input():
 Strictly output JSON only, do not add any explanation or markdown formatting."""
 
     try:
-        result_text = call_llm(prompt_text=prompt)
+        try:
+            result_text = call_llm(prompt_text=prompt, preferred_provider='google')
+        except Exception as google_first_err:
+            print(f"Voice Google-first parse failed, trying one OpenRouter nutrition model: {google_first_err}")
+            result_text = call_llm(
+                prompt_text=prompt,
+                openrouter_models=OPENROUTER_NUTRITION_MODELS,
+                openrouter_max_attempts=1,
+                openrouter_timeout=5,
+            )
         parsed = parse_voice_input_result(result_text)
         if (parsed is None or (not parsed['foods'] and not parsed['exercises'])) and client and OPENROUTER_API_KEY and USE_OPENROUTER_LLM:
-            print("Voice JSON parse failed with OpenRouter result, retrying Google SDK once")
+            print("Voice JSON parse failed, retrying Google SDK once")
             result_text = call_llm(prompt_text=prompt, preferred_provider='google')
             parsed = parse_voice_input_result(result_text)
         if parsed is None or (not parsed['foods'] and not parsed['exercises']):
