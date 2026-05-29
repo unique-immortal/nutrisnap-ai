@@ -919,8 +919,8 @@ def get_db_connection():
 # ==========================================
 
 def get_latest_release_info():
-    # Target regex for update_release.py: "version": "v5.6.34"
-    fallback_version = "v5.6.34"
+    # Target regex for update_release.py: "version": "v5.6.35"
+    fallback_version = "v5.6.35"
     try:
         base_dir = os.path.dirname(os.path.abspath(__file__))
         files = glob.glob(os.path.join(base_dir, "RELEASE_NOTES_*.md"))
@@ -1735,20 +1735,23 @@ Strictly output JSON only, do not add any explanation or markdown formatting."""
 
     try:
         try:
-            result_text = call_llm(prompt_text=prompt, preferred_provider='google')
-        except Exception as google_first_err:
-            print(f"Voice Google-first parse failed, trying one OpenRouter nutrition model: {google_first_err}")
             result_text = call_llm(
                 prompt_text=prompt,
-                openrouter_models=OPENROUTER_NUTRITION_MODELS,
+                openrouter_models=OPENROUTER_TEXT_MODELS,
                 openrouter_max_attempts=1,
                 openrouter_timeout=5,
             )
-        parsed = parse_voice_input_result(result_text)
-        if (parsed is None or (not parsed['foods'] and not parsed['exercises'])) and client and OPENROUTER_API_KEY and USE_OPENROUTER_LLM:
-            print("Voice JSON parse failed, retrying Google SDK once")
+        except Exception as openrouter_first_err:
+            print(f"Voice OpenRouter-first parse failed, trying Google SDK: {openrouter_first_err}")
             result_text = call_llm(prompt_text=prompt, preferred_provider='google')
-            parsed = parse_voice_input_result(result_text)
+        parsed = parse_voice_input_result(result_text)
+        if parsed is None or (not parsed['foods'] and not parsed['exercises']):
+            print("Voice JSON parse failed, retrying Google SDK once")
+            try:
+                result_text = call_llm(prompt_text=prompt, preferred_provider='google')
+                parsed = parse_voice_input_result(result_text)
+            except Exception as google_retry_err:
+                print(f"Voice Google retry failed: {google_retry_err}")
         if parsed is None or (not parsed['foods'] and not parsed['exercises']):
             return jsonify({"error": "未能提取出任何有效的食物或运动信息，请重新描述"}), 400
 
