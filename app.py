@@ -1198,8 +1198,8 @@ def get_db_connection():
 # ==========================================
 
 def get_latest_release_info():
-    # Target regex for update_release.py: "version": "v5.6.38"
-    fallback_version = "v5.6.38"
+    # Target regex for update_release.py: "version": "v5.6.39"
+    fallback_version = "v5.6.39"
     try:
         base_dir = os.path.dirname(os.path.abspath(__file__))
         files = glob.glob(os.path.join(base_dir, "RELEASE_NOTES_*.md"))
@@ -1387,6 +1387,11 @@ def normalize_visual_observations(payload):
 def build_visual_prompt():
     return """You are the vision layer for a food photo logging app.
 Only inspect the image. Do not calculate calories or macro nutrients unless they are explicitly printed on a package label.
+If this is a packaged food, prioritize the printed package text and product identity over the generic visual category.
+For packaged foods, read the visible front-of-pack brand/product text as carefully as possible.
+Do not rename a branded packaged item into a generic category if the package text suggests a more specific product.
+If the package shows a chocolate-coated ice cream / popsicle / frozen dessert on a wrapper, do not call it a plain chocolate bar.
+Prefer Chinese consumer-facing names when the package text is Chinese.
 Return strict JSON in this schema:
 {
   "scene_type": "prepared_food | packaged_food | mixed | not_food",
@@ -1412,9 +1417,203 @@ Return strict JSON in this schema:
 }
 If no food is visible, return {"scene_type":"not_food","foods":[]}."""
 
+GENERIC_PACKAGED_FOOD_NAMES = {
+    'food',
+    'snack',
+    'dessert',
+    'candy',
+    'candy bar',
+    'bar',
+    'chocolate',
+    'chocolate bar',
+    'ice cream',
+    'ice cream bar',
+    'popsicle',
+    'frozen dessert',
+    'unknown food',
+    '零食',
+    '甜品',
+    '食物',
+    '巧克力',
+    '巧克力棒',
+    '冰淇淋',
+    '雪糕',
+    '冰棍',
+    '冰棒',
+}
+
+CHINA_PACKAGED_BRAND_HINTS = {
+    '巧乐兹': '巧乐兹',
+    '梦龙': '梦龙',
+    '可爱多': '可爱多',
+    '甄稀': '甄稀',
+    '随变': '随变',
+    '冰工厂': '冰工厂',
+    '绿色心情': '绿色心情',
+    '东北大板': '东北大板',
+    '伊利': '伊利',
+    '和路雪': '和路雪',
+    '蒙牛': '蒙牛',
+}
+
+ICE_CREAM_PACKAGE_HINTS = (
+    '雪糕',
+    '冰淇淋',
+    '冰棍',
+    '冰棒',
+    '脆皮',
+    '脆层',
+    '牛乳',
+    '奶脆',
+    '冰品',
+)
+
+
+def contains_cjk(text):
+    return bool(re.search(r'[\u4e00-\u9fff]', str(text or '')))
+
+
+def normalize_name_key(text):
+    return re.sub(r'[\s\-_]+', ' ', str(text or '').strip().lower())
+
+
+def is_generic_packaged_food_name(name):
+    normalized = normalize_name_key(name)
+    return not normalized or normalized in GENERIC_PACKAGED_FOOD_NAMES
+
+
+def guess_name_from_package_text(package_text):
+    text = clean_text(package_text, max_len=400)
+    if not text:
+        return ''
+    compact = re.sub(r'\s+', '', text)
+    for token, label in CHINA_PACKAGED_BRAND_HINTS.items():
+        if token in compact:
+            if any(hint in compact for hint in ICE_CREAM_PACKAGE_HINTS):
+                return f"{label}雪糕"
+            return label
+    if any(hint in compact for hint in ICE_CREAM_PACKAGE_HINTS):
+        if '巧克力' in compact:
+            return '巧克力脆皮雪糕'
+        return '雪糕'
+    return ''
+
+
+def should_refine_packaged_food_name(visual_data):
+    if not isinstance(visual_data, dict) or not visual_data.get('is_packaged_food'):
+        return False
+    foods = visual_data.get('foods') or []
+    if not foods:
+        return False
+    name = clean_text((foods[0] or {}).get('name'), max_len=120)
+    package_text = clean_text(visual_data.get('package_text'), max_len=400)
+    if guess_name_from_package_text(package_text):
+        return True
+    if is_generic_packaged_food_name(name):
+        return True
+    if not contains_cjk(name) and (contains_cjk(package_text) or visual_data.get('scene_type') == 'packaged_food'):
+        return True
+    if normalize_name_key(name) == 'chocolate bar' and any(hint in package_text for hint in ICE_CREAM_PACKAGE_HINTS):
+        return True
+    return False
+
+
+def build_packaged_name_refinement_prompt(visual_data):
+    return f"""You are a packaging OCR and packaged-food identity resolver for a food logging app.
+Your job is not to estimate calories. Your only job is to identify the exact or best-possible consumer-facing product name from the package.
+
+Rules:
+1. Read the visible package text carefully. Prioritize the front-of-pack product name over generic appearance.
+2. If a branded Chinese product name is visible, return that exact Chinese name.
+3. If the exact brand is unclear but the wrapper clearly shows an ice cream / popsicle / frozen dessert, return a Chinese frozen-dessert name such as "巧克力脆皮雪糕" or "冰淇淋棒".
+4. Never call a wrapped ice cream bar a plain "巧克力棒" or "chocolate bar".
+5. Prefer Chinese names whenever the package text is Chinese.
+6. If uncertain, return the most specific safe Chinese generic name and lower the confidence.
+
+Current observation JSON:
+{json.dumps(visual_data, ensure_ascii=False)}
+
+Return strict JSON only:
+{{
+  "product_name": "best consumer-facing product name in Chinese if possible",
+  "generic_name": "generic food category",
+  "packaging_type": "wrapper|box|bottle|cup|bag|other",
+  "ocr_text": "visible package text",
+  "confidence": 0.0,
+  "reason": "short explanation"
+}}"""
+
+
+def refine_packaged_food_name(img, visual_data, use_premium=False):
+    refinement_timeouts = fit_timeouts_to_deadline([6, 4], 10)
+    response = call_llm(
+        prompt_text=build_packaged_name_refinement_prompt(visual_data),
+        image=img,
+        temperature=0,
+        openrouter_models=OPENROUTER_VISION_MODELS,
+        openrouter_max_attempts=len(refinement_timeouts) or len(OPENROUTER_VISION_MODELS),
+        openrouter_timeout=refinement_timeouts[0] if refinement_timeouts else OPENROUTER_CHAT_TIMEOUT_SECONDS,
+        openrouter_timeouts=refinement_timeouts,
+        premium=use_premium,
+        premium_models=PREMIUM_VISION_MODELS,
+        premium_timeout=PREMIUM_AI_TIMEOUT_SECONDS,
+        return_metadata=True,
+    )
+    payload = parse_json_payload(response.get('text'))
+    if not isinstance(payload, dict):
+        return None, response
+    return {
+        'product_name': clean_text(payload.get('product_name'), max_len=120),
+        'generic_name': clean_text(payload.get('generic_name'), max_len=120),
+        'ocr_text': clean_text(payload.get('ocr_text'), max_len=2000),
+        'packaging_type': clean_text(payload.get('packaging_type'), max_len=40),
+        'reason': clean_text(payload.get('reason'), max_len=240),
+        'confidence': clamp_number(payload.get('confidence'), default=0.5, min_value=0, max_value=1, integer=False),
+    }, response
+
+
+def apply_packaged_food_name_refinement(visual_data, refinement):
+    if not isinstance(visual_data, dict) or not isinstance(refinement, dict):
+        return visual_data
+    foods = list(visual_data.get('foods') or [])
+    if not foods:
+        return visual_data
+    package_text = clean_text(refinement.get('ocr_text') or visual_data.get('package_text'), max_len=2000)
+    product_name = clean_text(refinement.get('product_name'), max_len=120)
+    generic_name = clean_text(refinement.get('generic_name'), max_len=120)
+    guessed_name = guess_name_from_package_text(package_text)
+    replacement = product_name or guessed_name or generic_name
+    if not replacement:
+        return visual_data
+    current_name = clean_text((foods[0] or {}).get('name'), max_len=120)
+    more_specific = (
+        bool(replacement)
+        and (
+            is_generic_packaged_food_name(current_name)
+            or (not contains_cjk(current_name) and contains_cjk(replacement))
+            or (normalize_name_key(current_name) == 'chocolate bar' and replacement != current_name)
+        )
+    )
+    if not more_specific:
+        return visual_data
+    foods[0] = dict(foods[0] or {})
+    foods[0]['name'] = replacement
+    visual_data = dict(visual_data)
+    visual_data['foods'] = foods
+    visual_data['package_text'] = package_text or visual_data.get('package_text', '')
+    if refinement.get('reason'):
+        visual_data['notes'] = clean_text(
+            f"{visual_data.get('notes', '')} {refinement.get('reason')}".strip(),
+            max_len=300
+        )
+    return visual_data
+
+
 def build_nutrition_from_visual_prompt(visual_data):
     return f"""You are the nutrition reasoning layer for a food photo logging app.
 Use the visual observation JSON below to estimate realistic nutrition. If a packaging nutrition label is present, prefer the printed label over visual estimation. Output strict JSON array only. No markdown.
+If the visual observation already includes a packaged product name from package text, preserve that product name in food_name instead of replacing it with a generic category.
+For wrapped frozen desserts or ice cream products, do not rename them to plain chocolate bars.
 
 Visual observation JSON:
 {json.dumps(visual_data, ensure_ascii=False)}
@@ -1508,6 +1707,9 @@ def enrich_foods_with_analysis_metadata(foods, visual_data, visual_meta, nutriti
         'nutrition_latency_ms': nutrition_meta.get('latency_ms') if nutrition_meta else 0,
         'visual_fallback_trace': visual_meta.get('fallback_trace') if visual_meta else [],
         'nutrition_fallback_trace': nutrition_meta.get('fallback_trace') if nutrition_meta else [],
+        'packaged_name_refined': bool(visual_meta.get('packaged_name_refined')) if visual_meta else False,
+        'packaged_name_refinement': visual_meta.get('packaged_name_refinement') if visual_meta else None,
+        'packaged_name_refinement_trace': visual_meta.get('packaged_name_refinement_trace') if visual_meta else [],
         'latency_ms': pipeline_latency_ms,
         'needs_user_confirmation': any(item.get('needs_user_confirmation') for item in enriched),
         'disclaimer': '营养数据为估算值，仅供参考，不可用于医疗诊断。',
@@ -1546,6 +1748,17 @@ def analyze_food_with_two_stage_pipeline(img, use_premium=False):
         visual_data = normalize_visual_observations(parse_json_payload(visual_response.get('text')))
     if not visual_data:
         return None
+    if should_refine_packaged_food_name(visual_data):
+        try:
+            refined_name, refine_response = refine_packaged_food_name(img, visual_data, use_premium=use_premium)
+            if refined_name:
+                visual_data = apply_packaged_food_name_refinement(visual_data, refined_name)
+                visual_meta = dict(visual_meta or {})
+                visual_meta['packaged_name_refined'] = True
+                visual_meta['packaged_name_refinement'] = refined_name
+                visual_meta['packaged_name_refinement_trace'] = refine_response.get('fallback_trace')
+        except Exception as refine_err:
+            print(f"Packaged food name refinement failed: {refine_err}")
 
     nutrition_prompt = build_nutrition_from_visual_prompt(visual_data)
     nutrition_response = call_llm(
