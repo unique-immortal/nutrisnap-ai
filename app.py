@@ -198,14 +198,13 @@ OPENROUTER_NUTRITION_HARD_DEADLINE_SECONDS = float(
 )
 
 OPENROUTER_TEXT_MODELS = parse_model_list(os.environ.get('OPENROUTER_TEXT_MODELS'), [
-    'openai/gpt-oss-120b:free',
     'deepseek/deepseek-v4-flash:free',
-    'z-ai/glm-4.5-air:free',
-    'nvidia/nemotron-nano-9b-v2:free',
+    'qwen/qwen3-next-80b-a3b-instruct:free',
+    'minimax/minimax-m2.5:free',
 ])
 OPENROUTER_TEXT_TIMEOUTS = parse_timeout_list(
     os.environ.get('OPENROUTER_TEXT_TIMEOUTS'),
-    [6, 5, 5, 4]
+    [5, 5, 5]
 )
 OPENROUTER_TEXT_HARD_DEADLINE_SECONDS = float(
     os.environ.get('OPENROUTER_TEXT_HARD_DEADLINE_SECONDS', '15')
@@ -649,6 +648,50 @@ def call_llm(
             continue
 
     raise last_error or Exception("Google SDK request failed.")
+
+
+def get_text_chain_models():
+    timeouts = fit_timeouts_to_deadline(
+        OPENROUTER_TEXT_TIMEOUTS,
+        OPENROUTER_TEXT_HARD_DEADLINE_SECONDS
+    )
+    models = OPENROUTER_TEXT_MODELS[:len(timeouts) or len(OPENROUTER_TEXT_MODELS)]
+    return models, timeouts
+
+
+def get_vision_chain_models():
+    timeouts = fit_timeouts_to_deadline(
+        OPENROUTER_VISION_TIMEOUTS,
+        OPENROUTER_VISION_HARD_DEADLINE_SECONDS
+    )
+    models = OPENROUTER_VISION_MODELS[:len(timeouts) or len(OPENROUTER_VISION_MODELS)]
+    return models, timeouts
+
+
+def call_text_reasoning_llm(
+    prompt_text,
+    use_premium=False,
+    history=None,
+    system_instruction=None,
+    temperature=0.2,
+    return_metadata=False,
+):
+    text_models, text_timeouts = get_text_chain_models()
+    return call_llm(
+        prompt_text=prompt_text,
+        history=history,
+        system_instruction=system_instruction,
+        temperature=temperature,
+        openrouter_models=text_models,
+        openrouter_max_attempts=len(text_timeouts) or len(text_models),
+        openrouter_timeout=text_timeouts[0] if text_timeouts else OPENROUTER_CHAT_TIMEOUT_SECONDS,
+        openrouter_timeouts=text_timeouts,
+        premium=use_premium,
+        premium_models=PREMIUM_TEXT_MODELS,
+        premium_timeout=PREMIUM_AI_TIMEOUT_SECONDS,
+        allow_google_fallback=False,
+        return_metadata=return_metadata,
+    )
 
 
 def normalize_audio_format(mime_type, filename=''):
@@ -1211,8 +1254,8 @@ def get_db_connection():
 # ==========================================
 
 def get_latest_release_info():
-    # Target regex for update_release.py: "version": "v5.6.40"
-    fallback_version = "v5.6.40"
+    # Target regex for update_release.py: "version": "v5.6.41"
+    fallback_version = "v5.6.41"
     try:
         base_dir = os.path.dirname(os.path.abspath(__file__))
         files = glob.glob(os.path.join(base_dir, "RELEASE_NOTES_*.md"))
@@ -1558,18 +1601,19 @@ Return strict JSON only:
 
 
 def refine_packaged_food_name(img, visual_data, use_premium=False):
-    refinement_timeouts = fit_timeouts_to_deadline([6, 4], 10)
+    refinement_models, refinement_timeouts = get_vision_chain_models()
     response = call_llm(
         prompt_text=build_packaged_name_refinement_prompt(visual_data),
         image=img,
         temperature=0,
-        openrouter_models=OPENROUTER_VISION_MODELS,
-        openrouter_max_attempts=len(refinement_timeouts) or len(OPENROUTER_VISION_MODELS),
+        openrouter_models=refinement_models,
+        openrouter_max_attempts=len(refinement_timeouts) or len(refinement_models),
         openrouter_timeout=refinement_timeouts[0] if refinement_timeouts else OPENROUTER_CHAT_TIMEOUT_SECONDS,
         openrouter_timeouts=refinement_timeouts,
         premium=use_premium,
         premium_models=PREMIUM_VISION_MODELS,
         premium_timeout=PREMIUM_AI_TIMEOUT_SECONDS,
+        allow_google_fallback=False,
         return_metadata=True,
     )
     payload = parse_json_payload(response.get('text'))
@@ -1642,6 +1686,72 @@ Required output schema:
     "weight": 估计重量数字(克)
   }}
 ]"""
+
+def build_manual_food_estimate_prompt(food_name, weight, provided_fields):
+    provided = {
+        'calories': provided_fields.get('calories'),
+        'protein': provided_fields.get('protein'),
+        'carbs': provided_fields.get('carbs'),
+        'fat': provided_fields.get('fat'),
+    }
+    return f"""You are a nutrition estimation assistant for a food logging app.
+Estimate realistic nutrition for one manually entered food item and output strict JSON only.
+
+Food name: {food_name}
+Weight (grams): {weight}
+User provided fields (keep them exactly if present, fill only the missing ones):
+{json.dumps(provided, ensure_ascii=False)}
+
+Rules:
+1. Preserve the food name in Chinese if possible.
+2. If the user already provided a value, copy that exact value into the output.
+3. Fill missing calories / protein / carbs / fat with realistic estimates for the stated weight.
+4. Keep the output internally consistent. Calories should roughly match protein*4 + carbs*4 + fat*9 with normal rounding tolerance.
+5. Use realistic nutrition references for common foods sold in China when relevant.
+6. Return only one JSON object. No markdown, no explanation.
+
+Required schema:
+{{
+  "food_name": "食物名称",
+  "calories": 0,
+  "protein": 0,
+  "carbs": 0,
+  "fat": 0,
+  "weight": 0,
+  "confidence": 0.0,
+  "notes": "short note"
+}}"""
+
+
+def normalize_manual_food_estimate(payload, fallback_name, fallback_weight, provided_fields):
+    data = payload[0] if isinstance(payload, list) and payload else payload
+    if not isinstance(data, dict):
+        return None
+
+    result = {
+        'food_name': clean_text(first_present(data, 'food_name', 'name', 'food'), default=fallback_name, max_len=120),
+        'calories': clamp_number(first_present(data, 'calories', 'calories_kcal', 'kcal'), default=0, min_value=0, max_value=5000),
+        'protein': clamp_number(first_present(data, 'protein', 'protein_g'), default=0, min_value=0, max_value=300),
+        'carbs': clamp_number(first_present(data, 'carbs', 'carbs_g', 'carbohydrates', 'carbohydrates_g'), default=0, min_value=0, max_value=500),
+        'fat': clamp_number(first_present(data, 'fat', 'fat_g'), default=0, min_value=0, max_value=300),
+        'weight': clamp_number(first_present(data, 'weight', 'weight_g', 'estimated_grams', 'grams'), default=fallback_weight, min_value=1, max_value=2000),
+        'confidence': clamp_number(data.get('confidence'), default=0.7, min_value=0, max_value=1, integer=False),
+        'notes': clean_text(data.get('notes'), max_len=240),
+    }
+
+    field_limits = {
+        'calories': 5000,
+        'protein': 300,
+        'carbs': 500,
+        'fat': 300,
+    }
+    for field, max_value in field_limits.items():
+        value = provided_fields.get(field)
+        if value is not None:
+            result[field] = clamp_number(value, default=result[field], min_value=0, max_value=max_value)
+
+    return result
+
 
 def confidence_label(score):
     try:
@@ -1809,10 +1919,7 @@ def enrich_foods_with_analysis_metadata(foods, visual_data, visual_meta, nutriti
 
 def analyze_food_with_two_stage_pipeline(img, use_premium=False):
     pipeline_started_at = time.perf_counter()
-    visual_timeouts = fit_timeouts_to_deadline(
-        OPENROUTER_VISION_TIMEOUTS,
-        OPENROUTER_VISION_HARD_DEADLINE_SECONDS
-    )
+    vision_models, visual_timeouts = get_vision_chain_models()
     nutrition_timeouts = fit_timeouts_to_deadline(
         OPENROUTER_NUTRITION_TIMEOUTS,
         OPENROUTER_NUTRITION_HARD_DEADLINE_SECONDS
@@ -1823,22 +1930,18 @@ def analyze_food_with_two_stage_pipeline(img, use_premium=False):
         prompt_text=visual_prompt,
         image=img,
         temperature=0.1,
-        openrouter_models=OPENROUTER_VISION_MODELS,
-        openrouter_max_attempts=len(visual_timeouts) or len(OPENROUTER_VISION_MODELS),
+        openrouter_models=vision_models,
+        openrouter_max_attempts=len(visual_timeouts) or len(vision_models),
         openrouter_timeout=visual_timeouts[0] if visual_timeouts else OPENROUTER_CHAT_TIMEOUT_SECONDS,
         openrouter_timeouts=visual_timeouts,
         premium=use_premium,
         premium_models=PREMIUM_VISION_MODELS,
         premium_timeout=PREMIUM_AI_TIMEOUT_SECONDS,
+        allow_google_fallback=False,
         return_metadata=True,
     )
     visual_meta = {k: visual_response.get(k) for k in ('provider', 'model', 'latency_ms', 'fallback_trace')}
     visual_data = normalize_visual_observations(parse_json_payload(visual_response.get('text')))
-    if not visual_data and client and OPENROUTER_API_KEY and USE_OPENROUTER_LLM:
-        print("Vision observation parse failed with OpenRouter result, retrying Google SDK once")
-        visual_response = call_llm(prompt_text=visual_prompt, image=img, preferred_provider='google', temperature=0.1, return_metadata=True)
-        visual_meta = {k: visual_response.get(k) for k in ('provider', 'model', 'latency_ms', 'fallback_trace')}
-        visual_data = normalize_visual_observations(parse_json_payload(visual_response.get('text')))
     if not visual_data:
         return None
     if should_refine_packaged_food_name(visual_data):
@@ -1857,11 +1960,12 @@ def analyze_food_with_two_stage_pipeline(img, use_premium=False):
     try:
         nutrition_response = call_llm(
             prompt_text=nutrition_prompt,
+            image=None if use_premium else img,
             temperature=0.1,
-            openrouter_models=nutrition_models,
-            openrouter_max_attempts=len(nutrition_timeouts) or len(nutrition_models),
-            openrouter_timeout=nutrition_timeouts[0] if nutrition_timeouts else OPENROUTER_CHAT_TIMEOUT_SECONDS,
-            openrouter_timeouts=nutrition_timeouts,
+            openrouter_models=vision_models if not use_premium else nutrition_models,
+            openrouter_max_attempts=(len(visual_timeouts) or len(vision_models)) if not use_premium else (len(nutrition_timeouts) or len(nutrition_models)),
+            openrouter_timeout=(visual_timeouts[0] if visual_timeouts else OPENROUTER_CHAT_TIMEOUT_SECONDS) if not use_premium else (nutrition_timeouts[0] if nutrition_timeouts else OPENROUTER_CHAT_TIMEOUT_SECONDS),
+            openrouter_timeouts=visual_timeouts if not use_premium else nutrition_timeouts,
             premium=use_premium,
             premium_models=PREMIUM_NUTRITION_MODELS,
             premium_timeout=PREMIUM_AI_TIMEOUT_SECONDS,
@@ -1872,7 +1976,8 @@ def analyze_food_with_two_stage_pipeline(img, use_premium=False):
         foods = parse_ai_multi_result(nutrition_response.get('text'))
     except LLMChainExhaustedError as nutrition_err:
         fallback_trace = list(nutrition_err.fallback_trace or [])
-        reason = 'all_timeouts' if all_model_attempts_timed_out(fallback_trace, nutrition_models) else 'model_chain_exhausted'
+        active_nutrition_models = vision_models if not use_premium else nutrition_models
+        reason = 'all_timeouts' if all_model_attempts_timed_out(fallback_trace, active_nutrition_models) else 'model_chain_exhausted'
         nutrition_meta = {
             'provider': 'degraded',
             'model': reason,
@@ -2668,39 +2773,22 @@ Strictly output JSON only, do not add any explanation or markdown formatting."""
 
     try:
         parse_meta = {}
-        text_timeouts = fit_timeouts_to_deadline(
-            OPENROUTER_TEXT_TIMEOUTS,
-            OPENROUTER_TEXT_HARD_DEADLINE_SECONDS
-        )
         try:
-            voice_response = call_llm(
-                prompt_text=prompt,
-                openrouter_models=OPENROUTER_TEXT_MODELS,
-                openrouter_max_attempts=len(text_timeouts) or len(OPENROUTER_TEXT_MODELS),
-                openrouter_timeout=text_timeouts[0] if text_timeouts else OPENROUTER_CHAT_TIMEOUT_SECONDS,
-                openrouter_timeouts=text_timeouts,
-                premium=use_premium,
-                premium_models=PREMIUM_TEXT_MODELS,
-                premium_timeout=PREMIUM_AI_TIMEOUT_SECONDS,
-                return_metadata=True,
-            )
+            voice_response = call_text_reasoning_llm(prompt_text=prompt, use_premium=use_premium, temperature=0.1, return_metadata=True)
             result_text = voice_response.get('text', '')
             parse_meta = {k: voice_response.get(k) for k in ('provider', 'model', 'latency_ms', 'fallback_trace')}
-        except Exception as openrouter_first_err:
-            print(f"Voice OpenRouter-first parse failed, trying Google SDK: {openrouter_first_err}")
-            voice_response = call_llm(prompt_text=prompt, preferred_provider='google', return_metadata=True)
-            result_text = voice_response.get('text', '')
-            parse_meta = {k: voice_response.get(k) for k in ('provider', 'model', 'latency_ms', 'fallback_trace')}
+        except LLMChainExhaustedError as text_chain_err:
+            print(f"Voice text-chain exhausted: {text_chain_err}")
+            return jsonify({
+                "error": "语音记录分析暂时不可用，请稍后再试",
+                "analysis_meta": {
+                    "provider": "degraded",
+                    "model": "text_chain_exhausted",
+                    "fallback_trace": list(text_chain_err.fallback_trace or []),
+                    "premium_requested": bool(use_premium),
+                }
+            }), 503
         parsed = parse_voice_input_result(result_text)
-        if parsed is None or (not parsed['foods'] and not parsed['exercises']):
-            print("Voice JSON parse failed, retrying Google SDK once")
-            try:
-                voice_response = call_llm(prompt_text=prompt, preferred_provider='google', return_metadata=True)
-                result_text = voice_response.get('text', '')
-                parse_meta = {k: voice_response.get(k) for k in ('provider', 'model', 'latency_ms', 'fallback_trace')}
-                parsed = parse_voice_input_result(result_text)
-            except Exception as google_retry_err:
-                print(f"Voice Google retry failed: {google_retry_err}")
         if parsed is None or (not parsed['foods'] and not parsed['exercises']):
             return jsonify({"error": "未能提取出任何有效的食物或运动信息，请重新描述"}), 400
 
@@ -3050,6 +3138,7 @@ def coach_chat():
     data = request.get_json() or {}
     user_message = data.get('message', '')
     history = data.get('history', [])
+    use_premium = request_premium_enabled(username, data)
     cal_target = data.get('calTarget', 2000)
     pro_target = data.get('proTarget', 120)
     meals_from_client = data.get('meals') # Optional local meals from app
@@ -3186,19 +3275,41 @@ def coach_chat():
 5. 只能回答跟饮食、营养、运动、健康相关的问题，其他无关话题请礼貌性拒绝。"""
 
     try:
-        response_text = call_llm(
+        coach_response = call_text_reasoning_llm(
             prompt_text=user_message,
+            use_premium=use_premium,
             history=history,
             system_instruction=system_instruction,
-            temperature=0.7
+            temperature=0.7,
+            return_metadata=True,
         )
+        response_text = coach_response.get('text', '')
+    except LLMChainExhaustedError as text_chain_err:
+        print(f"Coach text-chain exhausted: {text_chain_err}")
+        return jsonify({
+            "error": "AI 营养教练暂时不可用，请稍后再试",
+            "analysis_meta": {
+                "provider": "degraded",
+                "model": "text_chain_exhausted",
+                "fallback_trace": list(text_chain_err.fallback_trace or []),
+                "premium_requested": bool(use_premium),
+            }
+        }), 503
     except Exception as api_err:
         print(f"Coach chat error: {api_err}")
         return jsonify({"error": "AI 营养教练服务繁忙，请稍后再试。"}), 500
 
     return jsonify({
         "success": True,
-        "reply": response_text
+        "reply": response_text,
+        "analysis_meta": {
+            "provider": coach_response.get('provider'),
+            "model": coach_response.get('model'),
+            "latency_ms": coach_response.get('latency_ms'),
+            "fallback_trace": coach_response.get('fallback_trace'),
+            "premium_requested": bool(use_premium),
+            "premium_used": coach_response.get('provider') == 'openai_compatible',
+        }
     })
 
 
@@ -3320,6 +3431,8 @@ def delete_exercise(ex_id):
 @limiter.limit("10 per minute", key_func=user_or_ip_limit_key)
 def report_suggestions():
     username = get_current_username()
+    data = {}
+    use_premium = False
     
     meals_list = None
     exercises_list = None
@@ -3334,6 +3447,7 @@ def report_suggestions():
     
     if request.method == 'POST':
         data = request.get_json() or {}
+        use_premium = request_premium_enabled(username, data)
         meals_list = data.get('meals')
         exercises_list = data.get('exercises')
         today_summary = data.get('todaySummary') or data.get('today_summary')
@@ -3557,12 +3671,130 @@ def report_suggestions():
 5. 语言亲切专业，使用列表和 Markdown 排版，字数控制在 250 字以内，多用 Emoji。"""
 
     try:
-        response_text = call_llm(prompt_text=prompt)
+        suggestion_response = call_text_reasoning_llm(
+            prompt_text=prompt,
+            use_premium=use_premium,
+            temperature=0.5,
+            return_metadata=True,
+        )
+        response_text = suggestion_response.get('text', '')
             
-        return jsonify({"success": True, "suggestions": response_text})
+        return jsonify({
+            "success": True,
+            "suggestions": response_text,
+            "analysis_meta": {
+                "provider": suggestion_response.get('provider'),
+                "model": suggestion_response.get('model'),
+                "latency_ms": suggestion_response.get('latency_ms'),
+                "fallback_trace": suggestion_response.get('fallback_trace'),
+                "premium_requested": bool(use_premium),
+                "premium_used": suggestion_response.get('provider') == 'openai_compatible',
+            }
+        })
+    except LLMChainExhaustedError as text_chain_err:
+        print(f"Suggestions text-chain exhausted: {text_chain_err}")
+        return jsonify({
+            "success": False,
+            "error": "AI 洞察暂时不可用，请稍后再试",
+            "analysis_meta": {
+                "provider": "degraded",
+                "model": "text_chain_exhausted",
+                "fallback_trace": list(text_chain_err.fallback_trace or []),
+                "premium_requested": bool(use_premium),
+            }
+        }), 503
     except Exception as e:
         print(f"Suggestions generation error: {e}")
         return jsonify({"success": False, "suggestions": "AI 营养教练服务繁忙，请稍后再试。"}), 500
+
+
+@app.route('/api/manual-food/estimate', methods=['POST'])
+@token_or_local_app_required
+@limiter.limit("10 per minute", key_func=user_or_ip_limit_key)
+def manual_food_estimate():
+    data = request.get_json() or {}
+    username = get_current_username()
+    use_premium = request_premium_enabled(username, data)
+
+    food_name = clean_text(data.get('food_name') or data.get('name'), max_len=120)
+    if not food_name:
+        return jsonify({"error": "请输入食物名称"}), 400
+
+    weight = clamp_number(data.get('weight'), default=0, min_value=0, max_value=2000)
+    if weight <= 0:
+        return jsonify({"error": "请输入 1-2000g 的重量"}), 400
+
+    provided_fields = {}
+    field_limits = {
+        'calories': 5000,
+        'protein': 300,
+        'carbs': 500,
+        'fat': 300,
+    }
+    for field, max_value in field_limits.items():
+        raw_value = data.get(field)
+        if raw_value in (None, ''):
+            provided_fields[field] = None
+            continue
+        provided_fields[field] = clamp_number(raw_value, default=0, min_value=0, max_value=max_value)
+
+    try:
+        estimate_response = call_text_reasoning_llm(
+            prompt_text=build_manual_food_estimate_prompt(food_name, weight, provided_fields),
+            use_premium=use_premium,
+            temperature=0.2,
+            return_metadata=True,
+        )
+        parsed = normalize_manual_food_estimate(
+            parse_json_payload(estimate_response.get('text')),
+            food_name,
+            weight,
+            provided_fields,
+        )
+        if not parsed:
+            return jsonify({"error": "AI 未能返回有效的营养数据"}), 502
+
+        return jsonify({
+            "success": True,
+            "source": "manual",
+            "session_id": f"manual_ai_{uuid.uuid4().hex[:12]}",
+            "foods": [{
+                "id": uuid.uuid4().hex,
+                "food_name": parsed['food_name'],
+                "calories": parsed['calories'],
+                "protein": parsed['protein'],
+                "carbs": parsed['carbs'],
+                "fat": parsed['fat'],
+                "weight": parsed['weight'],
+                "portion": 1.0,
+                "confidence": parsed['confidence'],
+                "notes": parsed['notes'],
+            }],
+            "analysis_meta": {
+                "provider": estimate_response.get('provider'),
+                "model": estimate_response.get('model'),
+                "latency_ms": estimate_response.get('latency_ms'),
+                "fallback_trace": estimate_response.get('fallback_trace'),
+                "premium_requested": bool(use_premium),
+                "premium_used": estimate_response.get('provider') == 'openai_compatible',
+                "manual_ai_estimate": True,
+            }
+        })
+    except LLMChainExhaustedError as text_chain_err:
+        print(f"Manual food estimate text-chain exhausted: {text_chain_err}")
+        return jsonify({
+            "error": "AI 估算暂时不可用，请稍后再试",
+            "analysis_meta": {
+                "provider": "degraded",
+                "model": "text_chain_exhausted",
+                "fallback_trace": list(text_chain_err.fallback_trace or []),
+                "premium_requested": bool(use_premium),
+                "manual_ai_estimate": True,
+            }
+        }), 503
+    except Exception as e:
+        print(f"Manual food estimate error: {e}")
+        return jsonify({"error": "手动补录 AI 估算失败，请稍后再试"}), 500
 
 
 @app.route('/api/daily-summaries', methods=['GET', 'POST'])

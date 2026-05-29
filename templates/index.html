@@ -3606,7 +3606,7 @@ html.dark .history-empty-panel {
     <div class="flex items-start justify-between gap-3 mb-5">
       <div class="min-w-0">
         <h3 class="font-headline-md text-headline-md text-on-background">手动补录食物</h3>
-        <p class="text-xs text-on-surface-variant mt-1" id="manualFoodReason">快速记录未识别的食物</p>
+        <p class="text-xs text-on-surface-variant mt-1" id="manualFoodReason">可只填食物名称和重量，剩余营养数据交给 AI 估算</p>
       </div>
       <button onclick="closeManualFoodModal()" class="w-12 h-12 bg-surface-container-high text-outline hover:text-on-background rounded-full flex items-center justify-center transition-colors flex-shrink-0" aria-label="关闭">
         <span class="material-symbols-outlined text-[20px]">close</span>
@@ -3647,7 +3647,7 @@ html.dark .history-empty-panel {
     <div class="flex flex-col gap-3 mb-6">
       <div class="relative">
         <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline">restaurant</span>
-        <input type="text" id="manualFoodName" placeholder="食物名称 (选填)" class="w-full bg-surface-container rounded-xl pl-10 pr-4 py-3 font-body-md text-on-background border border-outline-variant focus:border-primary focus:outline-none" />
+        <input type="text" id="manualFoodName" placeholder="食物名称" class="w-full bg-surface-container rounded-xl pl-10 pr-4 py-3 font-body-md text-on-background border border-outline-variant focus:border-primary focus:outline-none" />
       </div>
       
       <div class="grid grid-cols-2 gap-3">
@@ -4400,7 +4400,7 @@ html.dark .history-empty-panel {
       </div>
         <div>
           <h3 class="font-headline-md text-headline-md text-on-background">NutriSnap AI</h3>
-          <p class="font-label-md text-label-md text-outline" id="aboutAppVersion">v5.6.40</p>
+          <p class="font-label-md text-label-md text-outline" id="aboutAppVersion">v5.6.41</p>
         </div>
       </div>
     <p class="font-body-md text-body-md text-on-surface-variant mb-6">基于 Gemini AI 的智能饮食记录工具。支持拍照多食物识别、语音输入、分量调节、每周营养报告。</p>
@@ -4750,7 +4750,7 @@ html.dark .history-empty-panel {
 <script>
 // ===================== CONFIG =====================
 const API_BASE = "";
-const CLIENT_VERSION = "v5.6.40";
+const CLIENT_VERSION = "v5.6.41";
 
 // Native preferences helper to survive app process kills on mobile
 const NativeStorage = {
@@ -7295,7 +7295,7 @@ function resetScan() {
 
 function showManualFoodModal(reason) {
   const modal = document.getElementById('manualFoodModal');
-  document.getElementById('manualFoodReason').textContent = reason || 'AI \u672a\u8bc6\u522b\u5230\u98df\u7269\u65f6\uff0c\u53ef\u624b\u52a8\u8865\u5f55\u3002';
+  document.getElementById('manualFoodReason').textContent = reason || '可只填食物名称和重量，剩余营养数据交给 AI 估算。';
   ['manualFoodName', 'manualFoodWeight', 'manualFoodCalories', 'manualFoodProtein', 'manualFoodCarbs', 'manualFoodFat'].forEach(id => {
     document.getElementById(id).value = '';
   });
@@ -7327,38 +7327,81 @@ async function saveManualFood() {
       showToast('\u8bf7\u8f93\u5165\u98df\u7269\u540d\u79f0', 'error');
       return;
     }
-    const caloriesResult = readNumberField('manualFoodCalories', { label: '\u70ed\u91cf', min: 0, max: 5000, integer: true });
     const weightResult = readNumberField('manualFoodWeight', { label: '\u91cd\u91cf', min: 1, max: 2000, integer: true });
-    const proteinResult = readNumberField('manualFoodProtein', { label: '\u86cb\u767d\u8d28', min: 0, max: 300, defaultValue: 0, required: false });
-    const carbsResult = readNumberField('manualFoodCarbs', { label: '\u78b3\u6c34', min: 0, max: 500, defaultValue: 0, required: false });
-    const fatResult = readNumberField('manualFoodFat', { label: '\u8102\u80aa', min: 0, max: 300, defaultValue: 0, required: false });
-    for (const result of [caloriesResult, weightResult, proteinResult, carbsResult, fatResult]) {
+    const readOptionalMetric = (id, options) => {
+      const el = document.getElementById(id);
+      const raw = (el?.value ?? '').trim();
+      if (!raw) {
+        markFieldInvalid(id, false);
+        return { ok: true, value: null, provided: false };
+      }
+      const result = readNumberField(id, { ...options, required: true });
+      return result.ok ? { ok: true, value: result.value, provided: true } : result;
+    };
+    const caloriesResult = readOptionalMetric('manualFoodCalories', { label: '\u70ed\u91cf', min: 0, max: 5000, integer: true });
+    const proteinResult = readOptionalMetric('manualFoodProtein', { label: '\u86cb\u767d\u8d28', min: 0, max: 300 });
+    const carbsResult = readOptionalMetric('manualFoodCarbs', { label: '\u78b3\u6c34', min: 0, max: 500 });
+    const fatResult = readOptionalMetric('manualFoodFat', { label: '\u8102\u80aa', min: 0, max: 300 });
+    for (const result of [weightResult, caloriesResult, proteinResult, carbsResult, fatResult]) {
       if (!validOrToast(result)) return;
     }
-    const calories = caloriesResult.value;
     const weight = weightResult.value;
+    const calories = caloriesResult.value;
     const protein = proteinResult.value;
     const carbs = carbsResult.value;
     const fat = fatResult.value;
+    const needsAiEstimate = [caloriesResult, proteinResult, carbsResult, fatResult].some(result => !result.provided);
 
-    closeManualFoodModal();
-    isVoiceInputFlow = false;
-    showResult({
-      success: true,
-      source: 'manual',
-      session_id: 'manual_' + Date.now(),
-      foods: [{
-        id: Date.now(),
-        food_name: name,
-        calories,
-        protein,
-        carbs,
-        fat,
-        weight,
-        portion: 1.0
-      }],
-      image_url: ''
-    });
+    if (!needsAiEstimate) {
+      closeManualFoodModal();
+      isVoiceInputFlow = false;
+      showResult({
+        success: true,
+        source: 'manual',
+        session_id: 'manual_' + Date.now(),
+        foods: [{
+          id: Date.now(),
+          food_name: name,
+          calories,
+          protein,
+          carbs,
+          fat,
+          weight,
+          portion: 1.0
+        }],
+        image_url: ''
+      });
+      return;
+    }
+
+    if (!navigator.onLine) {
+      showToast('\u9700\u8054\u7f51\u624d\u80fd\u7528 AI \u4f30\u7b97\uff0c\u6216\u8005\u4f60\u53ef\u4ee5\u624b\u52a8\u586b\u5b8c\u70ed\u91cf\u548c\u4e09\u5927\u8425\u517b\u7d20', 'error');
+      return;
+    }
+
+    const payload = {
+      food_name: name,
+      weight
+    };
+    if (calories !== null) payload.calories = calories;
+    if (protein !== null) payload.protein = protein;
+    if (carbs !== null) payload.carbs = carbs;
+    if (fat !== null) payload.fat = fat;
+    if (wantsPremiumAI()) payload.premium_ai = true;
+
+    try {
+      showToast('AI \u6b63\u5728\u4f30\u7b97\u8fd9\u4efd\u98df\u7269\u7684\u8425\u517b\u6570\u636e...', 'info');
+      const json = await safeFetchJSON(API_BASE + '/api/manual-food/estimate', {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify(payload)
+      });
+      closeManualFoodModal();
+      isVoiceInputFlow = false;
+      showResult(json);
+    } catch (err) {
+      showToast(normalizeErrorMessage(err, 'AI 估算失败，请稍后再试'), 'error');
+    }
   });
 }
 
@@ -7513,12 +7556,19 @@ let speechRecognitionText = "";
 let speechRecognitionFinal = false;
 let capacitorSpeechActive = false;
 let capacitorSpeechPlugin = null;
+const ENABLE_CAPACITOR_SPEECH_PLUGIN = false;
 
 function getNativeSpeechRecognition() {
   return window.SpeechRecognition || window.webkitSpeechRecognition || null;
 }
 
+function shouldUseCapacitorSpeechRecognition() {
+  if (!ENABLE_CAPACITOR_SPEECH_PLUGIN) return false;
+  return isNativeCapacitorApp();
+}
+
 function getCapacitorSpeechRecognition() {
+  if (!shouldUseCapacitorSpeechRecognition()) return null;
   if (capacitorSpeechPlugin && typeof capacitorSpeechPlugin.start === 'function') {
     return capacitorSpeechPlugin;
   }
@@ -7565,7 +7615,7 @@ async function stopCapacitorSpeechRecognition() {
 
 async function tryStartCapacitorSpeechRecognition(sessionId) {
   const plugin = getCapacitorSpeechRecognition();
-  if (!plugin || !isNativeCapacitorApp()) return false;
+  if (!plugin) return false;
   try {
     const availability = typeof plugin.available === 'function'
       ? await plugin.available()
@@ -9319,6 +9369,9 @@ async function fetchAISuggestions(options = {}) {
 
     let headers = getAuthHeaders();
     headers['Content-Type'] = 'application/json';
+    if (wantsPremiumAI()) {
+      payload.premium_ai = true;
+    }
 
     const json = await safeFetchJSON(API_BASE + '/api/report/suggestions', {
       method: 'POST',
@@ -9417,6 +9470,9 @@ async function generateCoachResponse(userMsg) {
   payload.meals = todayMeals;
   payload.exercises = todayExercises;
   payload.todaySummary = buildDailySummaryPayload(todayStr);
+  if (wantsPremiumAI()) {
+    payload.premium_ai = true;
+  }
 
   chatHistory.push({ role: 'user', content: userMsg });
   if (chatHistory.length > 20) chatHistory.shift();
@@ -11051,6 +11107,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   function closeManualFoodModal() {
+    document.getElementById('manualFoodModal').style.display = 'none';
     document.getElementById('manualFoodModal').classList.add('hidden');
     document.getElementById('manualFoodModal').classList.remove('flex');
     document.getElementById('foodSearchResults').classList.add('hidden');
