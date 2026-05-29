@@ -126,6 +126,43 @@ OPENROUTER_API_KEY = os.environ.get('OPENROUTER_API_KEY')
 SPEECH_TO_TEXT_MODEL = os.environ.get('OPENROUTER_STT_MODEL', 'openai/whisper-large-v3')
 SPEECH_TO_TEXT_LANGUAGE = os.environ.get('SPEECH_TO_TEXT_LANGUAGE', 'zh')
 USE_OPENROUTER_LLM = os.environ.get('USE_OPENROUTER_LLM', 'false').strip().lower() in ('1', 'true', 'yes', 'on')
+OPENROUTER_CHAT_TIMEOUT_SECONDS = float(os.environ.get('OPENROUTER_CHAT_TIMEOUT_SECONDS', '12'))
+OPENROUTER_STT_TIMEOUT_SECONDS = float(os.environ.get('OPENROUTER_STT_TIMEOUT_SECONDS', '20'))
+OPENROUTER_PROVIDER_SORT = os.environ.get('OPENROUTER_PROVIDER_SORT', 'latency').strip().lower()
+if OPENROUTER_PROVIDER_SORT not in ('latency', 'throughput', 'price'):
+    OPENROUTER_PROVIDER_SORT = 'latency'
+
+def parse_model_list(value, default_models):
+    models = [m.strip() for m in (value or '').split(',') if m.strip()]
+    return models or default_models
+
+def openrouter_provider_config():
+    return {
+        "sort": OPENROUTER_PROVIDER_SORT,
+        "allow_fallbacks": True,
+        "data_collection": "allow",
+    }
+
+OPENROUTER_TEXT_MODELS = parse_model_list(os.environ.get('OPENROUTER_TEXT_MODELS'), [
+    'qwen/qwen3-next-80b-a3b-instruct:free',
+    'deepseek/deepseek-v4-flash:free',
+    'z-ai/glm-4.5-air:free',
+    'moonshotai/kimi-k2.6:free',
+    'openai/gpt-oss-20b:free',
+    'openai/gpt-oss-120b:free',
+    'meta-llama/llama-3.3-70b-instruct:free',
+    'google/gemma-4-26b-a4b-it:free',
+    'openrouter/free',
+])
+
+OPENROUTER_VISION_MODELS = parse_model_list(os.environ.get('OPENROUTER_VISION_MODELS'), [
+    'google/gemma-4-26b-a4b-it:free',
+    'moonshotai/kimi-k2.6:free',
+    'nvidia/nemotron-nano-12b-v2-vl:free',
+    'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',
+    'google/gemma-4-31b-it:free',
+    'openrouter/free',
+])
 
 if not GEMINI_API_KEY and not OPENROUTER_API_KEY:
     raise ValueError("GEMINI_API_KEY 或 OPENROUTER_API_KEY 环境变量未设置！请在本地 .env 中配置后重启应用。")
@@ -146,6 +183,7 @@ def call_llm(prompt_text, image=None, audio=None, mime_type=None, history=None, 
         bool(OPENROUTER_API_KEY)
         and preferred_provider != 'google'
         and (preferred_provider == 'openrouter' or USE_OPENROUTER_LLM or not client)
+        and audio is None
     )
     if use_openrouter:
         # ----------------------------------------------------
@@ -207,39 +245,31 @@ def call_llm(prompt_text, image=None, audio=None, mime_type=None, history=None, 
         if user_content:
             messages.append({"role": "user", "content": user_content})
             
-        # Model candidates for OpenRouter (Prioritizing free models)
-        is_multimodal = (image is not None) or (audio is not None)
-        if is_multimodal:
-            models_to_try = [
-                'google/gemini-2.5-flash-lite',
-                'google/gemini-2.5-flash',
-                'google/gemma-4-31b-it:free',
-                'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',
-                'nvidia/nemotron-nano-12b-v2-vl:free',
-            ]
-        else:
-            models_to_try = [
-                'google/gemini-2.5-flash-lite',
-                'google/gemini-2.5-flash',
-                'meta-llama/llama-3.3-70b-instruct:free',
-                'google/gemma-4-26b-a4b-it:free',
-                'z-ai/glm-4.5-air:free',
-                'openrouter/free',
-            ]
+        models_to_try = OPENROUTER_VISION_MODELS if image is not None else OPENROUTER_TEXT_MODELS
         
         last_error = None
         for model in models_to_try:
             payload = {
                 "model": model,
                 "messages": messages,
-                "temperature": temperature
+                "temperature": temperature,
+                "provider": openrouter_provider_config()
             }
             try:
                 print(f"Calling OpenRouter model: {model}")
-                res = requests.post(url, headers=headers, json=payload, timeout=30)
+                res = requests.post(url, headers=headers, json=payload, timeout=OPENROUTER_CHAT_TIMEOUT_SECONDS)
                 res_json = res.json()
                 if res.status_code == 200 and 'choices' in res_json:
-                    reply = res_json['choices'][0]['message']['content']
+                    message = res_json['choices'][0].get('message', {})
+                    reply = message.get('content', '')
+                    if isinstance(reply, list):
+                        reply = ''.join(
+                            part.get('text', '') for part in reply
+                            if isinstance(part, dict) and part.get('type') in ('text', 'output_text')
+                        )
+                    reply = (reply or '').strip()
+                    if not reply:
+                        raise RuntimeError(f"OpenRouter model {model} returned empty content")
                     print(f"Success with OpenRouter model: {model}")
                     return reply
                 else:
@@ -250,79 +280,81 @@ def call_llm(prompt_text, image=None, audio=None, mime_type=None, history=None, 
                 print(f"OpenRouter network/request error with model {model}: {e}")
                 last_error = e
                 
-        raise last_error or Exception("OpenRouter request failed.")
+        if client:
+            print(f"OpenRouter models failed, falling back to Google SDK: {last_error}")
+        else:
+            raise last_error or Exception("OpenRouter request failed.")
         
-    else:
-        # ----------------------------------------------------
-        # Google SDK Path (Fallback)
-        # ----------------------------------------------------
-        if not client:
-            raise ValueError("Google SDK Client 未初始化，且没有设置 OPENROUTER_API_KEY。")
+    # ----------------------------------------------------
+    # Google SDK Path (Fallback)
+    # ----------------------------------------------------
+    if not client:
+        raise ValueError("Google SDK Client 未初始化，且没有设置 OPENROUTER_API_KEY。")
             
-        models_to_try = [
-            'gemini-2.5-flash-lite',
-            'gemini-2.5-flash',
-            'gemini-2.0-flash',
-        ]
-        
-        # GenAI SDK contents format
-        contents = []
-        if history:
-            for h in history:
-                role = 'user' if h.get('role') == 'user' else 'model'
-                contents.append({
-                    'role': role,
-                    'parts': [{'text': h.get('content', '')}]
-                })
-                
-        parts = []
-        if prompt_text:
-            parts.append(prompt_text)
-        if image:
-            parts.append(image)
-        if audio:
-            from google.genai import types
-            parts.append(
-                types.Part.from_bytes(
-                    data=audio,
-                    mime_type=mime_type or 'audio/webm'
-                )
+    models_to_try = [
+        'gemini-2.5-flash-lite',
+        'gemini-2.5-flash',
+        'gemini-2.0-flash',
+    ]
+
+    # GenAI SDK contents format
+    contents = []
+    if history:
+        for h in history:
+            role = 'user' if h.get('role') == 'user' else 'model'
+            contents.append({
+                'role': role,
+                'parts': [{'text': h.get('content', '')}]
+            })
+
+    parts = []
+    if prompt_text:
+        parts.append(prompt_text)
+    if image:
+        parts.append(image)
+    if audio:
+        from google.genai import types
+        parts.append(
+            types.Part.from_bytes(
+                data=audio,
+                mime_type=mime_type or 'audio/webm'
             )
-            
-        if parts:
-            if history:
-                contents.append({
-                    'role': 'user',
-                    'parts': [{'text': p} if isinstance(p, str) else p for p in parts]
-                })
-            else:
-                contents = parts
-                
-        config = {'temperature': temperature}
-        if system_instruction:
-            config['system_instruction'] = system_instruction
-            
-        last_error = None
-        for model in models_to_try:
-            try:
-                print(f"Calling Google SDK model: {model}")
-                response = client.models.generate_content(
-                    model=model,
-                    contents=contents,
-                    config=config
-                )
-                print(f"Success with Google SDK model: {model}")
-                return response.text
-            except Exception as api_err:
-                last_error = api_err
-                err_str = str(api_err)
-                if '429' in err_str or 'RESOURCE_EXHAUSTED' in err_str or 'quota' in err_str.lower():
-                    print(f"Google SDK model {model} quota exhausted, skipping...")
-                    continue
-                print(f"Google SDK model {model} failed: {api_err}")
+        )
+
+    if parts:
+        if history:
+            contents.append({
+                'role': 'user',
+                'parts': [{'text': p} if isinstance(p, str) else p for p in parts]
+            })
+        else:
+            contents = parts
+
+    config = {'temperature': temperature}
+    if system_instruction:
+        config['system_instruction'] = system_instruction
+
+    last_error = None
+    for model in models_to_try:
+        try:
+            print(f"Calling Google SDK model: {model}")
+            response = client.models.generate_content(
+                model=model,
+                contents=contents,
+                config=config
+            )
+            print(f"Success with Google SDK model: {model}")
+            return response.text
+        except Exception as api_err:
+            last_error = api_err
+            err_str = str(api_err)
+            if '429' in err_str or 'RESOURCE_EXHAUSTED' in err_str or 'quota' in err_str.lower():
+                print(f"Google SDK model {model} quota exhausted, skipping...")
                 continue
-                
-        raise last_error or Exception("Google SDK request failed.")
+            print(f"Google SDK model {model} failed: {api_err}")
+            continue
+
+    raise last_error or Exception("Google SDK request failed.")
 
 
 def normalize_audio_format(mime_type, filename=''):
@@ -384,7 +416,8 @@ def transcribe_audio_with_openrouter(audio_bytes, mime_type, filename=''):
             "format": audio_format
         },
         "model": SPEECH_TO_TEXT_MODEL,
-        "temperature": 0
+        "temperature": 0,
+        "provider": openrouter_provider_config()
     }
     if SPEECH_TO_TEXT_LANGUAGE:
         payload["language"] = SPEECH_TO_TEXT_LANGUAGE
@@ -393,7 +426,7 @@ def transcribe_audio_with_openrouter(audio_bytes, mime_type, filename=''):
         "https://openrouter.ai/api/v1/audio/transcriptions",
         headers=headers,
         json=payload,
-        timeout=30
+        timeout=OPENROUTER_STT_TIMEOUT_SECONDS
     )
     try:
         res_json = res.json()
@@ -845,8 +878,8 @@ def get_db_connection():
 # ==========================================
 
 def get_latest_release_info():
-    # Target regex for update_release.py: "version": "v5.6.30"
-    fallback_version = "v5.6.30"
+    # Target regex for update_release.py: "version": "v5.6.31"
+    fallback_version = "v5.6.31"
     try:
         base_dir = os.path.dirname(os.path.abspath(__file__))
         files = glob.glob(os.path.join(base_dir, "RELEASE_NOTES_*.md"))
@@ -890,7 +923,10 @@ def health():
             'gemini-2.5-flash-lite',
             'gemini-2.5-flash',
             'gemini-2.0-flash',
-        ]
+        ],
+        "openrouter_llm_enabled": bool(OPENROUTER_API_KEY and USE_OPENROUTER_LLM),
+        "openrouter_text_models": OPENROUTER_TEXT_MODELS,
+        "openrouter_vision_models": OPENROUTER_VISION_MODELS,
     })
 
 @app.route('/api/update/info')
@@ -1308,7 +1344,7 @@ If there are no food items in the image, return:
 {"error": "未检测到食物"}
 Strictly output JSON only, do not add any explanation or markdown formatting."""
 
-        result_text = call_llm(prompt_text=prompt, image=img, preferred_provider='google', temperature=0.2)
+        result_text = call_llm(prompt_text=prompt, image=img, temperature=0.2)
 
         foods = parse_ai_multi_result(result_text)
         if foods is None:
