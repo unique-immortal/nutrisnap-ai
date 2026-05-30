@@ -229,7 +229,7 @@ ENABLE_OPENROUTER_STT = not DISABLE_OPENROUTER_STT
 OPENROUTER_ALLOW_PROVIDER_FALLBACKS = os.environ.get('OPENROUTER_ALLOW_PROVIDER_FALLBACKS', 'false').strip().lower() in ('1', 'true', 'yes', 'on')
 OPENROUTER_CHAT_TIMEOUT_SECONDS = float(os.environ.get('OPENROUTER_CHAT_TIMEOUT_SECONDS', '8'))
 OPENROUTER_STT_TIMEOUT_SECONDS = float(os.environ.get('OPENROUTER_STT_TIMEOUT_SECONDS', '20'))
-OPENROUTER_MAX_MODEL_ATTEMPTS = max(1, int(os.environ.get('OPENROUTER_MAX_MODEL_ATTEMPTS', '2')))
+OPENROUTER_MAX_MODEL_ATTEMPTS = max(1, int(os.environ.get('OPENROUTER_MAX_MODEL_ATTEMPTS', '4')))
 ENABLE_PACKAGED_NAME_REMOTE_REFINEMENT = os.environ.get('ENABLE_PACKAGED_NAME_REMOTE_REFINEMENT', 'false').strip().lower() in ('1', 'true', 'yes', 'on')
 OPENROUTER_PROVIDER_SORT = os.environ.get('OPENROUTER_PROVIDER_SORT', 'latency').strip().lower()
 if OPENROUTER_PROVIDER_SORT not in ('latency', 'throughput', 'price'):
@@ -376,11 +376,12 @@ OPENROUTER_TEXT_HARD_DEADLINE_SECONDS = float(
 OPENROUTER_VISION_MODELS = enforce_openrouter_free_model_chain(parse_model_list(os.environ.get('OPENROUTER_VISION_MODELS'), [
     'google/gemma-4-31b-it:free',
     'google/gemma-4-26b-a4b-it:free',
+    'nvidia/nemotron-nano-12b-v2-vl:free',
     'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',
 ]))
 OPENROUTER_VISION_TIMEOUTS = parse_timeout_list(
     os.environ.get('OPENROUTER_VISION_TIMEOUTS'),
-    [8, 6, 6]
+    [8, 6, 6, 6]
 )
 OPENROUTER_VISION_HARD_DEADLINE_SECONDS = float(
     os.environ.get('OPENROUTER_VISION_HARD_DEADLINE_SECONDS', '20')
@@ -829,7 +830,7 @@ def call_llm(
     or fall back to official Google Gemini API (using client.models.generate_content).
     """
     fallback_trace = []
-    if preferred_provider == 'google':
+    if preferred_provider == 'google' or audio is not None:
         if GEMINI_API_KEY and not provider_cooldown_info('google'):
             return call_google_generate_content(
                 prompt_text=prompt_text,
@@ -840,10 +841,11 @@ def call_llm(
                 system_instruction=system_instruction,
                 temperature=temperature,
                 return_metadata=return_metadata,
+                fallback_trace=(fallback_trace + (["audio:google_direct"] if audio is not None else [])),
             )
         raise LLMChainExhaustedError(
-            "Google provider explicitly requested but unavailable.",
-            fallback_trace=["google:unavailable"],
+            "Google provider explicitly requested or required for audio but unavailable.",
+            fallback_trace=(fallback_trace + ["google:unavailable"]),
             last_error=RuntimeError("Google provider unavailable or cooling down."),
         )
 
@@ -866,7 +868,6 @@ def call_llm(
     use_openrouter = (
         bool(OPENROUTER_API_KEY)
         and preferred_provider != 'google'
-        and (preferred_provider == 'openrouter' or USE_OPENROUTER_LLM or not client)
         and audio is None
         and not provider_cooldown_info('openrouter')
     )
@@ -957,7 +958,10 @@ def call_llm(
                 started_at = time.perf_counter()
                 res = requests.post(url, headers=headers, json=payload, timeout=model_timeout)
                 latency_ms = int((time.perf_counter() - started_at) * 1000)
-                res_json = res.json()
+                try:
+                    res_json = res.json()
+                except Exception:
+                    res_json = {}
                 if res.status_code == 200 and 'choices' in res_json:
                     message = res_json['choices'][0].get('message', {})
                     reply = message.get('content', '')
@@ -982,13 +986,40 @@ def call_llm(
                         }
                     return reply
                 else:
-                    error_msg = res_json.get('error', {}).get('message', res.text)
+                    error_info = res_json.get('error') if isinstance(res_json, dict) else None
+                    if isinstance(error_info, dict):
+                        error_msg = error_info.get('message') or str(error_info)
+                    elif isinstance(error_info, str):
+                        error_msg = error_info
+                    else:
+                        error_msg = (res.text or '').strip()[:500] or 'unknown'
+                    status_label = f"http_{res.status_code}"
+                    print(f"OpenRouter model {model} failed: status={res.status_code} error={error_msg}")
+                    if res.status_code == 429:
+                        fallback_trace.append(f"{model}:http_429")
+                        record_upstream_call('openrouter', model, 'http_429', latency_ms, error_msg)
+                        if is_openrouter_free_tier_request_cap(res, error_msg):
+                            cooldown_seconds = parse_openrouter_reset_seconds(res, error_msg)
+                            if cooldown_seconds >= 300:
+                                mark_provider_cooldown('openrouter', cooldown_seconds, error_msg)
+                            print(
+                                f"OpenRouter free-tier request cap hit on {model}; "
+                                f"cooldown={cooldown_seconds}s error={error_msg}"
+                            )
+                        last_error = RuntimeError(f"OpenRouter rate limit on {model}: {error_msg}")
+                        continue
+                    if res.status_code in (401, 402, 403) or 'user not found' in str(error_msg).lower():
+                        mark_provider_cooldown('openrouter', PROVIDER_COOLDOWN_SECONDS['openrouter'], error_msg)
+                        fallback_trace.append(f"{model}:{status_label}")
+                        record_upstream_call('openrouter', model, status_label, latency_ms, error_msg)
+                        last_error = RuntimeError(f"OpenRouter auth/billing error {res.status_code} on {model}: {error_msg}")
+                        break
                     if res.status_code == 400:
                         fallback_trace.append(f"{model}:http_400")
                         record_upstream_call('openrouter', model, 'http_400', latency_ms, error_msg)
-                        raise NonRetryableLLMError(f"OpenRouter bad request on {model}: {error_msg}")
+                        last_error = NonRetryableLLMError(f"OpenRouter bad request on {model}: {error_msg}")
+                        continue
                     if is_openrouter_free_tier_request_cap(res, error_msg):
-                        status_label = f"http_{res.status_code}"
                         fallback_trace.append(f"{model}:{status_label}")
                         record_upstream_call('openrouter', model, status_label, latency_ms, error_msg)
                         cooldown_seconds = parse_openrouter_reset_seconds(res, error_msg)
@@ -999,13 +1030,9 @@ def call_llm(
                             f"cooldown={cooldown_seconds}s error={error_msg}"
                         )
                         last_error = Exception(f"OpenRouter rate limit: {error_msg}")
-                        break
-                    if res.status_code in (401, 403) or 'user not found' in str(error_msg).lower():
-                        mark_provider_cooldown('openrouter', PROVIDER_COOLDOWN_SECONDS['openrouter'], error_msg)
-                    status_label = f"http_{res.status_code}"
+                        continue
                     fallback_trace.append(f"{model}:{status_label}")
                     record_upstream_call('openrouter', model, status_label, latency_ms, error_msg)
-                    print(f"OpenRouter model {model} failed: {error_msg}")
                     last_error = Exception(f"OpenRouter error: {error_msg}")
                     if fallback_only_on_timeout:
                         break
@@ -1014,8 +1041,6 @@ def call_llm(
                 fallback_trace.append(f"{model}:timeout")
                 record_upstream_call('openrouter', model, 'timeout', 0, e)
                 last_error = e
-            except NonRetryableLLMError:
-                raise
             except Exception as e:
                 print(f"OpenRouter network/request error with model {model}: {e}")
                 if not any(str(item).startswith(f"{model}:") for item in fallback_trace):
@@ -1045,92 +1070,34 @@ def call_llm(
                 last_error=last_error,
             )
 
-    raise RuntimeError("LLM provider selection exhausted before producing a response.")
-
-    # ----------------------------------------------------
-    # Google SDK Path (Fallback)
-    # ----------------------------------------------------
-    if not client:
-        raise ValueError("Google SDK Client 未初始化，且没有设置 OPENROUTER_API_KEY。")
-            
-    models_to_try = [
-        'gemini-2.5-flash-lite',
-        'gemini-2.5-flash',
-        'gemini-2.0-flash',
-    ]
-
-    # GenAI SDK contents format
-    contents = []
-    if history:
-        for h in history:
-            role = 'user' if h.get('role') == 'user' else 'model'
-            contents.append({
-                'role': role,
-                'parts': [{'text': h.get('content', '')}]
-            })
-
-    parts = []
-    if prompt_text:
-        parts.append(prompt_text)
-    if image:
-        parts.append(image)
-    if audio:
-        from google.genai import types
-        parts.append(
-            types.Part.from_bytes(
-                data=audio,
-                mime_type=mime_type or 'audio/webm'
-            )
+    if GEMINI_API_KEY and allow_google_fallback and not provider_cooldown_info('google'):
+        print("OpenRouter unavailable or disabled, using Google REST fallback.")
+        return call_google_generate_content(
+            prompt_text=prompt_text,
+            image=image,
+            audio=audio,
+            mime_type=mime_type,
+            history=history,
+            system_instruction=system_instruction,
+            temperature=temperature,
+            return_metadata=return_metadata,
+            fallback_trace=fallback_trace,
         )
 
-    if parts:
-        if history:
-            contents.append({
-                'role': 'user',
-                'parts': [{'text': p} if isinstance(p, str) else p for p in parts]
-            })
-        else:
-            contents = parts
-
-    config = {'temperature': temperature}
-    if system_instruction:
-        config['system_instruction'] = system_instruction
-
-    last_error = None
-    for model in models_to_try:
-        try:
-            print(f"Calling Google SDK model: {model}")
-            started_at = time.perf_counter()
-            response = client.models.generate_content(
-                model=model,
-                contents=contents,
-                config=config
-            )
-            latency_ms = int((time.perf_counter() - started_at) * 1000)
-            print(f"Success with Google SDK model: {model}")
-            google_trace = list(fallback_trace)
-            google_trace.append(f"google:{model}:ok")
-            if return_metadata:
-                return {
-                    "text": response.text,
-                    "provider": "google",
-                    "model": model,
-                    "latency_ms": latency_ms,
-                    "fallback_trace": google_trace,
-                }
-            return response.text
-        except Exception as api_err:
-            last_error = api_err
-            err_str = str(api_err)
-            if '429' in err_str or 'RESOURCE_EXHAUSTED' in err_str or 'quota' in err_str.lower():
-                print(f"Google SDK model {model} quota exhausted, skipping...")
-                fallback_trace.append(f"google:{model}:quota")
-                continue
-            print(f"Google SDK model {model} failed: {api_err}")
-            fallback_trace.append(f"google:{model}:error")
-            continue
-
-    raise last_error or Exception("Google SDK request failed.")
+    exhausted_trace = list(fallback_trace)
+    if not OPENROUTER_API_KEY:
+        exhausted_trace.append("openrouter:not_configured")
+    elif provider_cooldown_info('openrouter'):
+        exhausted_trace.append("openrouter:cooldown")
+    if not GEMINI_API_KEY:
+        exhausted_trace.append("google:not_configured")
+    elif provider_cooldown_info('google'):
+        exhausted_trace.append("google:cooldown")
+    raise LLMChainExhaustedError(
+        "LLM provider selection exhausted before producing a response.",
+        fallback_trace=exhausted_trace,
+        last_error=RuntimeError("No available LLM provider."),
+    )
 
 
 def get_text_chain_models():
@@ -1173,8 +1140,8 @@ def call_text_reasoning_llm(
         premium=use_premium,
         premium_models=PREMIUM_TEXT_MODELS,
         premium_timeout=PREMIUM_AI_TIMEOUT_SECONDS,
-        allow_google_fallback=False,
-        openrouter_fallback_only_on_timeout=True,
+        allow_google_fallback=True,
+        openrouter_fallback_only_on_timeout=False,
         return_metadata=return_metadata,
     )
 
@@ -1393,10 +1360,10 @@ def run_speech_to_text_pipeline(audio_bytes, mime_type, filename='', client_acti
     )
 
     stt_attempts = []
-    if OPENROUTER_API_KEY and ENABLE_OPENROUTER_STT:
-        stt_attempts.append(("openrouter", lambda: transcribe_audio_with_openrouter(audio_bytes, mime_type, filename)))
     if GEMINI_API_KEY:
         stt_attempts.append(("google", lambda: transcribe_audio_with_google(audio_bytes, mime_type)))
+    if OPENROUTER_API_KEY and ENABLE_OPENROUTER_STT:
+        stt_attempts.append(("openrouter", lambda: transcribe_audio_with_openrouter(audio_bytes, mime_type, filename)))
 
     for provider_name, runner in stt_attempts:
         if transcription:
@@ -1923,12 +1890,9 @@ def health():
     return jsonify({
         "version": version,
         "architecture": "local-first + throttled-meal-sync + server-daily-summaries + OpenRouter",
-        "models": [
-            'gemini-2.5-flash-lite',
-            'gemini-2.5-flash',
-            'gemini-2.0-flash',
-        ],
-        "openrouter_llm_enabled": bool(OPENROUTER_API_KEY and USE_OPENROUTER_LLM),
+        "models": GOOGLE_FALLBACK_MODELS,
+        "openrouter_llm_enabled": bool(OPENROUTER_API_KEY and not openrouter_cooldown),
+        "openrouter_llm_preferred": bool(OPENROUTER_API_KEY),
         "openrouter_api_key_present": bool(OPENROUTER_API_KEY),
         "use_openrouter_llm_flag": USE_OPENROUTER_LLM,
         "openrouter_allow_provider_fallbacks": OPENROUTER_ALLOW_PROVIDER_FALLBACKS,
@@ -2273,7 +2237,7 @@ def refine_packaged_food_name(img, visual_data, use_premium=False):
         premium=use_premium,
         premium_models=PREMIUM_VISION_MODELS,
         premium_timeout=PREMIUM_AI_TIMEOUT_SECONDS,
-        allow_google_fallback=False,
+        allow_google_fallback=True,
         return_metadata=True,
     )
     payload = parse_json_payload(response.get('text'))
@@ -2633,7 +2597,7 @@ def analyze_food_with_two_stage_pipeline(img, use_premium=False):
             premium=use_premium,
             premium_models=PREMIUM_VISION_MODELS,
             premium_timeout=PREMIUM_AI_TIMEOUT_SECONDS,
-            allow_google_fallback=False,
+            allow_google_fallback=True,
             return_metadata=True,
         )
     except LLMChainExhaustedError as visual_err:
@@ -2703,7 +2667,7 @@ def analyze_food_with_two_stage_pipeline(img, use_premium=False):
             premium=use_premium,
             premium_models=PREMIUM_NUTRITION_MODELS,
             premium_timeout=PREMIUM_AI_TIMEOUT_SECONDS,
-            allow_google_fallback=False,
+            allow_google_fallback=True,
             return_metadata=True,
         )
         nutrition_meta = {k: nutrition_response.get(k) for k in ('provider', 'model', 'latency_ms', 'fallback_trace')}
