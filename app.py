@@ -384,7 +384,7 @@ OPENROUTER_VISION_TIMEOUTS = parse_timeout_list(
     [8, 6, 6, 6]
 )
 OPENROUTER_VISION_HARD_DEADLINE_SECONDS = float(
-    os.environ.get('OPENROUTER_VISION_HARD_DEADLINE_SECONDS', '20')
+    os.environ.get('OPENROUTER_VISION_HARD_DEADLINE_SECONDS', '26')
 )
 
 def truthy_env(name, default='false'):
@@ -491,6 +491,34 @@ def is_openrouter_free_tier_request_cap(response, error_msg=''):
         return False
     lowered = str(error_msg or '').lower()
     return 'free-models-per-day' in lowered
+
+
+def parse_google_retry_seconds(res_json=None, error_msg=''):
+    error_info = (res_json or {}).get('error') if isinstance(res_json, dict) else None
+    details = error_info.get('details') if isinstance(error_info, dict) else None
+    for detail in details or []:
+        if not isinstance(detail, dict):
+            continue
+        retry_delay = str(detail.get('retryDelay') or '').strip().lower()
+        match = re.match(r'^([0-9.]+)s$', retry_delay)
+        if match:
+            return max(1, int(float(match.group(1))) + 1)
+
+    match = re.search(r'retry\s+in\s+([0-9.]+)s', str(error_msg or ''), re.IGNORECASE)
+    if match:
+        return max(1, int(float(match.group(1))) + 1)
+    return min(PROVIDER_COOLDOWN_SECONDS['google'], 60)
+
+
+def is_google_quota_or_rate_limit(status_code, error_msg=''):
+    lowered = str(error_msg or '').lower()
+    return (
+        int(status_code or 0) == 429
+        or 'resource_exhausted' in lowered
+        or 'quota exceeded' in lowered
+        or 'rate limit' in lowered
+        or 'please retry in' in lowered
+    )
 
 if not GEMINI_API_KEY and not OPENROUTER_API_KEY and not OPENAI_COMPAT_API_KEY:
     raise ValueError("GEMINI_API_KEY 或 OPENROUTER_API_KEY 环境变量未设置！请在本地 .env 中配置后重启应用。")
@@ -691,11 +719,18 @@ def call_google_generate_content(
             error_msg = error_info.get('message') if isinstance(error_info, dict) else ''
             error_msg = error_msg or (response.text or '').strip()[:500] or 'unknown'
             lower_error = error_msg.lower()
-            if response.status_code in (403, 429) or 'quota' in lower_error or 'resource_exhausted' in lower_error:
-                mark_provider_cooldown('google', PROVIDER_COOLDOWN_SECONDS['google'], error_msg)
+            if is_google_quota_or_rate_limit(response.status_code, error_msg):
+                cooldown_seconds = parse_google_retry_seconds(res_json, error_msg)
+                mark_provider_cooldown('google', cooldown_seconds, error_msg)
                 google_trace.append(f"google:{model}:quota")
                 record_upstream_call('google', model, 'quota', latency_ms, error_msg)
                 last_error = RuntimeError(f"Google quota/auth issue on {model}: {error_msg}")
+                continue
+            if response.status_code in (401, 403):
+                mark_provider_cooldown('google', PROVIDER_COOLDOWN_SECONDS['google'], error_msg)
+                google_trace.append(f"google:{model}:auth")
+                record_upstream_call('google', model, 'auth', latency_ms, error_msg)
+                last_error = RuntimeError(f"Google auth issue on {model}: {error_msg}")
                 break
 
             google_trace.append(f"google:{model}:http_{response.status_code}")
