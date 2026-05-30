@@ -916,7 +916,7 @@ def call_text_reasoning_llm(
         premium=use_premium,
         premium_models=PREMIUM_TEXT_MODELS,
         premium_timeout=PREMIUM_AI_TIMEOUT_SECONDS,
-        allow_google_fallback=False,
+        allow_google_fallback=True,
         return_metadata=return_metadata,
     )
 
@@ -1487,8 +1487,8 @@ def get_db_connection():
 # ==========================================
 
 def get_latest_release_info():
-    # Target regex for update_release.py: "version": "v5.6.43"
-    fallback_version = "v5.6.43"
+    # Target regex for update_release.py: "version": "v5.6.44"
+    fallback_version = "v5.6.44"
     try:
         base_dir = os.path.dirname(os.path.abspath(__file__))
         files = glob.glob(os.path.join(base_dir, "RELEASE_NOTES_*.md"))
@@ -1676,11 +1676,17 @@ def normalize_visual_observations(payload):
 def build_visual_prompt():
     return """You are the vision layer for a food photo logging app.
 Only inspect the image. Do not calculate calories or macro nutrients unless they are explicitly printed on a package label.
+Your job is to decompose the meal into loggable edible components.
 If this is a packaged food, prioritize the printed package text and product identity over the generic visual category.
 For packaged foods, read the visible front-of-pack brand/product text as carefully as possible.
 Do not rename a branded packaged item into a generic category if the package text suggests a more specific product.
 If the package shows a chocolate-coated ice cream / popsicle / frozen dessert on a wrapper, do not call it a plain chocolate bar.
 Prefer Chinese consumer-facing names when the package text is Chinese.
+If a plate / tray / lunch box contains physically separable foods, return them as separate items in the foods array.
+Split separately plated components such as: main protein, staple/starch, vegetables/salad, fruit, soup, and sauce/dip in a separate compartment.
+Do not split ingredients that are mixed into one combined dish or wrapped inside one food. Example: fried rice stays one item; a burger stays one item.
+Ignore utensils and non-edible decoration. Ignore lime/lemon wedges or tiny herb garnish unless they are clearly intended to be eaten.
+If a sauce or dip is clearly visible in its own compartment or obvious spoonable pool, include it as a separate food item.
 Return strict JSON in this schema:
 {
   "scene_type": "prepared_food | packaged_food | mixed | not_food",
@@ -1904,6 +1910,14 @@ def build_nutrition_from_visual_prompt(visual_data):
 Use the visual observation JSON below to estimate realistic nutrition. If a packaging nutrition label is present, prefer the printed label over visual estimation. Output strict JSON array only. No markdown.
 If the visual observation already includes a packaged product name from package text, preserve that product name in food_name instead of replacing it with a generic category.
 For wrapped frozen desserts or ice cream products, do not rename them to plain chocolate bars.
+Return one array item per loggable edible component.
+Do not merge separately plated foods into one item just because they are served together.
+If the meal has a main protein plus raw vegetables plus a sauce/dip, return separate items for the meaningful components.
+Ignore lime/lemon wedges and tiny garnish unless clearly eaten.
+If a dipping sauce is in its own compartment or visible pool and looks more than about 10g, count it as a separate food item.
+If a dish is mixed together (fried rice, sandwich, burrito, noodles in one bowl), keep it as one item.
+Prefer concise Chinese food names when possible.
+Make calorie and macro values internally consistent with weight. Do not output unrealistic zero-calorie fruit juice or milk drinks.
 
 Visual observation JSON:
 {json.dumps(visual_data, ensure_ascii=False)}
@@ -3073,7 +3087,15 @@ VOICE_FOOD_LIBRARY = [
         'nutrition_per_100g': {'calories': 89, 'protein': 1.1, 'carbs': 23.0, 'fat': 0.3},
     },
     {
-        'keywords': ['咖啡', '拿铁', '美式'],
+        'keywords': ['美式', '黑咖啡', '无糖咖啡', 'espresso', 'americano'],
+        'food_name': '黑咖啡',
+        'default_grams': 350,
+        'unit_grams': 350,
+        'units': ['杯'],
+        'nutrition_per_100g': {'calories': 2, 'protein': 0.1, 'carbs': 0.3, 'fat': 0.0},
+    },
+    {
+        'keywords': ['拿铁', '卡布奇诺', '摩卡', '咖啡'],
         'food_name': '咖啡饮品',
         'default_grams': 350,
         'unit_grams': 350,
@@ -3088,7 +3110,149 @@ VOICE_FOOD_LIBRARY = [
         'units': ['杯'],
         'nutrition_per_100g': {'calories': 75, 'protein': 1.0, 'carbs': 15.0, 'fat': 1.2},
     },
+    {
+        'keywords': ['豆浆', '豆奶'],
+        'food_name': '豆浆',
+        'default_grams': 300,
+        'unit_grams': 300,
+        'units': ['杯', '瓶'],
+        'nutrition_per_100g': {'calories': 31, 'protein': 2.6, 'carbs': 1.2, 'fat': 1.6},
+    },
+    {
+        'keywords': ['西瓜汁'],
+        'food_name': '西瓜汁',
+        'default_grams': 300,
+        'unit_grams': 300,
+        'units': ['杯', '瓶', '份'],
+        'nutrition_per_100g': {'calories': 30, 'protein': 0.5, 'carbs': 7.2, 'fat': 0.1},
+    },
+    {
+        'keywords': ['橙汁', '橘汁'],
+        'food_name': '橙汁',
+        'default_grams': 300,
+        'unit_grams': 300,
+        'units': ['杯', '瓶', '份'],
+        'nutrition_per_100g': {'calories': 45, 'protein': 0.7, 'carbs': 10.4, 'fat': 0.2},
+    },
+    {
+        'keywords': ['苹果汁'],
+        'food_name': '苹果汁',
+        'default_grams': 300,
+        'unit_grams': 300,
+        'units': ['杯', '瓶', '份'],
+        'nutrition_per_100g': {'calories': 46, 'protein': 0.1, 'carbs': 11.3, 'fat': 0.1},
+    },
+    {
+        'keywords': ['果汁', '鲜榨汁', '果蔬汁'],
+        'food_name': '果汁',
+        'default_grams': 300,
+        'unit_grams': 300,
+        'units': ['杯', '瓶', '份'],
+        'nutrition_per_100g': {'calories': 42, 'protein': 0.5, 'carbs': 10.0, 'fat': 0.1},
+    },
+    {
+        'keywords': ['苏打水', '气泡水', '矿泉水', '纯净水', '白水', '乌龙茶', '绿茶', '红茶', '无糖茶'],
+        'food_name': '无糖饮品',
+        'default_grams': 350,
+        'unit_grams': 350,
+        'units': ['杯', '瓶'],
+        'nutrition_per_100g': {'calories': 0, 'protein': 0.0, 'carbs': 0.0, 'fat': 0.0},
+    },
 ]
+
+VOICE_SENTENCE_FILLER_KEYWORDS = [
+    '我', '今天', '早上', '早餐', '上午', '中午', '午餐', '下午', '晚上', '晚餐',
+    '夜宵', '刚才', '喝了', '吃了', '大概', '大约', '左右', '的', '一下',
+]
+
+VOICE_ZERO_CALORIE_DRINK_HINTS = [
+    '白水', '矿泉水', '纯净水', '苏打水', '气泡水', '无糖茶', '绿茶', '乌龙茶',
+    '红茶', '黑咖啡', '美式', 'zero', '零度', '无糖可乐',
+]
+
+
+def find_voice_food_library_entry(text):
+    lowered = str(text or '').lower()
+    best_entry = None
+    best_keyword_len = -1
+    for entry in VOICE_FOOD_LIBRARY:
+        for keyword in entry.get('keywords') or []:
+            keyword_text = str(keyword or '').lower()
+            if keyword_text and keyword_text in lowered and len(keyword_text) > best_keyword_len:
+                best_entry = entry
+                best_keyword_len = len(keyword_text)
+    return best_entry
+
+
+def build_food_from_voice_library_entry(entry, grams):
+    grams_value = clamp_number(grams or entry.get('default_grams') or 100, default=100, min_value=1, max_value=2000)
+    nutrition = entry['nutrition_per_100g']
+    scale = grams_value / 100.0
+    return {
+        'food_name': entry['food_name'],
+        'calories': clamp_number(round(nutrition['calories'] * scale), default=0, min_value=0, max_value=5000),
+        'protein': clamp_number(round(nutrition['protein'] * scale, 1), default=0, min_value=0, max_value=300, integer=False),
+        'carbs': clamp_number(round(nutrition['carbs'] * scale, 1), default=0, min_value=0, max_value=500, integer=False),
+        'fat': clamp_number(round(nutrition['fat'] * scale, 1), default=0, min_value=0, max_value=300, integer=False),
+        'weight': grams_value,
+    }
+
+
+def food_name_looks_like_sentence(name):
+    text = clean_text(name, default='', max_len=120)
+    if not text:
+        return True
+    if len(text) >= 14:
+        return True
+    return any(token in text for token in VOICE_SENTENCE_FILLER_KEYWORDS)
+
+
+def is_probably_zero_calorie_drink(text):
+    sample = str(text or '').lower()
+    return any(keyword.lower() in sample for keyword in VOICE_ZERO_CALORIE_DRINK_HINTS)
+
+
+def repair_voice_foods_with_library(foods, source_text=''):
+    repaired = []
+    source = clean_text(source_text, default='', max_len=200)
+    for item in list(foods or []):
+        if not isinstance(item, dict):
+            continue
+        food = dict(item)
+        food_name = clean_text(food.get('food_name'), default='', max_len=120)
+        grams = clamp_number(food.get('weight'), default=0, min_value=0, max_value=2000)
+        search_text = f"{food_name} {source}".strip()
+        entry = find_voice_food_library_entry(search_text)
+        if entry:
+            if not grams:
+                grams = extract_weight_from_text(search_text) or int(entry.get('default_grams') or 100)
+            fallback_food = build_food_from_voice_library_entry(entry, grams)
+            current_calories = clamp_number(food.get('calories'), default=0, min_value=0, max_value=5000)
+            current_protein = clamp_number(food.get('protein'), default=0, min_value=0, max_value=300, integer=False)
+            current_carbs = clamp_number(food.get('carbs'), default=0, min_value=0, max_value=500, integer=False)
+            current_fat = clamp_number(food.get('fat'), default=0, min_value=0, max_value=300, integer=False)
+            should_fill_from_library = (
+                (current_calories <= 0 and current_protein <= 0 and current_carbs <= 0 and current_fat <= 0)
+                or (
+                    current_calories <= 5
+                    and ('汁' in search_text or '奶' in search_text or '豆浆' in search_text or '酸奶' in search_text)
+                    and not is_probably_zero_calorie_drink(search_text)
+                )
+            )
+            if should_fill_from_library:
+                food.update(fallback_food)
+            else:
+                food['weight'] = clamp_number(grams or fallback_food['weight'], default=fallback_food['weight'], min_value=1, max_value=2000)
+            if food_name_looks_like_sentence(food_name):
+                food['food_name'] = fallback_food['food_name']
+        elif food_name_looks_like_sentence(food_name):
+            simplified = re.sub(r'^(我|今天|早上|早餐|上午|中午|午餐|下午|晚上|晚餐|夜宵)', '', food_name)
+            simplified = re.sub(r'(吃了|喝了)', '', simplified)
+            simplified = re.sub(r'(大概|大约|左右|一下|的)$', '', simplified)
+            simplified = clean_text(simplified, default=food_name, max_len=40)
+            food['food_name'] = simplified or food_name
+        repaired.append(food)
+    return repaired
 
 VOICE_EXERCISE_LIBRARY = [
     {'keywords': ['跑步', '慢跑', '快跑', 'run'], 'exercise_name': '跑步', 'exercise_type': 'aerobic', 'calories_per_min': 10, 'target_muscles': ''},
@@ -3268,6 +3432,8 @@ def build_rule_based_voice_result(raw_text):
     else:
         data_type = 'food'
 
+    foods = repair_voice_foods_with_library(foods, source_text=text)
+
     return {
         'type': data_type,
         'foods': foods,
@@ -3291,6 +3457,14 @@ def voice_input():
 
     prompt = f"""Analyze the user's food and exercise intake from the following voice or text input. The input may be in Chinese. Return strict JSON only with no markdown.
 User input: "{text}"
+
+Rules:
+1. Extract concise food names only. Never copy the whole sentence as food_name.
+2. If the user mentions multiple foods or drinks, return multiple food items.
+3. For drinks, convert 1 ml to about 1 g unless the density is obviously very different.
+4. "Sugar-free" means no added sugar, not zero calories. Natural fruit juice, milk, yogurt, and soy milk still contain calories.
+5. Only water, soda water, plain unsweetened tea, and black coffee should be close to zero calories.
+6. Keep calories and macros internally consistent with the stated weight.
 
 Schema:
 {{
@@ -3346,6 +3520,8 @@ Schema:
                 "latency_ms": 0,
                 "fallback_trace": list(parse_meta.get('fallback_trace') or []) + ["rule_based:ok"],
             }
+        elif parsed.get('foods'):
+            parsed['foods'] = repair_voice_foods_with_library(parsed['foods'], source_text=text)
         if parsed is None or (not parsed['foods'] and not parsed['exercises']):
             return jsonify({"error": "\u672a\u80fd\u63d0\u53d6\u51fa\u6709\u6548\u7684\u98df\u7269\u6216\u8fd0\u52a8\u4fe1\u606f\uff0c\u8bf7\u6362\u4e00\u79cd\u8bf4\u6cd5\u518d\u8bd5"}), 400
 
