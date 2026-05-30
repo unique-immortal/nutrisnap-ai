@@ -1487,8 +1487,8 @@ def get_db_connection():
 # ==========================================
 
 def get_latest_release_info():
-    # Target regex for update_release.py: "version": "v5.6.44"
-    fallback_version = "v5.6.44"
+    # Target regex for update_release.py: "version": "v5.6.45"
+    fallback_version = "v5.6.45"
     try:
         base_dir = os.path.dirname(os.path.abspath(__file__))
         files = glob.glob(os.path.join(base_dir, "RELEASE_NOTES_*.md"))
@@ -2981,6 +2981,280 @@ def parse_voice_input_result(raw_text):
         }
 
 
+def build_voice_understanding_prompt(text):
+    return f"""You are a food-and-exercise understanding model for a voice logging app.
+Your job is to understand the user's full sentence first, then extract structured entities.
+Do not estimate calories or macros in this step.
+Do not copy the whole sentence into a food name.
+
+User input:
+"{text}"
+
+Rules:
+1. Extract one food item per actually consumed food or drink.
+2. Preserve meaningful modifiers such as sugar-free, unsweetened, skim, whole milk, spicy, fried, grilled.
+3. For drinks, keep the original quantity and unit if the user mentioned them, such as 500 ml.
+4. If the user mentioned exercise, extract it separately.
+5. Use concise Chinese food names when possible.
+6. If quantity is unknown, leave amount as null and unit as empty.
+7. Return strict JSON only. No markdown.
+
+Schema:
+{{
+  "type": "food" | "exercise" | "mixed",
+  "foods": [
+    {{
+      "name": "string",
+      "amount": 0,
+      "unit": "g|kg|ml|l|杯|碗|个|片|块|份|瓶|盒|串|只|勺|empty",
+      "modifiers": ["string"],
+      "confidence": 0.0
+    }}
+  ],
+  "exercises": [
+    {{
+      "exercise_name": "string",
+      "duration": 0,
+      "exercise_type": "strength" | "aerobic",
+      "target_muscles": ["string"],
+      "confidence": 0.0
+    }}
+  ]
+}}"""
+
+
+def normalize_voice_understanding(payload):
+    if not isinstance(payload, dict):
+        return None
+
+    foods_raw = payload.get('foods') or []
+    exercises_raw = payload.get('exercises') or []
+    foods = []
+    exercises = []
+
+    if isinstance(foods_raw, dict):
+        foods_raw = [foods_raw]
+    if isinstance(exercises_raw, dict):
+        exercises_raw = [exercises_raw]
+
+    for item in foods_raw:
+        if not isinstance(item, dict):
+            continue
+        name = clean_text(first_present(item, 'name', 'food_name', 'food', 'label'), default='', max_len=120)
+        if not name:
+            continue
+        modifiers = item.get('modifiers') or []
+        if not isinstance(modifiers, list):
+            modifiers = [modifiers] if modifiers else []
+        normalized_modifiers = [
+            clean_text(modifier, max_len=40)
+            for modifier in modifiers
+            if clean_text(modifier, max_len=40)
+        ]
+        foods.append({
+            'name': name,
+            'amount': clamp_number(item.get('amount'), default=0, min_value=0, max_value=5000, integer=False) if item.get('amount') not in (None, '') else None,
+            'unit': clean_text(item.get('unit'), default='', max_len=16).lower(),
+            'modifiers': normalized_modifiers,
+            'confidence': clamp_number(item.get('confidence'), default=0.7, min_value=0, max_value=1, integer=False),
+        })
+
+    for item in exercises_raw:
+        if not isinstance(item, dict):
+            continue
+        exercise_name = clean_text(first_present(item, 'exercise_name', 'name', 'exercise'), default='', max_len=120)
+        if not exercise_name:
+            continue
+        muscles = item.get('target_muscles') or []
+        if isinstance(muscles, str):
+            muscles = [part.strip() for part in re.split(r'[,，/ ]+', muscles) if part.strip()]
+        elif not isinstance(muscles, list):
+            muscles = []
+        exercises.append({
+            'exercise_name': exercise_name,
+            'duration': clamp_number(first_present(item, 'duration', 'duration_min', 'minutes'), default=0, min_value=0, max_value=600),
+            'exercise_type': clean_text(item.get('exercise_type'), default='aerobic', max_len=16) or 'aerobic',
+            'target_muscles': ','.join(clean_text(muscle, max_len=40) for muscle in muscles if clean_text(muscle, max_len=40)),
+            'confidence': clamp_number(item.get('confidence'), default=0.7, min_value=0, max_value=1, integer=False),
+        })
+
+    result_type = clean_text(payload.get('type'), default='', max_len=16)
+    if result_type not in ('food', 'exercise', 'mixed'):
+        if foods and exercises:
+            result_type = 'mixed'
+        elif exercises:
+            result_type = 'exercise'
+        else:
+            result_type = 'food'
+
+    return {
+        'type': result_type,
+        'foods': foods,
+        'exercises': exercises,
+    }
+
+
+def estimate_grams_from_voice_candidate(candidate):
+    if not isinstance(candidate, dict):
+        return 0
+    amount = candidate.get('amount')
+    if amount in (None, ''):
+        return 0
+    try:
+        value = float(amount)
+    except (TypeError, ValueError):
+        return 0
+    unit = clean_text(candidate.get('unit'), default='', max_len=16).lower()
+    if unit in ('g', '克'):
+        grams = value
+    elif unit in ('kg', '公斤'):
+        grams = value * 1000
+    elif unit in ('斤',):
+        grams = value * 500
+    elif unit in ('ml', '毫升', 'l', '升'):
+        grams = value * (1000 if unit in ('l', '升') else 1)
+    else:
+        return 0
+    return clamp_number(grams, default=0, min_value=0, max_value=2000)
+
+
+def build_voice_food_estimation_prompt(food_candidates, source_text):
+    return f"""You are a nutrition estimation model for a food logging app.
+The food items have already been extracted from the user's sentence. Your job is to estimate nutrition for each item separately.
+
+Original user sentence:
+"{source_text}"
+
+Extracted food items:
+{json.dumps(food_candidates, ensure_ascii=False)}
+
+Rules:
+1. Return one output item for each input food item, in the same order.
+2. Use concise Chinese food names when possible.
+3. Convert quantity and unit into a realistic edible weight in grams.
+4. For liquids, you may approximate 1 ml as 1 g unless clearly inappropriate.
+5. "Sugar-free" or "unsweetened" means no added sugar, not zero calories for natural juice, milk, soy milk, yogurt, or fruit-based drinks.
+6. Only plain water, soda water, plain unsweetened tea, and black coffee should be close to zero calories.
+7. Keep calories and macros internally consistent with the estimated weight.
+8. Output strict JSON array only. No markdown and no explanation.
+
+Required schema:
+[
+  {{
+    "food_name": "食物名称",
+    "calories": 0,
+    "protein": 0,
+    "carbs": 0,
+    "fat": 0,
+    "weight": 0
+  }}
+]"""
+
+
+def normalize_voice_food_estimates(payload, candidates):
+    foods = parse_ai_multi_result(json.dumps(payload, ensure_ascii=False) if isinstance(payload, (dict, list)) else payload)
+    if not foods:
+        return None
+    normalized = []
+    for index, food in enumerate(foods):
+        candidate = candidates[index] if index < len(candidates) else {}
+        item = dict(food)
+        fallback_name = clean_text(candidate.get('name'), default=item.get('food_name', ''), max_len=120)
+        if fallback_name and food_name_looks_like_sentence(item.get('food_name')):
+            item['food_name'] = fallback_name
+        candidate_grams = estimate_grams_from_voice_candidate(candidate)
+        if candidate_grams and not item.get('weight'):
+            item['weight'] = candidate_grams
+        item['weight'] = clamp_number(item.get('weight') or candidate_grams or 100, default=100, min_value=1, max_value=2000)
+        normalized.append(item)
+    return normalized or None
+
+
+GENERIC_ZERO_CALORIE_NAME_HINTS = [
+    '水', '气泡水', '苏打水', '矿泉水', '纯净水', '茶', '乌龙茶', '绿茶', '红茶', '黑咖啡', '美式', 'espresso', 'americano'
+]
+
+
+def is_expected_zero_calorie_item(food_name):
+    lowered = str(food_name or '').lower()
+    return any(keyword.lower() in lowered for keyword in GENERIC_ZERO_CALORIE_NAME_HINTS)
+
+
+def voice_food_estimate_needs_repair(food, candidate):
+    if not isinstance(food, dict):
+        return True
+    weight = clamp_number(food.get('weight'), default=0, min_value=0, max_value=2000)
+    calories = clamp_number(food.get('calories'), default=0, min_value=0, max_value=5000)
+    protein = clamp_number(food.get('protein'), default=0, min_value=0, max_value=300, integer=False)
+    carbs = clamp_number(food.get('carbs'), default=0, min_value=0, max_value=500, integer=False)
+    fat = clamp_number(food.get('fat'), default=0, min_value=0, max_value=300, integer=False)
+    name = clean_text(food.get('food_name'), default='', max_len=120)
+    if not name or food_name_looks_like_sentence(name):
+        return True
+    if weight >= 50 and calories <= 0 and protein <= 0 and carbs <= 0 and fat <= 0 and not is_expected_zero_calorie_item(name):
+        return True
+    candidate_name = clean_text(candidate.get('name'), default='', max_len=120)
+    if candidate_name and normalize_name_key(name) != normalize_name_key(candidate_name) and normalize_name_key(candidate_name) not in normalize_name_key(name):
+        if food_name_looks_like_sentence(name):
+            return True
+    return False
+
+
+def reestimate_voice_food_item(candidate, source_text, use_premium=False):
+    if not isinstance(candidate, dict):
+        return None
+    modifiers = ', '.join(candidate.get('modifiers') or [])
+    label = clean_text(candidate.get('name'), default='未知食物', max_len=120)
+    if modifiers:
+        label = f"{label} ({modifiers})"
+    grams = estimate_grams_from_voice_candidate(candidate) or 100
+    prompt = build_manual_food_estimate_prompt(label, grams, {})
+    prompt += f'\n\nOriginal voice sentence: "{source_text}"\nRespect the original modifiers and quantity context from the sentence.'
+    response = call_text_reasoning_llm(
+        prompt_text=prompt,
+        use_premium=use_premium,
+        temperature=0.1,
+        return_metadata=True,
+    )
+    parsed = normalize_manual_food_estimate(
+        parse_json_payload(response.get('text')),
+        label,
+        grams,
+        {},
+    )
+    return parsed, response
+
+
+def fill_exercise_calories_with_rules(exercises, source_text):
+    if not exercises:
+        return []
+    lowered = str(source_text or '').lower()
+    explicit_calories = extract_calories_from_text(lowered)
+    enriched = []
+    for item in exercises:
+        exercise = dict(item)
+        duration = clamp_number(exercise.get('duration'), default=0, min_value=0, max_value=600)
+        calories = clamp_number(exercise.get('calories'), default=0, min_value=0, max_value=5000)
+        if calories <= 0:
+            matched = None
+            for entry in VOICE_EXERCISE_LIBRARY:
+                if any(keyword in lowered for keyword in entry.get('keywords') or []):
+                    if normalize_name_key(exercise.get('exercise_name')) == normalize_name_key(entry.get('exercise_name')):
+                        matched = entry
+                        break
+                    if matched is None:
+                        matched = entry
+            if explicit_calories:
+                calories = explicit_calories
+            elif matched and duration > 0:
+                calories = clamp_number(round(duration * matched['calories_per_min']), default=0, min_value=0, max_value=3000)
+            elif duration > 0:
+                calories = clamp_number(round(duration * 6), default=0, min_value=0, max_value=3000)
+        exercise['calories'] = calories
+        enriched.append(exercise)
+    return enriched
+
+
 VOICE_FOOD_LIBRARY = [
     {
         'keywords': ['鸡蛋', '蛋'],
@@ -3444,7 +3718,7 @@ def build_rule_based_voice_result(raw_text):
 @token_or_local_app_required
 @limiter.limit("10 per minute", key_func=user_or_ip_limit_key)
 def voice_input():
-    """Voice input: use LLM parsing first, then fall back to rule-based parsing."""
+    """Voice input: understand the sentence first, then estimate each extracted food."""
     data = request.json or {}
     text = clean_text(data.get('text', ''), default='', max_len=MAX_TEXT_INPUT_CHARS)
     username = get_current_username()
@@ -3455,73 +3729,114 @@ def voice_input():
     if len(text) > MAX_TEXT_INPUT_CHARS:
         return jsonify({"error": "Input text is too long"}), 413
 
-    prompt = f"""Analyze the user's food and exercise intake from the following voice or text input. The input may be in Chinese. Return strict JSON only with no markdown.
-User input: "{text}"
-
-Rules:
-1. Extract concise food names only. Never copy the whole sentence as food_name.
-2. If the user mentions multiple foods or drinks, return multiple food items.
-3. For drinks, convert 1 ml to about 1 g unless the density is obviously very different.
-4. "Sugar-free" means no added sugar, not zero calories. Natural fruit juice, milk, yogurt, and soy milk still contain calories.
-5. Only water, soda water, plain unsweetened tea, and black coffee should be close to zero calories.
-6. Keep calories and macros internally consistent with the stated weight.
-
-Schema:
-{{
-  "type": "food" | "exercise" | "mixed",
-  "foods": [
-    {{
-      "food_name": "string",
-      "calories": 0,
-      "protein": 0,
-      "carbs": 0,
-      "fat": 0,
-      "weight": 0
-    }}
-  ],
-  "exercises": [
-    {{
-      "exercise_name": "string",
-      "calories": 0,
-      "duration": 0,
-      "exercise_type": "strength" | "aerobic",
-      "target_muscles": ["string"]
-    }}
-  ]
-}}"""
-
     try:
-        parse_meta = {}
-        result_text = ''
+        parse_meta = {"fallback_trace": []}
+        understanding_meta = {}
+        nutrition_meta = {}
+        extracted = None
         try:
-            voice_response = call_text_reasoning_llm(
-                prompt_text=prompt,
+            understanding_response = call_text_reasoning_llm(
+                prompt_text=build_voice_understanding_prompt(text),
                 use_premium=use_premium,
                 temperature=0.1,
                 return_metadata=True
             )
-            result_text = voice_response.get('text', '')
-            parse_meta = {k: voice_response.get(k) for k in ('provider', 'model', 'latency_ms', 'fallback_trace')}
+            understanding_meta = {k: understanding_response.get(k) for k in ('provider', 'model', 'latency_ms', 'fallback_trace')}
+            extracted = normalize_voice_understanding(parse_json_payload(understanding_response.get('text')))
         except LLMChainExhaustedError as text_chain_err:
-            print(f"Voice text-chain exhausted: {text_chain_err}")
-            parse_meta = {
+            print(f"Voice understanding chain exhausted: {text_chain_err}")
+            understanding_meta = {
                 "provider": "rule_based",
-                "model": "voice_parser_fallback",
+                "model": "voice_understanding_fallback",
                 "latency_ms": 0,
                 "fallback_trace": list(text_chain_err.fallback_trace or []) + ["rule_based:ok"],
             }
+            extracted = None
 
-        parsed = parse_voice_input_result(result_text)
+        if extracted is None or (not extracted['foods'] and not extracted['exercises']):
+            parsed = build_rule_based_voice_result(text)
+            parse_meta = {
+                "provider": "rule_based",
+                "model": "voice_rule_fallback",
+                "latency_ms": 0,
+                "fallback_trace": list(understanding_meta.get('fallback_trace') or []) + ["rule_based:ok"],
+            }
+        else:
+            foods = []
+            exercises = fill_exercise_calories_with_rules(extracted.get('exercises') or [], text)
+            if extracted.get('foods'):
+                try:
+                    nutrition_response = call_text_reasoning_llm(
+                        prompt_text=build_voice_food_estimation_prompt(extracted['foods'], text),
+                        use_premium=use_premium,
+                        temperature=0.1,
+                        return_metadata=True
+                    )
+                    nutrition_meta = {k: nutrition_response.get(k) for k in ('provider', 'model', 'latency_ms', 'fallback_trace')}
+                    foods = normalize_voice_food_estimates(parse_json_payload(nutrition_response.get('text')), extracted['foods']) or []
+                except LLMChainExhaustedError as nutrition_chain_err:
+                    print(f"Voice nutrition chain exhausted: {nutrition_chain_err}")
+                    nutrition_meta = {
+                        "provider": "degraded",
+                        "model": "voice_nutrition_exhausted",
+                        "latency_ms": 0,
+                        "fallback_trace": list(nutrition_chain_err.fallback_trace or []),
+                    }
+                    foods = []
+
+                repaired_foods = []
+                repair_traces = []
+                for idx, candidate in enumerate(extracted['foods']):
+                    food = dict(foods[idx]) if idx < len(foods) and isinstance(foods[idx], dict) else {}
+                    if voice_food_estimate_needs_repair(food, candidate):
+                        try:
+                            repaired_food, repair_meta = reestimate_voice_food_item(candidate, text, use_premium=use_premium)
+                            if repaired_food:
+                                food = repaired_food
+                            repair_traces.extend(list((repair_meta or {}).get('fallback_trace') or []))
+                        except Exception as repair_err:
+                            print(f"Voice per-item re-estimate failed: {repair_err}")
+                    if not food:
+                        continue
+                    if food_name_looks_like_sentence(food.get('food_name')):
+                        food['food_name'] = clean_text(candidate.get('name'), default=food.get('food_name', ''), max_len=120)
+                    repaired_foods.append(food)
+                foods = repaired_foods
+
+                if repair_traces:
+                    nutrition_meta['fallback_trace'] = list(nutrition_meta.get('fallback_trace') or []) + repair_traces
+
+            parsed = {
+                'type': extracted['type'],
+                'foods': foods,
+                'exercises': exercises,
+            }
+            if parsed['foods'] and parsed['exercises']:
+                parsed['type'] = 'mixed'
+            elif parsed['exercises'] and not parsed['foods']:
+                parsed['type'] = 'exercise'
+            else:
+                parsed['type'] = 'food'
+
+            parse_meta = {
+                "provider": " + ".join(part for part in [understanding_meta.get('provider'), nutrition_meta.get('provider')] if part) or understanding_meta.get('provider') or 'unknown',
+                "model": ";".join(
+                    part for part in [
+                        f"understanding:{understanding_meta.get('model')}" if understanding_meta.get('model') else '',
+                        f"nutrition:{nutrition_meta.get('model')}" if nutrition_meta.get('model') else '',
+                    ] if part
+                ),
+                "latency_ms": int((understanding_meta.get('latency_ms') or 0) + (nutrition_meta.get('latency_ms') or 0)),
+                "fallback_trace": list(understanding_meta.get('fallback_trace') or []) + list(nutrition_meta.get('fallback_trace') or []),
+            }
         if parsed is None or (not parsed['foods'] and not parsed['exercises']):
             parsed = build_rule_based_voice_result(text)
             parse_meta = {
                 "provider": "rule_based",
-                "model": "voice_parser_fallback",
-                "latency_ms": 0,
+                "model": "voice_rule_fallback",
+                "latency_ms": parse_meta.get('latency_ms', 0),
                 "fallback_trace": list(parse_meta.get('fallback_trace') or []) + ["rule_based:ok"],
             }
-        elif parsed.get('foods'):
-            parsed['foods'] = repair_voice_foods_with_library(parsed['foods'], source_text=text)
         if parsed is None or (not parsed['foods'] and not parsed['exercises']):
             return jsonify({"error": "\u672a\u80fd\u63d0\u53d6\u51fa\u6709\u6548\u7684\u98df\u7269\u6216\u8fd0\u52a8\u4fe1\u606f\uff0c\u8bf7\u6362\u4e00\u79cd\u8bf4\u6cd5\u518d\u8bd5"}), 400
 
