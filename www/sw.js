@@ -1,4 +1,4 @@
-const CACHE_NAME = 'nutrisnap-cache-v5.6.42';
+const CACHE_NAME = 'nutrisnap-cache-v5.6.43';
 const CACHE_PREFIX = 'nutrisnap-cache-';
 
 self.addEventListener('install', () => {

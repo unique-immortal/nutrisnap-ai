@@ -339,6 +339,28 @@ def build_openai_chat_messages(prompt_text, image=None, history=None, system_ins
     return messages
 
 
+def normalize_google_inline_mime_type(mime_type, default='audio/webm'):
+    raw = (mime_type or '').split(';', 1)[0].strip().lower()
+    if not raw:
+        return default
+    mapping = {
+        'audio/webm': 'audio/webm',
+        'audio/mp4': 'audio/mp4',
+        'audio/m4a': 'audio/mp4',
+        'audio/x-m4a': 'audio/mp4',
+        'audio/mpeg': 'audio/mpeg',
+        'audio/mp3': 'audio/mpeg',
+        'audio/wav': 'audio/wav',
+        'audio/x-wav': 'audio/wav',
+        'audio/ogg': 'audio/ogg',
+        'audio/oga': 'audio/ogg',
+        'audio/flac': 'audio/flac',
+        'audio/aac': 'audio/aac',
+        'audio/aiff': 'audio/aiff',
+    }
+    return mapping.get(raw, raw)
+
+
 def build_google_contents(prompt_text, image=None, audio=None, mime_type=None, history=None):
     contents = []
     if history:
@@ -371,7 +393,7 @@ def build_google_contents(prompt_text, image=None, audio=None, mime_type=None, h
     if audio:
         user_parts.append({
             'inline_data': {
-                'mime_type': mime_type or 'audio/webm',
+                'mime_type': normalize_google_inline_mime_type(mime_type, default='audio/webm'),
                 'data': base64.b64encode(audio).decode('utf-8'),
             }
         })
@@ -1004,7 +1026,7 @@ def transcribe_audio_with_google(audio_bytes, mime_type):
     result_text = call_llm(
         prompt_text=prompt,
         audio=audio_bytes,
-        mime_type=mime_type or 'audio/webm',
+        mime_type=normalize_google_inline_mime_type(mime_type, default='audio/webm'),
         temperature=0,
         preferred_provider='google'
     )
@@ -1465,8 +1487,8 @@ def get_db_connection():
 # ==========================================
 
 def get_latest_release_info():
-    # Target regex for update_release.py: "version": "v5.6.42"
-    fallback_version = "v5.6.42"
+    # Target regex for update_release.py: "version": "v5.6.43"
+    fallback_version = "v5.6.43"
     try:
         base_dir = os.path.dirname(os.path.abspath(__file__))
         files = glob.glob(os.path.join(base_dir, "RELEASE_NOTES_*.md"))
@@ -1824,7 +1846,7 @@ def refine_packaged_food_name(img, visual_data, use_premium=False):
         premium=use_premium,
         premium_models=PREMIUM_VISION_MODELS,
         premium_timeout=PREMIUM_AI_TIMEOUT_SECONDS,
-        allow_google_fallback=False,
+        allow_google_fallback=True,
         return_metadata=True,
     )
     payload = parse_json_payload(response.get('text'))
@@ -2148,7 +2170,7 @@ def analyze_food_with_two_stage_pipeline(img, use_premium=False):
         premium=use_premium,
         premium_models=PREMIUM_VISION_MODELS,
         premium_timeout=PREMIUM_AI_TIMEOUT_SECONDS,
-        allow_google_fallback=False,
+        allow_google_fallback=True,
         return_metadata=True,
     )
     visual_meta = {k: visual_response.get(k) for k in ('provider', 'model', 'latency_ms', 'fallback_trace')}
@@ -2180,7 +2202,7 @@ def analyze_food_with_two_stage_pipeline(img, use_premium=False):
             premium=use_premium,
             premium_models=PREMIUM_NUTRITION_MODELS,
             premium_timeout=PREMIUM_AI_TIMEOUT_SECONDS,
-            allow_google_fallback=False,
+            allow_google_fallback=True,
             return_metadata=True,
         )
         nutrition_meta = {k: nutrition_response.get(k) for k in ('provider', 'model', 'latency_ms', 'fallback_trace')}
@@ -2871,6 +2893,12 @@ def analyze_food():
 
     except UnidentifiedImageError:
         return jsonify({"error": "Invalid image file"}), 400
+    except LLMChainExhaustedError as llm_err:
+        print(f"Analyze image chain exhausted: {llm_err}")
+        return jsonify({
+            "error": "当前拍照识别服务暂时繁忙，请稍后重试，或先使用手动补录。",
+            "fallback_trace": list(llm_err.fallback_trace or []),
+        }), 503
     except Exception as e:
         print(f"Error calling AI API: {e}")
         return jsonify({"error": "AI image analysis failed. Please try again later."}), 500
@@ -3408,19 +3436,23 @@ def speech_to_text():
 
         transcription = ""
         errors = []
-        if OPENROUTER_API_KEY:
-            try:
-                transcription = transcribe_audio_with_openrouter(audio_bytes, mime_type, audio_file.filename)
-            except Exception as openrouter_err:
-                errors.append(str(openrouter_err))
-                print(f"OpenRouter STT error: {openrouter_err}")
 
-        if not transcription and GEMINI_API_KEY:
+        # Free-mode audio is more reliable via Gemini than OpenRouter STT, which often
+        # requires account balance. Try Gemini first, then fall back.
+        stt_attempts = []
+        if GEMINI_API_KEY:
+            stt_attempts.append(("google", lambda: transcribe_audio_with_google(audio_bytes, mime_type)))
+        if OPENROUTER_API_KEY:
+            stt_attempts.append(("openrouter", lambda: transcribe_audio_with_openrouter(audio_bytes, mime_type, audio_file.filename)))
+
+        for provider_name, runner in stt_attempts:
+            if transcription:
+                break
             try:
-                transcription = transcribe_audio_with_google(audio_bytes, mime_type)
-            except Exception as google_err:
-                errors.append(str(google_err))
-                print(f"Google STT fallback error: {google_err}")
+                transcription = runner()
+            except Exception as stt_err:
+                errors.append(f"{provider_name}: {stt_err}")
+                print(f"{provider_name.title()} STT error: {stt_err}")
 
         transcription = re.sub(r'^["\'`]|["\'`]$', '', (transcription or '')).strip()
         if not transcription:
