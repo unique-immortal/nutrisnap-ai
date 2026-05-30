@@ -4400,7 +4400,7 @@ html.dark .history-empty-panel {
       </div>
         <div>
           <h3 class="font-headline-md text-headline-md text-on-background">NutriSnap AI</h3>
-          <p class="font-label-md text-label-md text-outline" id="aboutAppVersion">v5.6.41</p>
+            <p class="font-label-md text-label-md text-outline" id="aboutAppVersion">v5.6.42</p>
         </div>
       </div>
     <p class="font-body-md text-body-md text-on-surface-variant mb-6">基于 Gemini AI 的智能饮食记录工具。支持拍照多食物识别、语音输入、分量调节、每周营养报告。</p>
@@ -4750,7 +4750,7 @@ html.dark .history-empty-panel {
 <script>
 // ===================== CONFIG =====================
 const API_BASE = "";
-const CLIENT_VERSION = "v5.6.41";
+const CLIENT_VERSION = "v5.6.42";
 
 // Native preferences helper to survive app process kills on mobile
 const NativeStorage = {
@@ -7556,7 +7556,10 @@ let speechRecognitionText = "";
 let speechRecognitionFinal = false;
 let capacitorSpeechActive = false;
 let capacitorSpeechPlugin = null;
-const ENABLE_CAPACITOR_SPEECH_PLUGIN = false;
+let capacitorSpeechPartialHandle = null;
+let capacitorSpeechStateHandle = null;
+let capacitorSpeechFinalizing = false;
+const ENABLE_CAPACITOR_SPEECH_PLUGIN = true;
 
 function getNativeSpeechRecognition() {
   return window.SpeechRecognition || window.webkitSpeechRecognition || null;
@@ -7569,6 +7572,9 @@ function shouldUseCapacitorSpeechRecognition() {
 
 function getCapacitorSpeechRecognition() {
   if (!shouldUseCapacitorSpeechRecognition()) return null;
+  if (window.Capacitor?.isPluginAvailable && !window.Capacitor.isPluginAvailable('SpeechRecognition')) {
+    return null;
+  }
   if (capacitorSpeechPlugin && typeof capacitorSpeechPlugin.start === 'function') {
     return capacitorSpeechPlugin;
   }
@@ -7601,15 +7607,85 @@ function isNativeCapacitorApp() {
   }
 }
 
-async function stopCapacitorSpeechRecognition() {
+async function clearCapacitorSpeechListeners() {
+  const handles = [capacitorSpeechPartialHandle, capacitorSpeechStateHandle];
+  capacitorSpeechPartialHandle = null;
+  capacitorSpeechStateHandle = null;
+  await Promise.all(handles.map(async handle => {
+    if (!handle || typeof handle.remove !== 'function') return;
+    try {
+      await handle.remove();
+    } catch (_) {}
+  }));
+}
+
+function startVoiceTimer(sessionId, maxSeconds = 20) {
+  if (voiceIntervalId) {
+    clearInterval(voiceIntervalId);
+    voiceIntervalId = null;
+  }
+  let seconds = 0;
+  voiceIntervalId = setInterval(() => {
+    if (sessionId !== currentRecordingSession) {
+      clearInterval(voiceIntervalId);
+      voiceIntervalId = null;
+      return;
+    }
+    seconds++;
+    const voiceText = document.getElementById('voiceText');
+    if (voiceText && !speechRecognitionText) {
+      voiceText.textContent = `\u6b63\u5728\u8046\u542c (${seconds}s)...`;
+    }
+    if (seconds >= maxSeconds) {
+      stopVoiceInput();
+    }
+  }, 1000);
+}
+
+async function finalizeCapacitorSpeechRecognition(sessionId, overrideText = '') {
+  if (sessionId !== currentRecordingSession || capacitorSpeechFinalizing) return;
+  capacitorSpeechFinalizing = true;
+  if (voiceIntervalId) {
+    clearInterval(voiceIntervalId);
+    voiceIntervalId = null;
+  }
+
+  const finalText = (overrideText || speechRecognitionText || '').trim();
+  await clearCapacitorSpeechListeners();
+  capacitorSpeechActive = false;
+  capacitorSpeechFinalizing = false;
+
+  if (sessionId !== currentRecordingSession) return;
+  if (finalText.length >= 2) {
+    speechRecognitionText = finalText;
+    speechRecognitionFinal = true;
+    document.getElementById('voiceListening')?.classList.add('hidden');
+    document.getElementById('voiceProcessing')?.classList.remove('hidden');
+    document.getElementById('voiceFinalText').textContent = '"' + finalText + '"';
+    voiceTextForDisplay = finalText;
+    isVoiceRecording = false;
+    setTimeout(() => sendVoiceText(finalText), 250);
+    return;
+  }
+  showVoiceFallback('\u6ca1\u6709\u542c\u6e05\u5185\u5bb9\uff0c\u8bf7\u91cd\u8bd5\u8bed\u97f3\u6216\u6539\u7528\u6587\u5b57\u8bb0\u5f55\u3002');
+}
+
+async function stopCapacitorSpeechRecognition(options = {}) {
   const plugin = getCapacitorSpeechRecognition();
-  if (!plugin) return;
+  if (!plugin) {
+    capacitorSpeechActive = false;
+    await clearCapacitorSpeechListeners();
+    return;
+  }
   try {
-    if (typeof plugin.stop === 'function') await plugin.stop();
+    if (typeof plugin.stop === 'function' && capacitorSpeechActive) await plugin.stop();
   } catch (e) {
     console.warn('Failed to stop native speech recognition:', e);
   } finally {
-    capacitorSpeechActive = false;
+    if (options.cleanup !== false) {
+      capacitorSpeechActive = false;
+      await clearCapacitorSpeechListeners();
+    }
   }
 }
 
@@ -7628,22 +7704,43 @@ async function tryStartCapacitorSpeechRecognition(sessionId) {
         permissions = await plugin.requestPermissions();
       }
       if (permissions?.speechRecognition === 'denied') {
-        showVoiceFallback('手机系统未授予语音识别权限，请在系统设置中允许麦克风/语音识别权限。');
+        showVoiceFallback('\u624b\u673a\u7cfb\u7edf\u672a\u6388\u4e88\u8bed\u97f3\u8bc6\u522b\u6743\u9650\uff0c\u8bf7\u5728\u7cfb\u7edf\u8bbe\u7f6e\u4e2d\u5141\u8bb8\u9ea6\u514b\u98ce/\u8bed\u97f3\u8bc6\u522b\u6743\u9650\u3002');
         return true;
       }
     }
 
+    await clearCapacitorSpeechListeners();
     capacitorSpeechActive = true;
+    capacitorSpeechFinalizing = false;
     const voiceText = document.getElementById('voiceText');
-    if (voiceText) voiceText.textContent = '正在调用手机系统语音识别...';
+    if (voiceText) voiceText.textContent = '\u6b63\u5728\u8c03\u7528\u624b\u673a\u7cfb\u7edf\u8bed\u97f3\u8bc6\u522b...';
+
+    capacitorSpeechPartialHandle = await plugin.addListener('partialResults', (data) => {
+      if (sessionId !== currentRecordingSession) return;
+      const matches = Array.isArray(data?.matches) ? data.matches : [];
+      const text = (matches.find(item => typeof item === 'string' && item.trim()) || '').trim();
+      if (!text) return;
+      speechRecognitionText = text;
+      const textEl = document.getElementById('voiceText');
+      if (textEl) textEl.textContent = text;
+    });
+    capacitorSpeechStateHandle = await plugin.addListener('listeningState', (data) => {
+      if (sessionId !== currentRecordingSession) return;
+      if (data?.status === 'stopped') {
+        finalizeCapacitorSpeechRecognition(sessionId).catch(err => {
+          console.warn('Failed to finalize native speech recognition:', err);
+        });
+      }
+    });
+
+    startVoiceTimer(sessionId, 8);
     const result = await plugin.start({
       language: 'zh-CN',
       maxResults: 3,
-      prompt: '请说出你吃了什么，或做了什么运动',
-      popup: true,
-      partialResults: false
+      prompt: '\u8bf7\u8bf4\u51fa\u4f60\u5403\u4e86\u4ec0\u4e48\uff0c\u6216\u505a\u4e86\u4ec0\u4e48\u8fd0\u52a8',
+      popup: false,
+      partialResults: true
     });
-    capacitorSpeechActive = false;
     if (sessionId !== currentRecordingSession) return true;
 
     const matches = Array.isArray(result?.matches) ? result.matches : [];
@@ -7651,18 +7748,13 @@ async function tryStartCapacitorSpeechRecognition(sessionId) {
     if (text) {
       speechRecognitionText = text;
       speechRecognitionFinal = true;
-      document.getElementById('voiceListening')?.classList.add('hidden');
-      document.getElementById('voiceProcessing')?.classList.remove('hidden');
-      document.getElementById('voiceFinalText').textContent = '"' + text + '"';
-      voiceTextForDisplay = text;
-      isVoiceRecording = false;
-      setTimeout(() => sendVoiceText(text), 250);
-    } else {
-      showVoiceFallback('手机系统没有听清内容，请重试语音或改用文字记录。');
+      const textEl = document.getElementById('voiceText');
+      if (textEl) textEl.textContent = text;
     }
     return true;
   } catch (e) {
     capacitorSpeechActive = false;
+    await clearCapacitorSpeechListeners();
     console.warn('Native app speech recognition unavailable:', e);
     return false;
   }
@@ -7897,12 +7989,21 @@ function handleVoiceCaptureError(err) {
   showVoiceFallback(message);
 }
 
-function stopVoiceInput() {
-  stopCapacitorSpeechRecognition();
+async function stopVoiceInput() {
   stopNativeSpeechRecognition({ clearHandlers: false });
   if (voiceIntervalId) {
     clearInterval(voiceIntervalId);
     voiceIntervalId = null;
+  }
+  if (capacitorSpeechActive) {
+    document.getElementById('voiceListening')?.classList.add('hidden');
+    document.getElementById('voiceProcessing')?.classList.remove('hidden');
+    document.getElementById('voiceFinalText').textContent = (speechRecognitionText || '').trim()
+      ? '"' + speechRecognitionText.trim() + '"'
+      : '正在识别语音...';
+    await stopCapacitorSpeechRecognition({ cleanup: false });
+    await finalizeCapacitorSpeechRecognition(currentRecordingSession);
+    return;
   }
   if (mediaRecorder && mediaRecorder.state !== 'inactive') {
     mediaRecorder.stop();
@@ -9492,7 +9593,7 @@ async function generateCoachResponse(userMsg) {
       reply = 'AI \u6559\u7ec3\u6682\u65f6\u65e0\u6cd5\u56de\u7b54\uff1a' + (json.error || '\u670d\u52a1\u5668\u7e41\u5fd9');
     }
   } catch (err) {
-    reply = '\u7f51\u7edc\u9519\u8bef\uff1a\u65e0\u6cd5\u8fde\u63a5\u5230 AI \u6559\u7ec3\u3002';
+    reply = 'AI \u6559\u7ec3\u6682\u65f6\u65e0\u6cd5\u56de\u7b54\uff1a' + normalizeErrorMessage(err, '\u8bf7\u7a0d\u540e\u518d\u8bd5');
   }
 
   const loading = document.getElementById('coachLoading');
@@ -11416,7 +11517,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   // ==========================================
   // Helper: normalize error messages
   // ==========================================
-  function normalizeErrorMessage(err, fallback) {
+  function normalizeUpdateErrorMessage(err, fallback) {
     if (typeof err === 'string') return err;
     if (err && err.message) return err.message;
     return fallback || '未知错误';

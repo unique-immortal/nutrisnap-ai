@@ -252,9 +252,45 @@ PREMIUM_NUTRITION_MODELS = parse_model_list(os.environ.get('PREMIUM_NUTRITION_MO
 PREMIUM_VISION_MODELS = parse_model_list(os.environ.get('PREMIUM_VISION_MODELS'), [
     'gpt-5.4-mini',
 ])
+GOOGLE_FALLBACK_MODELS = parse_model_list(os.environ.get('GOOGLE_FALLBACK_MODELS'), [
+    'gemini-2.5-flash-lite',
+    'gemini-2.5-flash',
+    'gemini-2.0-flash',
+])
+GOOGLE_FALLBACK_TIMEOUTS = parse_timeout_list(
+    os.environ.get('GOOGLE_FALLBACK_TIMEOUTS'),
+    [6, 6, 6]
+)
+PROVIDER_COOLDOWN_SECONDS = {
+    'openrouter': max(30, int(os.environ.get('OPENROUTER_PROVIDER_COOLDOWN_SECONDS', '900'))),
+    'google': max(30, int(os.environ.get('GOOGLE_PROVIDER_COOLDOWN_SECONDS', '900'))),
+    'premium': max(15, int(os.environ.get('PREMIUM_PROVIDER_COOLDOWN_SECONDS', '180'))),
+}
+PROVIDER_FAILURE_STATE = {}
 
 def premium_provider_available():
     return bool(PREMIUM_AI_ENABLED and OPENAI_COMPAT_API_KEY and OPENAI_COMPAT_BASE_URL)
+
+
+def provider_cooldown_info(provider_name):
+    info = PROVIDER_FAILURE_STATE.get(provider_name)
+    if not info:
+        return None
+    if float(info.get('until') or 0) <= time.time():
+        PROVIDER_FAILURE_STATE.pop(provider_name, None)
+        return None
+    return info
+
+
+def mark_provider_cooldown(provider_name, seconds, reason=''):
+    PROVIDER_FAILURE_STATE[provider_name] = {
+        'until': time.time() + max(1, float(seconds or 1)),
+        'reason': (reason or '').strip()[:300],
+    }
+
+
+def clear_provider_cooldown(provider_name):
+    PROVIDER_FAILURE_STATE.pop(provider_name, None)
 
 if not GEMINI_API_KEY and not OPENROUTER_API_KEY and not OPENAI_COMPAT_API_KEY:
     raise ValueError("GEMINI_API_KEY 或 OPENROUTER_API_KEY 环境变量未设置！请在本地 .env 中配置后重启应用。")
@@ -302,6 +338,153 @@ def build_openai_chat_messages(prompt_text, image=None, history=None, system_ins
 
     return messages
 
+
+def build_google_contents(prompt_text, image=None, audio=None, mime_type=None, history=None):
+    contents = []
+    if history:
+        for item in history:
+            role = 'user' if item.get('role') == 'user' else 'model'
+            content = item.get('content', '')
+            if isinstance(content, list):
+                content = ' '.join(
+                    part.get('text', '')
+                    for part in content
+                    if isinstance(part, dict) and part.get('type') == 'text'
+                )
+            contents.append({
+                'role': role,
+                'parts': [{'text': str(content or '')}],
+            })
+
+    user_parts = []
+    if prompt_text:
+        user_parts.append({'text': prompt_text})
+    if image is not None:
+        image_buffer = io.BytesIO()
+        image.save(image_buffer, format='JPEG')
+        user_parts.append({
+            'inline_data': {
+                'mime_type': 'image/jpeg',
+                'data': base64.b64encode(image_buffer.getvalue()).decode('utf-8'),
+            }
+        })
+    if audio:
+        user_parts.append({
+            'inline_data': {
+                'mime_type': mime_type or 'audio/webm',
+                'data': base64.b64encode(audio).decode('utf-8'),
+            }
+        })
+
+    if user_parts:
+        contents.append({'role': 'user', 'parts': user_parts})
+    return contents
+
+
+def extract_google_response_text(res_json):
+    candidates = res_json.get('candidates') if isinstance(res_json, dict) else None
+    if not candidates:
+        return ''
+    for candidate in candidates:
+        content = candidate.get('content') or {}
+        for part in content.get('parts') or []:
+            text = (part.get('text') or '').strip()
+            if text:
+                return text
+    return ''
+
+
+def call_google_generate_content(
+    prompt_text,
+    image=None,
+    audio=None,
+    mime_type=None,
+    history=None,
+    system_instruction=None,
+    temperature=0.7,
+    return_metadata=False,
+    fallback_trace=None,
+):
+    if not GEMINI_API_KEY:
+        raise RuntimeError("Google Gemini API key is not configured.")
+
+    cooldown_info = provider_cooldown_info('google')
+    if cooldown_info:
+        reason = cooldown_info.get('reason') or 'cooldown active'
+        raise RuntimeError(f"Google provider cooldown active: {reason}")
+
+    payload = {
+        'contents': build_google_contents(
+            prompt_text=prompt_text,
+            image=image,
+            audio=audio,
+            mime_type=mime_type,
+            history=history,
+        ),
+        'generationConfig': {
+            'temperature': temperature,
+        },
+    }
+    if system_instruction:
+        payload['system_instruction'] = {
+            'parts': [{'text': system_instruction}]
+        }
+
+    timeout_schedule = list(GOOGLE_FALLBACK_TIMEOUTS or [])
+    models_to_try = GOOGLE_FALLBACK_MODELS[:len(timeout_schedule) or len(GOOGLE_FALLBACK_MODELS)]
+    google_trace = list(fallback_trace or [])
+    last_error = None
+
+    for index, model in enumerate(models_to_try):
+        model_timeout = timeout_schedule[index] if index < len(timeout_schedule) else OPENROUTER_CHAT_TIMEOUT_SECONDS
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={GEMINI_API_KEY}"
+        try:
+            print(f"Calling Google REST model: {model} (timeout={model_timeout}s)")
+            started_at = time.perf_counter()
+            response = requests.post(url, json=payload, timeout=model_timeout)
+            latency_ms = int((time.perf_counter() - started_at) * 1000)
+            try:
+                res_json = response.json()
+            except Exception:
+                res_json = {}
+
+            if response.status_code == 200:
+                reply = extract_google_response_text(res_json)
+                if not reply:
+                    raise RuntimeError(f"Google model {model} returned empty content")
+                clear_provider_cooldown('google')
+                google_trace.append(f"google:{model}:ok")
+                if return_metadata:
+                    return {
+                        "text": reply,
+                        "provider": "google",
+                        "model": model,
+                        "latency_ms": latency_ms,
+                        "fallback_trace": google_trace,
+                    }
+                return reply
+
+            error_info = res_json.get('error') if isinstance(res_json, dict) else None
+            error_msg = error_info.get('message') if isinstance(error_info, dict) else ''
+            error_msg = error_msg or (response.text or '').strip()[:500] or 'unknown'
+            lower_error = error_msg.lower()
+            if response.status_code in (403, 429) or 'quota' in lower_error or 'resource_exhausted' in lower_error:
+                mark_provider_cooldown('google', PROVIDER_COOLDOWN_SECONDS['google'], error_msg)
+                google_trace.append(f"google:{model}:quota")
+                last_error = RuntimeError(f"Google quota/auth issue on {model}: {error_msg}")
+                continue
+
+            google_trace.append(f"google:{model}:http_{response.status_code}")
+            last_error = RuntimeError(f"Google error {response.status_code} on {model}: {error_msg}")
+        except requests.exceptions.Timeout as timeout_err:
+            google_trace.append(f"google:{model}:timeout")
+            last_error = timeout_err
+        except Exception as api_err:
+            google_trace.append(f"google:{model}:error")
+            last_error = api_err
+
+    raise last_error or RuntimeError("Google REST request failed.")
+
 def extract_chat_completion_text(res_json):
     choices = res_json.get('choices') if isinstance(res_json, dict) else None
     if not choices:
@@ -328,6 +511,10 @@ def call_openai_compatible_llm(
 ):
     if not premium_provider_available():
         raise RuntimeError("Premium OpenAI-compatible provider is not configured.")
+    cooldown_info = provider_cooldown_info('premium')
+    if cooldown_info:
+        reason = cooldown_info.get('reason') or 'cooldown active'
+        raise RuntimeError(f"Premium provider cooldown active: {reason}")
 
     url = OPENAI_COMPAT_BASE_URL.rstrip('/') + '/chat/completions'
     headers = {
@@ -365,6 +552,7 @@ def call_openai_compatible_llm(
                 reply = extract_chat_completion_text(res_json)
                 if not reply:
                     raise RuntimeError(f"Premium model {model} returned empty content")
+                clear_provider_cooldown('premium')
                 print(f"Success with premium OpenAI-compatible model: {model}")
                 if return_metadata:
                     return {
@@ -378,6 +566,8 @@ def call_openai_compatible_llm(
             error_msg = res_json.get('error', {}).get('message') if isinstance(res_json.get('error'), dict) else ''
             error_msg = error_msg or res.text[:500]
             last_error = RuntimeError(f"Premium OpenAI-compatible error {res.status_code}: {error_msg}")
+            if res.status_code >= 500:
+                mark_provider_cooldown('premium', PROVIDER_COOLDOWN_SECONDS['premium'], error_msg)
             print(f"Premium model {model} failed: {error_msg}")
         except Exception as e:
             print(f"Premium OpenAI-compatible request error with model {model}: {e}")
@@ -430,6 +620,7 @@ def call_llm(
         and preferred_provider != 'google'
         and (preferred_provider == 'openrouter' or USE_OPENROUTER_LLM or not client)
         and audio is None
+        and not provider_cooldown_info('openrouter')
     )
     if use_openrouter:
         # ----------------------------------------------------
@@ -539,6 +730,8 @@ def call_llm(
                     if res.status_code == 400:
                         fallback_trace.append(f"{model}:http_400")
                         raise NonRetryableLLMError(f"OpenRouter bad request on {model}: {error_msg}")
+                    if res.status_code in (401, 403) or 'user not found' in str(error_msg).lower():
+                        mark_provider_cooldown('openrouter', PROVIDER_COOLDOWN_SECONDS['openrouter'], error_msg)
                     status_label = f"http_{res.status_code}"
                     fallback_trace.append(f"{model}:{status_label}")
                     print(f"OpenRouter model {model} failed: {error_msg}")
@@ -555,15 +748,27 @@ def call_llm(
                     fallback_trace.append(f"{model}:error")
                 last_error = e
                 
-        if client and allow_google_fallback:
-            print(f"OpenRouter models failed, falling back to Google SDK: {last_error}")
+        if GEMINI_API_KEY and allow_google_fallback and not provider_cooldown_info('google'):
+            print(f"OpenRouter models failed, falling back to Google REST: {last_error}")
         else:
             raise LLMChainExhaustedError(
                 "OpenRouter model chain exhausted.",
                 fallback_trace=fallback_trace,
                 last_error=last_error,
             )
-        
+    
+    return call_google_generate_content(
+        prompt_text=prompt_text,
+        image=image,
+        audio=audio,
+        mime_type=mime_type,
+        history=history,
+        system_instruction=system_instruction,
+        temperature=temperature,
+        return_metadata=return_metadata,
+        fallback_trace=fallback_trace,
+    )
+
     # ----------------------------------------------------
     # Google SDK Path (Fallback)
     # ----------------------------------------------------
@@ -736,6 +941,10 @@ def normalize_audio_format(mime_type, filename=''):
 
 
 def transcribe_audio_with_openrouter(audio_bytes, mime_type, filename=''):
+    cooldown_info = provider_cooldown_info('openrouter')
+    if cooldown_info:
+        reason = cooldown_info.get('reason') or 'cooldown active'
+        raise RuntimeError(f"OpenRouter provider cooldown active: {reason}")
     if not OPENROUTER_API_KEY:
         raise ValueError("OPENROUTER_API_KEY 未设置")
 
@@ -783,12 +992,14 @@ def transcribe_audio_with_openrouter(audio_bytes, mime_type, filename=''):
         error_msg = res_json.get("error")
     if not error_msg:
         error_msg = (res.text or "").strip()[:500] or 'unknown'
+    if res.status_code in (401, 403) or 'user not found' in str(error_msg).lower():
+        mark_provider_cooldown('openrouter', PROVIDER_COOLDOWN_SECONDS['openrouter'], error_msg)
     raise RuntimeError(f"OpenRouter STT failed ({res.status_code}): {error_msg}")
 
 
 def transcribe_audio_with_google(audio_bytes, mime_type):
-    if not client:
-        raise ValueError("Google SDK Client 未初始化")
+    if not GEMINI_API_KEY:
+        raise ValueError("GEMINI_API_KEY is not configured")
     prompt = "请将这段录音直接转写成中文文本，不要包含任何额外的引导语、标点纠正解释，仅输出转写文本本身。如果是静音或没有说话，请直接返回空字符串。"
     result_text = call_llm(
         prompt_text=prompt,
@@ -1254,8 +1465,8 @@ def get_db_connection():
 # ==========================================
 
 def get_latest_release_info():
-    # Target regex for update_release.py: "version": "v5.6.41"
-    fallback_version = "v5.6.41"
+    # Target regex for update_release.py: "version": "v5.6.42"
+    fallback_version = "v5.6.42"
     try:
         base_dir = os.path.dirname(os.path.abspath(__file__))
         files = glob.glob(os.path.join(base_dir, "RELEASE_NOTES_*.md"))
@@ -2727,82 +2938,399 @@ def parse_voice_input_result(raw_text):
             'exercises': []
         }
 
+
+VOICE_FOOD_LIBRARY = [
+    {
+        'keywords': ['鸡蛋', '蛋'],
+        'food_name': '鸡蛋',
+        'default_grams': 50,
+        'unit_grams': 50,
+        'units': ['个', '颗', '枚'],
+        'nutrition_per_100g': {'calories': 144, 'protein': 12.8, 'carbs': 1.5, 'fat': 8.8},
+    },
+    {
+        'keywords': ['牛奶', 'milk'],
+        'food_name': '牛奶',
+        'default_grams': 250,
+        'unit_grams': 250,
+        'units': ['杯', '盒', '瓶'],
+        'nutrition_per_100g': {'calories': 54, 'protein': 3.4, 'carbs': 5.0, 'fat': 3.2},
+    },
+    {
+        'keywords': ['酸奶', 'yogurt', 'yoghurt'],
+        'food_name': '酸奶',
+        'default_grams': 180,
+        'unit_grams': 180,
+        'units': ['杯', '盒'],
+        'nutrition_per_100g': {'calories': 72, 'protein': 3.6, 'carbs': 9.0, 'fat': 3.0},
+    },
+    {
+        'keywords': ['米饭', '白饭'],
+        'food_name': '米饭',
+        'default_grams': 150,
+        'unit_grams': 150,
+        'units': ['碗'],
+        'nutrition_per_100g': {'calories': 116, 'protein': 2.6, 'carbs': 25.9, 'fat': 0.3},
+    },
+    {
+        'keywords': ['面条', '面', '粉'],
+        'food_name': '面条',
+        'default_grams': 180,
+        'unit_grams': 180,
+        'units': ['碗'],
+        'nutrition_per_100g': {'calories': 138, 'protein': 5.0, 'carbs': 25.0, 'fat': 2.0},
+    },
+    {
+        'keywords': ['面包', '吐司', 'bread'],
+        'food_name': '面包',
+        'default_grams': 60,
+        'unit_grams': 30,
+        'units': ['片', '个'],
+        'nutrition_per_100g': {'calories': 265, 'protein': 9.0, 'carbs': 49.0, 'fat': 3.2},
+    },
+    {
+        'keywords': ['鸡胸', '鸡胸肉'],
+        'food_name': '鸡胸肉',
+        'default_grams': 120,
+        'unit_grams': 120,
+        'units': ['块', '份'],
+        'nutrition_per_100g': {'calories': 165, 'protein': 31.0, 'carbs': 0.0, 'fat': 3.6},
+    },
+    {
+        'keywords': ['牛肉', 'beef'],
+        'food_name': '牛肉',
+        'default_grams': 120,
+        'unit_grams': 120,
+        'units': ['块', '份'],
+        'nutrition_per_100g': {'calories': 250, 'protein': 26.0, 'carbs': 0.0, 'fat': 15.0},
+    },
+    {
+        'keywords': ['猪肉', '排骨'],
+        'food_name': '猪肉',
+        'default_grams': 120,
+        'unit_grams': 120,
+        'units': ['块', '份'],
+        'nutrition_per_100g': {'calories': 395, 'protein': 13.0, 'carbs': 2.0, 'fat': 37.0},
+    },
+    {
+        'keywords': ['鱼', '三文鱼', '鳕鱼'],
+        'food_name': '鱼肉',
+        'default_grams': 120,
+        'unit_grams': 120,
+        'units': ['块', '份'],
+        'nutrition_per_100g': {'calories': 120, 'protein': 20.0, 'carbs': 0.0, 'fat': 4.0},
+    },
+    {
+        'keywords': ['虾'],
+        'food_name': '虾',
+        'default_grams': 100,
+        'unit_grams': 100,
+        'units': ['份'],
+        'nutrition_per_100g': {'calories': 99, 'protein': 24.0, 'carbs': 0.2, 'fat': 0.3},
+    },
+    {
+        'keywords': ['苹果', 'apple'],
+        'food_name': '苹果',
+        'default_grams': 180,
+        'unit_grams': 180,
+        'units': ['个'],
+        'nutrition_per_100g': {'calories': 52, 'protein': 0.3, 'carbs': 14.0, 'fat': 0.2},
+    },
+    {
+        'keywords': ['香蕉', 'banana'],
+        'food_name': '香蕉',
+        'default_grams': 120,
+        'unit_grams': 120,
+        'units': ['根'],
+        'nutrition_per_100g': {'calories': 89, 'protein': 1.1, 'carbs': 23.0, 'fat': 0.3},
+    },
+    {
+        'keywords': ['咖啡', '拿铁', '美式'],
+        'food_name': '咖啡饮品',
+        'default_grams': 350,
+        'unit_grams': 350,
+        'units': ['杯'],
+        'nutrition_per_100g': {'calories': 35, 'protein': 1.5, 'carbs': 4.5, 'fat': 1.2},
+    },
+    {
+        'keywords': ['奶茶'],
+        'food_name': '奶茶',
+        'default_grams': 500,
+        'unit_grams': 500,
+        'units': ['杯'],
+        'nutrition_per_100g': {'calories': 75, 'protein': 1.0, 'carbs': 15.0, 'fat': 1.2},
+    },
+]
+
+VOICE_EXERCISE_LIBRARY = [
+    {'keywords': ['跑步', '慢跑', '快跑', 'run'], 'exercise_name': '跑步', 'exercise_type': 'aerobic', 'calories_per_min': 10, 'target_muscles': ''},
+    {'keywords': ['快走', '散步', '走路', 'walk'], 'exercise_name': '步行', 'exercise_type': 'aerobic', 'calories_per_min': 4, 'target_muscles': ''},
+    {'keywords': ['骑车', '骑行', '单车', '自行车', 'bike', 'cycling'], 'exercise_name': '骑行', 'exercise_type': 'aerobic', 'calories_per_min': 8, 'target_muscles': ''},
+    {'keywords': ['游泳', 'swim'], 'exercise_name': '游泳', 'exercise_type': 'aerobic', 'calories_per_min': 9, 'target_muscles': ''},
+    {'keywords': ['跳绳'], 'exercise_name': '跳绳', 'exercise_type': 'aerobic', 'calories_per_min': 12, 'target_muscles': ''},
+    {'keywords': ['hiit', '间歇'], 'exercise_name': 'HIIT', 'exercise_type': 'aerobic', 'calories_per_min': 10, 'target_muscles': ''},
+    {'keywords': ['瑜伽', 'yoga'], 'exercise_name': '瑜伽', 'exercise_type': 'aerobic', 'calories_per_min': 4, 'target_muscles': '核心'},
+    {'keywords': ['深蹲', '腿举', '弓步'], 'exercise_name': '腿部力量训练', 'exercise_type': 'strength', 'calories_per_min': 6, 'target_muscles': '腿部,臀部'},
+    {'keywords': ['卧推', '胸推', '俯卧撑'], 'exercise_name': '上肢推训练', 'exercise_type': 'strength', 'calories_per_min': 6, 'target_muscles': '胸部,肩部,肱三头肌'},
+    {'keywords': ['引体向上', '划船', '硬拉'], 'exercise_name': '上肢拉训练', 'exercise_type': 'strength', 'calories_per_min': 6, 'target_muscles': '背部,肱二头肌'},
+]
+
+VOICE_COUNT_MAP = {
+    '半': 0.5,
+    '一': 1,
+    '二': 2,
+    '两': 2,
+    '三': 3,
+    '四': 4,
+    '五': 5,
+    '六': 6,
+    '七': 7,
+    '八': 8,
+    '九': 9,
+    '十': 10,
+}
+
+
+def parse_simple_number(raw_value):
+    if raw_value is None:
+        return None
+    text = str(raw_value).strip()
+    if not text:
+        return None
+    try:
+        return float(text)
+    except Exception:
+        return VOICE_COUNT_MAP.get(text)
+
+
+def extract_duration_minutes_from_text(text):
+    total_minutes = 0.0
+    hour_match = re.search(r'(\d+(?:\.\d+)?)\s*(?:小时|h|hr|hrs)', text, re.IGNORECASE)
+    if hour_match:
+        total_minutes += float(hour_match.group(1)) * 60
+    minute_match = re.search(r'(\d+(?:\.\d+)?)\s*(?:分钟|分|mins?|minutes?)', text, re.IGNORECASE)
+    if minute_match:
+        total_minutes += float(minute_match.group(1))
+    if total_minutes > 0:
+        return int(round(total_minutes))
+    return 0
+
+
+def extract_calories_from_text(text):
+    match = re.search(r'(\d+(?:\.\d+)?)\s*(?:kcal|千卡|大卡|卡路里)', text, re.IGNORECASE)
+    if not match:
+        return 0
+    return clamp_number(match.group(1), default=0, min_value=0, max_value=5000)
+
+
+def extract_weight_from_text(text):
+    match = re.search(r'(\d+(?:\.\d+)?)\s*(?:g|克|kg|公斤|斤|ml|毫升|mL)', text, re.IGNORECASE)
+    if not match:
+        return 0
+    value = float(match.group(1))
+    unit_match = re.search(r'(\d+(?:\.\d+)?)\s*(g|克|kg|公斤|斤|ml|毫升|mL)', text, re.IGNORECASE)
+    unit = (unit_match.group(2).lower() if unit_match else 'g')
+    if unit in ('kg', '公斤'):
+        value *= 1000
+    elif unit == '斤':
+        value *= 500
+    return int(round(value))
+
+
+def extract_count_for_keywords(text, keywords, units):
+    if not keywords or not units:
+        return None
+    keyword_pattern = '(?:' + '|'.join(re.escape(keyword) for keyword in keywords) + ')'
+    unit_pattern = '(?:' + '|'.join(re.escape(unit) for unit in units) + ')'
+    patterns = [
+        rf'([0-9]+(?:\.\d+)?|半|一|二|两|三|四|五|六|七|八|九|十)\s*{unit_pattern}[^\n，。,;；]{{0,8}}{keyword_pattern}',
+        rf'{keyword_pattern}[^\n，。,;；]{{0,8}}([0-9]+(?:\.\d+)?|半|一|二|两|三|四|五|六|七|八|九|十)\s*{unit_pattern}',
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            parsed = parse_simple_number(match.group(1))
+            if parsed is not None:
+                return parsed
+    return None
+
+
+def build_rule_based_voice_result(raw_text):
+    text = clean_text(raw_text, default='', max_len=200).strip()
+    lowered = text.lower()
+    foods = []
+    exercises = []
+    used_food_names = set()
+    used_exercise_names = set()
+
+    explicit_weight = extract_weight_from_text(lowered)
+    explicit_calories = extract_calories_from_text(lowered)
+
+    for entry in VOICE_EXERCISE_LIBRARY:
+        if not any(keyword in lowered for keyword in entry['keywords']):
+            continue
+        exercise_name = entry['exercise_name']
+        if exercise_name in used_exercise_names:
+            continue
+        duration = extract_duration_minutes_from_text(lowered) or 30
+        calories = explicit_calories or clamp_number(
+            round(duration * entry['calories_per_min']),
+            default=0,
+            min_value=0,
+            max_value=3000
+        )
+        exercises.append({
+            'exercise_name': exercise_name,
+            'calories': calories,
+            'duration': duration,
+            'exercise_type': entry['exercise_type'],
+            'target_muscles': entry['target_muscles'],
+        })
+        used_exercise_names.add(exercise_name)
+
+    for entry in VOICE_FOOD_LIBRARY:
+        if not any(keyword in lowered for keyword in entry['keywords']):
+            continue
+        food_name = entry['food_name']
+        if food_name in used_food_names:
+            continue
+        count = extract_count_for_keywords(lowered, entry['keywords'], entry.get('units') or [])
+        grams = explicit_weight or 0
+        if not grams and count and entry.get('unit_grams'):
+            grams = int(round(float(count) * float(entry['unit_grams'])))
+        if not grams:
+            grams = int(entry['default_grams'])
+        nutrition = entry['nutrition_per_100g']
+        scale = grams / 100.0
+        foods.append({
+            'food_name': food_name,
+            'calories': clamp_number(round(nutrition['calories'] * scale), default=0, min_value=0, max_value=5000),
+            'protein': clamp_number(round(nutrition['protein'] * scale, 1), default=0, min_value=0, max_value=300, integer=False),
+            'carbs': clamp_number(round(nutrition['carbs'] * scale, 1), default=0, min_value=0, max_value=500, integer=False),
+            'fat': clamp_number(round(nutrition['fat'] * scale, 1), default=0, min_value=0, max_value=300, integer=False),
+            'weight': clamp_number(grams, default=100, min_value=1, max_value=2000),
+        })
+        used_food_names.add(food_name)
+
+    if not foods and not exercises and text:
+        inferred_type = 'exercise' if any(keyword in lowered for keyword in ['运动', '训练', '跑', '走', '骑', '游泳', '深蹲', '卧推']) else 'food'
+        if inferred_type == 'exercise':
+            duration = extract_duration_minutes_from_text(lowered) or 30
+            exercises.append({
+                'exercise_name': text[:40],
+                'calories': explicit_calories or clamp_number(duration * 6, default=180, min_value=0, max_value=3000),
+                'duration': duration,
+                'exercise_type': 'aerobic',
+                'target_muscles': '',
+            })
+        else:
+            foods.append({
+                'food_name': text[:40],
+                'calories': 0,
+                'protein': 0,
+                'carbs': 0,
+                'fat': 0,
+                'weight': explicit_weight or 100,
+            })
+
+    if foods and exercises:
+        data_type = 'mixed'
+    elif exercises:
+        data_type = 'exercise'
+    else:
+        data_type = 'food'
+
+    return {
+        'type': data_type,
+        'foods': foods,
+        'exercises': exercises,
+    }
+
 @app.route('/api/voice-input', methods=['POST'])
 @token_or_local_app_required
 @limiter.limit("10 per minute", key_func=user_or_ip_limit_key)
 def voice_input():
-    """语音输入：用 Gemini 自动分辨运动与食物并解析提取"""
+    """Voice input: use LLM parsing first, then fall back to rule-based parsing."""
     data = request.json or {}
-    text = data.get('text', '')
-    is_app = data.get('is_app') == True
+    text = clean_text(data.get('text', ''), default='', max_len=MAX_TEXT_INPUT_CHARS)
     username = get_current_username()
     use_premium = request_premium_enabled(username, data)
 
     if not text:
-        return jsonify({"error": "语音文本为空"}), 400
+        return jsonify({"error": "\u8bed\u97f3\u6587\u672c\u4e3a\u7a7a"}), 400
     if len(text) > MAX_TEXT_INPUT_CHARS:
         return jsonify({"error": "Input text is too long"}), 413
 
-    prompt = f"""分析用户通过语音或文本输入的内容，自动识别并提取其中的食物摄入信息与运动消耗信息。
-用户输入："{text}"
+    prompt = f"""Analyze the user's food and exercise intake from the following voice or text input. The input may be in Chinese. Return strict JSON only with no markdown.
+User input: "{text}"
 
-请返回符合以下格式的 JSON 对象：
+Schema:
 {{
-  "type": "food" | "exercise" | "mixed", // 如果仅包含饮食返回 "food"，仅包含运动返回 "exercise"，两者皆有返回 "mixed"
-  "foods": [ // 如果没有饮食信息，返回空数组 []
+  "type": "food" | "exercise" | "mixed",
+  "foods": [
     {{
-      "food_name": "食物名称",
-      "calories": 估计热量(大卡),
-      "protein": 估计蛋白质(克),
-      "carbs": 估计碳水(克),
-      "fat": 估计脂肪(克),
-      "weight": 估计重量(克)
+      "food_name": "string",
+      "calories": 0,
+      "protein": 0,
+      "carbs": 0,
+      "fat": 0,
+      "weight": 0
     }}
   ],
-  "exercises": [ // 如果没有运动信息，返回空数组 []
+  "exercises": [
     {{
-      "exercise_name": "运动名称",
-      "calories": 估计运动消耗热量(大卡。如果输入没有提及消耗，请根据标准 MET 和时长估算),
-      "duration": 运动时长(分钟),
-      "exercise_type": "strength" | "aerobic", // 力量训练/抗阻训练返回 "strength"，有氧运动返回 "aerobic"
-      "target_muscles": ["胸肌", "三头肌"] // 如果是力量训练，列出此次训练涉及的目标肌群（例如：胸部、背部、肩部、腿部、肱二头肌、肱三头肌、核心等），如果是纯有氧运动，返回空数组 []
+      "exercise_name": "string",
+      "calories": 0,
+      "duration": 0,
+      "exercise_type": "strength" | "aerobic",
+      "target_muscles": ["string"]
     }}
   ]
-}}
-Strictly output JSON only, do not add any explanation or markdown formatting."""
+}}"""
 
     try:
         parse_meta = {}
+        result_text = ''
         try:
-            voice_response = call_text_reasoning_llm(prompt_text=prompt, use_premium=use_premium, temperature=0.1, return_metadata=True)
+            voice_response = call_text_reasoning_llm(
+                prompt_text=prompt,
+                use_premium=use_premium,
+                temperature=0.1,
+                return_metadata=True
+            )
             result_text = voice_response.get('text', '')
             parse_meta = {k: voice_response.get(k) for k in ('provider', 'model', 'latency_ms', 'fallback_trace')}
         except LLMChainExhaustedError as text_chain_err:
             print(f"Voice text-chain exhausted: {text_chain_err}")
-            return jsonify({
-                "error": "语音记录分析暂时不可用，请稍后再试",
-                "analysis_meta": {
-                    "provider": "degraded",
-                    "model": "text_chain_exhausted",
-                    "fallback_trace": list(text_chain_err.fallback_trace or []),
-                    "premium_requested": bool(use_premium),
-                }
-            }), 503
+            parse_meta = {
+                "provider": "rule_based",
+                "model": "voice_parser_fallback",
+                "latency_ms": 0,
+                "fallback_trace": list(text_chain_err.fallback_trace or []) + ["rule_based:ok"],
+            }
+
         parsed = parse_voice_input_result(result_text)
         if parsed is None or (not parsed['foods'] and not parsed['exercises']):
-            return jsonify({"error": "未能提取出任何有效的食物或运动信息，请重新描述"}), 400
+            parsed = build_rule_based_voice_result(text)
+            parse_meta = {
+                "provider": "rule_based",
+                "model": "voice_parser_fallback",
+                "latency_ms": 0,
+                "fallback_trace": list(parse_meta.get('fallback_trace') or []) + ["rule_based:ok"],
+            }
+        if parsed is None or (not parsed['foods'] and not parsed['exercises']):
+            return jsonify({"error": "\u672a\u80fd\u63d0\u53d6\u51fa\u6709\u6548\u7684\u98df\u7269\u6216\u8fd0\u52a8\u4fe1\u606f\uff0c\u8bf7\u6362\u4e00\u79cd\u8bf4\u6cd5\u518d\u8bd5"}), 400
 
         session_id = str(uuid.uuid4())
         saved_foods = []
         saved_exercises = []
 
-        # Generate temporary IDs for the client to store locally.
-        for i, food in enumerate(parsed['foods']):
+        for food in parsed['foods']:
             food['id'] = uuid.uuid4().hex
             food['portion'] = 1.0
             saved_foods.append(food)
-            
-        for i, ex in enumerate(parsed['exercises']):
+
+        for ex in parsed['exercises']:
             ex['id'] = uuid.uuid4().hex
             saved_exercises.append(ex)
 
@@ -2822,7 +3350,31 @@ Strictly output JSON only, do not add any explanation or markdown formatting."""
 
     except Exception as e:
         print(f"Voice input error: {e}")
-        return jsonify({"error": "语音识别失败，请稍后重试"}), 500
+        parsed = build_rule_based_voice_result(text)
+        if parsed and (parsed['foods'] or parsed['exercises']):
+            session_id = str(uuid.uuid4())
+            for food in parsed['foods']:
+                food['id'] = uuid.uuid4().hex
+                food['portion'] = 1.0
+            for ex in parsed['exercises']:
+                ex['id'] = uuid.uuid4().hex
+            return jsonify({
+                "success": True,
+                "type": parsed['type'],
+                "session_id": session_id,
+                "foods": parsed['foods'],
+                "exercises": parsed['exercises'],
+                "image_url": "",
+                "analysis_meta": {
+                    "provider": "rule_based",
+                    "model": "voice_parser_exception_fallback",
+                    "latency_ms": 0,
+                    "fallback_trace": ["rule_based:exception_fallback"],
+                    "premium_requested": bool(use_premium),
+                    "premium_used": False,
+                }
+            })
+        return jsonify({"error": "\u8bed\u97f3\u8bc6\u522b\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5"}), 500
 
 
 @app.route('/api/speech-to-text', methods=['POST'])
@@ -2863,7 +3415,7 @@ def speech_to_text():
                 errors.append(str(openrouter_err))
                 print(f"OpenRouter STT error: {openrouter_err}")
 
-        if not transcription and client:
+        if not transcription and GEMINI_API_KEY:
             try:
                 transcription = transcribe_audio_with_google(audio_bytes, mime_type)
             except Exception as google_err:
@@ -3130,6 +3682,65 @@ def weekly_report():
     return jsonify({"data": report})
 
 
+def build_rule_based_coach_reply(
+    user_message,
+    total_cal,
+    total_pro,
+    total_carbs,
+    total_fat,
+    total_water,
+    total_burn,
+    total_duration,
+    cal_target,
+    pro_target,
+    remaining_cal,
+    protein_gap,
+):
+    message = clean_text(user_message, default='', max_len=160).lower()
+    safe_cal_target = clamp_number(cal_target, default=2000, min_value=1, max_value=10000)
+    safe_pro_target = clamp_number(pro_target, default=120, min_value=1, max_value=500)
+    tips = []
+
+    if total_cal <= 0:
+        tips.append("\u4eca\u5929\u8fd8\u6ca1\u6709\u8bb0\u5f55\u996e\u98df\uff0c\u5148\u62cd\u4e00\u9910\u6216\u8865\u4e00\u6761\u6587\u5b57/\u8bed\u97f3\u8bb0\u5f55\uff0c\u6211\u624d\u80fd\u7ed9\u4f60\u66f4\u51c6\u786e\u7684\u5efa\u8bae\u3002")
+    elif remaining_cal >= 350:
+        tips.append(f"\u4eca\u5929\u8fd8\u5269\u7ea6 {remaining_cal} kcal\uff0c\u53ef\u628a\u4e0b\u4e00\u9910\u91cd\u70b9\u653e\u5728\u9ad8\u86cb\u767d\u548c\u852c\u83dc\u4e0a\uff0c\u4e3b\u98df\u6309\u62f3\u5934\u5927\u5c0f\u63a7\u5236\u3002")
+    elif remaining_cal >= 0:
+        tips.append(f"\u4eca\u5929\u8fd8\u5269\u7ea6 {remaining_cal} kcal\uff0c\u540e\u9762\u7684\u52a0\u9910\u5c3d\u91cf\u6e05\u6de1\uff0c\u4f18\u5148\u65e0\u7cd6\u996e\u54c1\u3001\u9178\u5976\u6216\u6c34\u679c\u3002")
+    else:
+        tips.append(f"\u4eca\u5929\u5df2\u8d85\u76ee\u6807\u7ea6 {abs(remaining_cal)} kcal\uff0c\u63a5\u4e0b\u6765\u4e00\u9910\u5c3d\u91cf\u4ee5\u852c\u83dc\u3001\u7626\u8089\u548c\u65e0\u7cd6\u996e\u54c1\u4e3a\u4e3b\u3002")
+
+    if protein_gap >= 35:
+        tips.append(f"\u86cb\u767d\u8d28\u8fd8\u5dee\u7ea6 {protein_gap}g\uff0c\u53ef\u4ee5\u8865\u9e21\u80f8\u8089\u3001\u9e21\u86cb\u3001\u65e0\u7cd6\u9178\u5976\u3001\u725b\u5976\u6216\u8c46\u8150\u3002")
+    elif protein_gap > 0:
+        tips.append(f"\u86cb\u767d\u8d28\u8fd8\u5dee\u7ea6 {protein_gap}g\uff0c\u665a\u4e9b\u53ef\u4ee5\u8865\u4e00\u4efd\u9ad8\u86cb\u767d\u5c0f\u98df\u3002")
+    else:
+        tips.append("\u4eca\u5929\u86cb\u767d\u8d28\u57fa\u672c\u8fbe\u6807\uff0c\u63a5\u4e0b\u6765\u66f4\u6ce8\u610f\u603b\u70ed\u91cf\u548c\u6cb9\u8102\u63a7\u5236\u5c31\u884c\u3002")
+
+    if total_water < 1200:
+        tips.append(f"\u5f53\u524d\u996e\u6c34\u7ea6 {total_water} ml\uff0c\u4eca\u5929\u5efa\u8bae\u518d\u8865 600-1000 ml\u3002")
+
+    if total_burn > 0:
+        tips.append(f"\u4eca\u5929\u8fd0\u52a8\u4e86 {total_duration} \u5206\u949f\uff0c\u6d88\u8017\u7ea6 {total_burn} kcal\uff0c\u6062\u590d\u671f\u4f18\u5148\u8865\u86cb\u767d\u8d28\u548c\u6c34\u5206\u3002")
+
+    if any(keyword in message for keyword in ['\u65e9\u9910', '\u65e9\u4e0a']):
+        tips.append("\u65e9\u9910\u5efa\u8bae\u4f18\u5148\u86cb\u767d\u8d28 + \u4e3b\u98df + \u6c34\u679c\uff0c\u522b\u53ea\u559d\u5496\u5561\u6216\u5403\u751c\u9762\u5305\u3002")
+    elif any(keyword in message for keyword in ['\u5348\u9910', '\u4e2d\u5348']):
+        tips.append("\u5348\u9910\u5c3d\u91cf\u505a\u5230\u4e00\u638c\u86cb\u767d\u3001\u4e00\u62f3\u4e3b\u98df\u3001\u4e24\u62f3\u852c\u83dc\uff0c\u9971\u8179\u611f\u548c\u7a33\u5b9a\u8840\u7cd6\u90fd\u4f1a\u66f4\u597d\u3002")
+    elif any(keyword in message for keyword in ['\u665a\u9910', '\u591c\u5bb5', '\u665a\u4e0a']):
+        tips.append("\u665a\u9910\u5c3d\u91cf\u6e05\u6de1\u4e00\u70b9\uff0c\u4e3b\u98df\u548c\u6cb9\u8102\u522b\u5806\u592a\u591a\uff0c\u7761\u524d\u907f\u514d\u9ad8\u7cd6\u96f6\u98df\u3002")
+    elif any(keyword in message for keyword in ['\u51cf\u8102', '\u63a7\u5236', '\u7626']):
+        tips.append(f"\u51cf\u8102\u9636\u6bb5\u5148\u7a33\u4f4f\u70ed\u91cf\u76ee\u6807 {safe_cal_target} kcal\uff0c\u540c\u65f6\u5c3d\u91cf\u628a\u86cb\u767d\u8d28\u5403\u5230 {safe_pro_target}g \u5de6\u53f3\u3002")
+    elif any(keyword in message for keyword in ['\u589e\u808c', '\u8bad\u7ec3']):
+        tips.append("\u8bad\u7ec3\u65e5\u53ef\u4ee5\u628a\u4e3b\u98df\u548c\u86cb\u767d\u8d28\u5b89\u6392\u5728\u8bad\u7ec3\u524d\u540e\uff0c\u5e2e\u52a9\u6062\u590d\u548c\u7ef4\u6301\u529b\u91cf\u8868\u73b0\u3002")
+
+    closing = "\u4f60\u7ee7\u7eed\u8bb0\u5f55\u4e0b\u4e00\u9910\u6216\u4e00\u6bb5\u8fd0\u52a8\uff0c\u6211\u4f1a\u6309\u65b0\u6570\u636e\u7acb\u523b\u5e2e\u4f60\u8c03\u6574\u5efa\u8bae\u3002"
+    reply = "\u5148\u7ed9\u4f60\u4e00\u4e2a\u53ef\u6267\u884c\u5efa\u8bae\uff1a\n" + "\n".join(f"{idx + 1}. {tip}" for idx, tip in enumerate(tips[:3]))
+    if len(reply) < 240:
+        reply = f"{reply}\n{closing}"
+    return reply[:320]
+
+
 @app.route('/api/coach/chat', methods=['POST'])
 @token_required
 @limiter.limit("10 per minute", key_func=user_or_ip_limit_key)
@@ -3284,20 +3895,52 @@ def coach_chat():
             return_metadata=True,
         )
         response_text = coach_response.get('text', '')
+        if not response_text.strip():
+            raise RuntimeError('Coach response is empty')
     except LLMChainExhaustedError as text_chain_err:
         print(f"Coach text-chain exhausted: {text_chain_err}")
-        return jsonify({
-            "error": "AI 营养教练暂时不可用，请稍后再试",
-            "analysis_meta": {
-                "provider": "degraded",
-                "model": "text_chain_exhausted",
-                "fallback_trace": list(text_chain_err.fallback_trace or []),
-                "premium_requested": bool(use_premium),
-            }
-        }), 503
+        response_text = build_rule_based_coach_reply(
+            user_message=user_message,
+            total_cal=total_cal,
+            total_pro=total_pro,
+            total_carbs=total_carbs,
+            total_fat=total_fat,
+            total_water=total_water,
+            total_burn=total_burn,
+            total_duration=total_duration,
+            cal_target=cal_target,
+            pro_target=pro_target,
+            remaining_cal=remaining_cal,
+            protein_gap=protein_gap,
+        )
+        coach_response = {
+            "provider": "rule_based",
+            "model": "coach_fallback",
+            "latency_ms": 0,
+            "fallback_trace": list(text_chain_err.fallback_trace or []) + ["rule_based:ok"],
+        }
     except Exception as api_err:
         print(f"Coach chat error: {api_err}")
-        return jsonify({"error": "AI 营养教练服务繁忙，请稍后再试。"}), 500
+        response_text = build_rule_based_coach_reply(
+            user_message=user_message,
+            total_cal=total_cal,
+            total_pro=total_pro,
+            total_carbs=total_carbs,
+            total_fat=total_fat,
+            total_water=total_water,
+            total_burn=total_burn,
+            total_duration=total_duration,
+            cal_target=cal_target,
+            pro_target=pro_target,
+            remaining_cal=remaining_cal,
+            protein_gap=protein_gap,
+        )
+        coach_response = {
+            "provider": "rule_based",
+            "model": "coach_exception_fallback",
+            "latency_ms": 0,
+            "fallback_trace": ["rule_based:exception_fallback"],
+        }
 
     return jsonify({
         "success": True,
