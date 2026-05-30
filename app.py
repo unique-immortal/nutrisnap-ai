@@ -33,6 +33,7 @@ import threading
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 ENV_PATH = os.path.join(APP_DIR, '.env')
+load_dotenv(ENV_PATH)
 
 # 显式从项目目录加载 .env，避免因为启动目录不同导致本地配置未生效。
 load_dotenv(ENV_PATH)
@@ -211,10 +212,20 @@ import base64
 
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
 OPENROUTER_API_KEY = os.environ.get('OPENROUTER_API_KEY')
-SPEECH_TO_TEXT_MODEL = os.environ.get('OPENROUTER_STT_MODEL', 'openai/whisper-large-v3')
+SPEECH_TO_TEXT_MODEL = os.environ.get(
+    'OPENROUTER_STT_MODEL',
+    'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free'
+).strip()
+if SPEECH_TO_TEXT_MODEL.lower() in ('openai/whisper-large-v3', 'whisper-large-v3'):
+    SPEECH_TO_TEXT_MODEL = 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free'
+elif SPEECH_TO_TEXT_MODEL and ':' not in SPEECH_TO_TEXT_MODEL:
+    SPEECH_TO_TEXT_MODEL = f"{SPEECH_TO_TEXT_MODEL}:free"
+elif SPEECH_TO_TEXT_MODEL and not SPEECH_TO_TEXT_MODEL.lower().endswith(':free'):
+    SPEECH_TO_TEXT_MODEL = SPEECH_TO_TEXT_MODEL.rsplit(':', 1)[0] + ':free'
 SPEECH_TO_TEXT_LANGUAGE = os.environ.get('SPEECH_TO_TEXT_LANGUAGE', 'zh')
 USE_OPENROUTER_LLM = os.environ.get('USE_OPENROUTER_LLM', 'false').strip().lower() in ('1', 'true', 'yes', 'on')
-ENABLE_OPENROUTER_STT = os.environ.get('ENABLE_OPENROUTER_STT', 'false').strip().lower() in ('1', 'true', 'yes', 'on')
+DISABLE_OPENROUTER_STT = os.environ.get('DISABLE_OPENROUTER_STT', 'false').strip().lower() in ('1', 'true', 'yes', 'on')
+ENABLE_OPENROUTER_STT = not DISABLE_OPENROUTER_STT
 OPENROUTER_ALLOW_PROVIDER_FALLBACKS = os.environ.get('OPENROUTER_ALLOW_PROVIDER_FALLBACKS', 'false').strip().lower() in ('1', 'true', 'yes', 'on')
 OPENROUTER_CHAT_TIMEOUT_SECONDS = float(os.environ.get('OPENROUTER_CHAT_TIMEOUT_SECONDS', '8'))
 OPENROUTER_STT_TIMEOUT_SECONDS = float(os.environ.get('OPENROUTER_STT_TIMEOUT_SECONDS', '20'))
@@ -818,6 +829,24 @@ def call_llm(
     or fall back to official Google Gemini API (using client.models.generate_content).
     """
     fallback_trace = []
+    if preferred_provider == 'google':
+        if GEMINI_API_KEY and not provider_cooldown_info('google'):
+            return call_google_generate_content(
+                prompt_text=prompt_text,
+                image=image,
+                audio=audio,
+                mime_type=mime_type,
+                history=history,
+                system_instruction=system_instruction,
+                temperature=temperature,
+                return_metadata=return_metadata,
+            )
+        raise LLMChainExhaustedError(
+            "Google provider explicitly requested but unavailable.",
+            fallback_trace=["google:unavailable"],
+            last_error=RuntimeError("Google provider unavailable or cooling down."),
+        )
+
     if premium and preferred_provider != 'google' and audio is None and premium_provider_available():
         try:
             return call_openai_compatible_llm(
@@ -963,7 +992,8 @@ def call_llm(
                         fallback_trace.append(f"{model}:{status_label}")
                         record_upstream_call('openrouter', model, status_label, latency_ms, error_msg)
                         cooldown_seconds = parse_openrouter_reset_seconds(res, error_msg)
-                        mark_provider_cooldown('openrouter', cooldown_seconds, error_msg)
+                        if cooldown_seconds >= 300:
+                            mark_provider_cooldown('openrouter', cooldown_seconds, error_msg)
                         print(
                             f"OpenRouter free-tier request cap hit on {model}; "
                             f"cooldown={cooldown_seconds}s error={error_msg}"
@@ -1270,6 +1300,81 @@ def transcribe_audio_with_google(audio_bytes, mime_type):
     return (result_text or '').strip()
 
 
+def transcribe_audio_with_openrouter(audio_bytes, mime_type, filename=''):
+    cooldown_info = provider_cooldown_info('openrouter')
+    if cooldown_info:
+        reason = cooldown_info.get('reason') or 'cooldown active'
+        raise RuntimeError(f"OpenRouter provider cooldown active: {reason}")
+    if not OPENROUTER_API_KEY:
+        raise ValueError("OPENROUTER_API_KEY is not configured")
+
+    audio_format = normalize_audio_format(mime_type, filename)
+    audio_b64 = base64.b64encode(audio_bytes).decode('utf-8')
+    prompt = (
+        "请把这段中文录音直接转写成用户原话，场景是饮食和运动记录。"
+        "只输出转写文本，不要解释、总结、Markdown 或营养结论。"
+        "保留食物名、品牌名、数量、单位、无糖、去皮、半个、大杯、运动时长等关键信息。"
+        "如果没有有效说话内容，直接输出空字符串。"
+    )
+    payload = {
+        "model": SPEECH_TO_TEXT_MODEL,
+        "messages": [{
+            "role": "user",
+            "content": [
+                {"type": "text", "text": prompt},
+                {
+                    "type": "input_audio",
+                    "input_audio": {
+                        "data": audio_b64,
+                        "format": audio_format,
+                    },
+                },
+            ],
+        }],
+        "temperature": 0,
+        "provider": openrouter_provider_config(),
+    }
+    headers = {
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://nutrisnap.ai",
+        "X-Title": "NutriSnap AI",
+    }
+
+    started_at = time.perf_counter()
+    res = requests.post(
+        "https://openrouter.ai/api/v1/chat/completions",
+        headers=headers,
+        json=payload,
+        timeout=OPENROUTER_STT_TIMEOUT_SECONDS,
+    )
+    latency_ms = int((time.perf_counter() - started_at) * 1000)
+    try:
+        res_json = res.json()
+    except Exception:
+        res_json = {}
+
+    if res.status_code == 200 and 'choices' in res_json:
+        text = extract_chat_completion_text(res_json)
+        if text:
+            record_upstream_call('openrouter', SPEECH_TO_TEXT_MODEL, 'ok', latency_ms)
+            return text
+        record_upstream_call('openrouter', SPEECH_TO_TEXT_MODEL, 'empty', latency_ms)
+        raise RuntimeError("OpenRouter STT returned empty text")
+
+    error_msg = None
+    if isinstance(res_json.get("error"), dict):
+        error_msg = res_json["error"].get("message")
+    elif isinstance(res_json.get("error"), str):
+        error_msg = res_json.get("error")
+    if not error_msg:
+        error_msg = (res.text or "").strip()[:500] or 'unknown'
+    record_upstream_call('openrouter', SPEECH_TO_TEXT_MODEL, f"http_{res.status_code}", latency_ms, error_msg)
+    if res.status_code in (401, 403) or 'user not found' in str(error_msg).lower():
+        mark_provider_cooldown('openrouter', PROVIDER_COOLDOWN_SECONDS['openrouter'], error_msg)
+    raise RuntimeError(f"OpenRouter STT failed ({res.status_code}): {error_msg}")
+
+
 def run_speech_to_text_pipeline(audio_bytes, mime_type, filename='', client_action_id=''):
     transcription = ""
     errors = []
@@ -1288,10 +1393,10 @@ def run_speech_to_text_pipeline(audio_bytes, mime_type, filename='', client_acti
     )
 
     stt_attempts = []
-    if GEMINI_API_KEY:
-        stt_attempts.append(("google", lambda: transcribe_audio_with_google(audio_bytes, mime_type)))
     if OPENROUTER_API_KEY and ENABLE_OPENROUTER_STT:
         stt_attempts.append(("openrouter", lambda: transcribe_audio_with_openrouter(audio_bytes, mime_type, filename)))
+    if GEMINI_API_KEY:
+        stt_attempts.append(("google", lambda: transcribe_audio_with_google(audio_bytes, mime_type)))
 
     for provider_name, runner in stt_attempts:
         if transcription:
@@ -2504,7 +2609,11 @@ def enrich_foods_with_analysis_metadata(foods, visual_data, visual_meta, nutriti
 def analyze_food_with_two_stage_pipeline(img, use_premium=False):
     pipeline_started_at = time.perf_counter()
     vision_models, visual_timeouts = get_vision_chain_models()
-    visual_attempt_cap = capped_attempt_count(vision_models, visual_timeouts)
+    visual_attempt_cap = capped_attempt_count(
+        vision_models,
+        visual_timeouts,
+        configured_cap=len(vision_models),
+    )
     nutrition_timeouts = fit_timeouts_to_deadline(
         OPENROUTER_NUTRITION_TIMEOUTS,
         OPENROUTER_NUTRITION_HARD_DEADLINE_SECONDS
@@ -2512,20 +2621,39 @@ def analyze_food_with_two_stage_pipeline(img, use_premium=False):
     nutrition_models = OPENROUTER_NUTRITION_MODELS[:len(nutrition_timeouts) or len(OPENROUTER_NUTRITION_MODELS)]
     nutrition_attempt_cap = capped_attempt_count(nutrition_models, nutrition_timeouts)
     visual_prompt = build_visual_prompt()
-    visual_response = call_llm(
-        prompt_text=visual_prompt,
-        image=img,
-        temperature=0.1,
-        openrouter_models=vision_models,
-        openrouter_max_attempts=visual_attempt_cap,
-        openrouter_timeout=visual_timeouts[0] if visual_timeouts else OPENROUTER_CHAT_TIMEOUT_SECONDS,
-        openrouter_timeouts=visual_timeouts,
-        premium=use_premium,
-        premium_models=PREMIUM_VISION_MODELS,
-        premium_timeout=PREMIUM_AI_TIMEOUT_SECONDS,
-        allow_google_fallback=False,
-        return_metadata=True,
-    )
+    try:
+        visual_response = call_llm(
+            prompt_text=visual_prompt,
+            image=img,
+            temperature=0.1,
+            openrouter_models=vision_models,
+            openrouter_max_attempts=visual_attempt_cap,
+            openrouter_timeout=visual_timeouts[0] if visual_timeouts else OPENROUTER_CHAT_TIMEOUT_SECONDS,
+            openrouter_timeouts=visual_timeouts,
+            premium=use_premium,
+            premium_models=PREMIUM_VISION_MODELS,
+            premium_timeout=PREMIUM_AI_TIMEOUT_SECONDS,
+            allow_google_fallback=False,
+            return_metadata=True,
+        )
+    except LLMChainExhaustedError as visual_err:
+        fallback_trace = list(visual_err.fallback_trace or [])
+        if (
+            GEMINI_API_KEY
+            and fallback_trace
+            and all(status.startswith('http_429') for status in attempted_statuses_for_models(fallback_trace, vision_models))
+            and not provider_cooldown_info('google')
+        ):
+            print("OpenRouter vision free chain hit 429; using Google vision fallback.")
+            visual_response = call_google_generate_content(
+                prompt_text=visual_prompt,
+                image=img,
+                temperature=0.1,
+                return_metadata=True,
+                fallback_trace=fallback_trace + ['google_vision_fallback:because_openrouter_429'],
+            )
+        else:
+            raise
     visual_meta = {k: visual_response.get(k) for k in ('provider', 'model', 'latency_ms', 'fallback_trace')}
     visual_data = normalize_visual_observations(parse_json_payload(visual_response.get('text')))
     if not visual_data:
