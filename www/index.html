@@ -4400,7 +4400,7 @@ html.dark .history-empty-panel {
       </div>
         <div>
           <h3 class="font-headline-md text-headline-md text-on-background">NutriSnap AI</h3>
-            <p class="font-label-md text-label-md text-outline" id="aboutAppVersion">v5.6.45</p>
+<p class="font-label-md text-label-md text-outline" id="aboutAppVersion">v5.6.47</p>
         </div>
       </div>
     <p class="font-body-md text-body-md text-on-surface-variant mb-6">基于 Gemini AI 的智能饮食记录工具。支持拍照多食物识别、语音输入、分量调节、每周营养报告。</p>
@@ -4750,7 +4750,7 @@ html.dark .history-empty-panel {
 <script>
 // ===================== CONFIG =====================
 const API_BASE = "";
-const CLIENT_VERSION = "v5.6.45";
+const CLIENT_VERSION = "v5.6.47";
 
 // Native preferences helper to survive app process kills on mobile
 const NativeStorage = {
@@ -4823,20 +4823,30 @@ async function safeFetchJSON(url, options = {}) {
       }, 100);
     }
     let errMsg = `HTTP error! status: ${response.status}`;
+    let errCode = '';
+    let errPayload = null;
     try {
       const contentType = response.headers.get('content-type') || '';
       if (contentType.includes('application/json')) {
         const errJson = await response.json();
+        errPayload = errJson;
         if (errJson && errJson.error) {
           errMsg = errJson.error;
         } else if (errJson && errJson.message) {
           errMsg = errJson.message;
         }
+        if (errJson && errJson.error_code) {
+          errCode = errJson.error_code;
+        }
       }
     } catch (e) {
       // ignore
     }
-    throw new Error(errMsg);
+    const error = new Error(errMsg);
+    error.status = response.status;
+    if (errCode) error.code = errCode;
+    if (errPayload) error.payload = errPayload;
+    throw error;
   }
   const contentType = response.headers.get('content-type') || '';
   if (!contentType.includes('application/json')) {
@@ -4856,6 +4866,24 @@ let macroChart = null;
 let reportWeightChart = null;
 let weightChartInstance = null;
 let activeChartTab = 'calorie';
+let currentVoiceActionId = '';
+
+function createClientActionId(prefix = 'action') {
+  const rand = Math.random().toString(36).slice(2, 8);
+  return `${prefix}_${Date.now()}_${rand}`;
+}
+
+function logActionAnalysisMeta(actionName, payload) {
+  const meta = payload && payload.analysis_meta;
+  if (!meta) return;
+  console.log(`[${actionName}] analysis_meta`, {
+    client_action_id: meta.client_action_id || '',
+    upstream_call_count: meta.upstream_call_count,
+    upstream_success_count: meta.upstream_success_count,
+    upstream_calls_by_provider: meta.upstream_calls_by_provider,
+    upstream_calls: meta.upstream_calls
+  });
+}
 let chatHistory = [];
 let pendingResult = { foods: [], exercises: [], source: '', session_id: '' };
 let isVoiceInputFlow = false;
@@ -4895,6 +4923,19 @@ function normalizeErrorMessage(err, fallback = '\u64cd\u4f5c\u5931\u8d25\uff0c\u
     return '\u7f51\u7edc\u8fde\u63a5\u5f02\u5e38\uff0c\u8bf7\u68c0\u67e5\u7f51\u7edc\u540e\u91cd\u8bd5';
   }
   return msg || fallback;
+}
+
+function resolveVoiceErrorMessage(err, fallback = '语音分析请求失败，请改用文字记录。') {
+  if (err && err.code === 'stt_unavailable') {
+    return '当前语音转写服务暂时繁忙，你可以直接输入这句话继续分析。';
+  }
+  if (err && err.code === 'voice_analysis_incomplete') {
+    return '这段描述没能稳定拆分出具体食物，建议改成更短的说法，例如：3个小翅根，1个去皮鸭腿。';
+  }
+  if (err && err.code === 'manual_food_estimate_invalid') {
+    return 'AI 暂时没给出可信的营养估算，请补充更具体的食物名称或重量后重试。';
+  }
+  return normalizeErrorMessage(err, fallback);
 }
 
 window.addEventListener('unhandledrejection', event => {
@@ -6750,7 +6791,9 @@ async function doAnalyze() {
   document.getElementById('analyzeLoading').classList.remove('hidden');
   const fd = new FormData();
   const analyzeFile = await prepareImageForAnalyze(selectedFile);
+  const actionId = createClientActionId('photo');
   fd.append('image', analyzeFile);
+  fd.append('client_action_id', actionId);
   if (isLocalMode()) {
     fd.append('is_app', 'true');
   }
@@ -6766,6 +6809,7 @@ async function doAnalyze() {
       headers: headers,
       body: fd 
     });
+    logActionAnalysisMeta('photo-analyze', json);
     if (json.success) {
       showResult(json);
     } else {
@@ -7308,6 +7352,11 @@ function closeManualFoodModal() {
   const modal = document.getElementById('manualFoodModal');
   modal.style.display = 'none';
   modal.classList.add('hidden');
+  modal.classList.remove('flex');
+  document.getElementById('foodSearchResults').classList.add('hidden');
+  document.getElementById('foodSearchStatus').classList.add('hidden');
+  document.getElementById('barcodeScannerContainer').classList.add('hidden');
+  stopBarcodeScan();
 }
 
 function fillManualFoodPreset(name, calories, protein, carbs, fat, weight) {
@@ -8011,6 +8060,7 @@ async function stopVoiceInput() {
 }
 
 async function transcribeAudio(blob, mimeType) {
+  currentVoiceActionId = createClientActionId('voice');
   document.getElementById('voiceListening').classList.add('hidden');
   document.getElementById('voiceProcessing').classList.remove('hidden');
   hideVoiceFallback();
@@ -8024,11 +8074,46 @@ async function transcribeAudio(blob, mimeType) {
     return;
   }
 
-  const formData = new FormData();
   const filename = mimeType.includes('mp4') ? 'audio.mp4' : 'audio.webm';
-  formData.append('audio', blob, filename);
-  if (isLocalMode()) {
-    formData.append('is_app', 'true');
+  const buildVoiceFormData = () => {
+    const fd = new FormData();
+    fd.append('audio', blob, filename);
+    fd.append('client_action_id', currentVoiceActionId);
+    if (isLocalMode()) {
+      fd.append('is_app', 'true');
+    }
+    if (wantsPremiumAI()) {
+      fd.append('premium_ai', 'true');
+    }
+    return fd;
+  };
+
+  try {
+    const directJson = await safeFetchJSON(API_BASE + '/api/voice-audio', {
+      method: 'POST',
+      headers: (() => {
+        const token = localStorage.getItem('authToken');
+        const headers = token ? { Authorization: `Bearer ${token}` } : {};
+        headers['X-Client-Action-Id'] = currentVoiceActionId;
+        return headers;
+      })(),
+      body: buildVoiceFormData()
+    });
+    console.log('[voice-audio] result', {
+      client_action_id: currentVoiceActionId,
+      stt_meta: directJson.stt_meta || null,
+      analysis_meta: directJson.analysis_meta || null
+    });
+    if (directJson.success) {
+      voiceTextForDisplay = directJson.transcription || localText || '';
+      logActionAnalysisMeta('voice-audio', directJson);
+      closeVoiceModal();
+      showResult(directJson);
+      return;
+    }
+    console.warn('[voice-audio] direct route returned non-success, falling back to legacy flow', directJson);
+  } catch (directErr) {
+    console.error('Voice audio direct error, falling back to legacy flow:', directErr);
   }
 
   try {
@@ -8036,9 +8121,15 @@ async function transcribeAudio(blob, mimeType) {
       method: 'POST',
       headers: (() => {
         const token = localStorage.getItem('authToken');
-        return token ? { Authorization: `Bearer ${token}` } : {};
+        const headers = token ? { Authorization: `Bearer ${token}` } : {};
+        headers['X-Client-Action-Id'] = currentVoiceActionId;
+        return headers;
       })(),
-      body: formData
+      body: buildVoiceFormData()
+    });
+    console.log('[voice-stt] stt_meta', {
+      client_action_id: currentVoiceActionId,
+      stt_meta: json.stt_meta || null
     });
     if (json.text) {
       document.getElementById('voiceFinalText').textContent = '"' + json.text + '"';
@@ -8051,7 +8142,7 @@ async function transcribeAudio(blob, mimeType) {
       setTimeout(() => sendVoiceText(localText), 350);
     } else {
       isVoiceRecording = false;
-      showVoiceFallback(json.error || '当前语音转写暂不可用，可直接改用文字记录。');
+      showVoiceFallback(json.error || '\u5f53\u524d\u8bed\u97f3\u8f6c\u5199\u6682\u65f6\u4e0d\u53ef\u7528\uff0c\u53ef\u4ee5\u76f4\u63a5\u6539\u7528\u6587\u5b57\u8bb0\u5f55\u3002');
     }
   } catch (err) {
     console.error('Speech upload error:', err);
@@ -8063,7 +8154,7 @@ async function transcribeAudio(blob, mimeType) {
       return;
     }
     isVoiceRecording = false;
-    showVoiceFallback(normalizeErrorMessage(err, '当前语音转写暂不可用，可直接改用文字记录。'));
+    showVoiceFallback(resolveVoiceErrorMessage(err, '\u5f53\u524d\u8bed\u97f3\u8f6c\u5199\u6682\u65f6\u4e0d\u53ef\u7528\uff0c\u53ef\u4ee5\u76f4\u63a5\u6539\u7528\u6587\u5b57\u8bb0\u5f55\u3002'));
   }
 }
 
@@ -8072,7 +8163,7 @@ async function sendVoiceText(text) {
   document.getElementById('voiceProcessing').classList.remove('hidden');
   document.getElementById('voiceFinalText').textContent = '\u201c' + text + '\u201d';
   try {
-    const payload = { text: text };
+    const payload = { text: text, client_action_id: currentVoiceActionId || createClientActionId('voice') };
     if (isLocalMode()) {
       payload.is_app = true;
     }
@@ -8081,21 +8172,25 @@ async function sendVoiceText(text) {
     }
     const json = await safeFetchJSON(API_BASE + '/api/voice-input', {
       method: 'POST',
-      headers: getAuthHeaders(),
+      headers: (() => {
+        const headers = getAuthHeaders();
+        headers['X-Client-Action-Id'] = payload.client_action_id;
+        return headers;
+      })(),
       body: JSON.stringify(payload)
     });
+    logActionAnalysisMeta('voice-analyze', json);
     if (json.success) {
       closeVoiceModal();
       showResult(json);
     } else {
       isVoiceRecording = false;
-      showVoiceFallback(json.error || '分析食物失败，请调整文字后再试。');
+      showVoiceFallback(json.error || '\u5206\u6790\u98df\u7269\u5931\u8d25\uff0c\u8bf7\u8c03\u6574\u6587\u5b57\u540e\u518d\u8bd5\u3002');
     }
   } catch (err) {
-    showVoiceFallback(normalizeErrorMessage(err, '语音分析请求失败，请改用文字记录。'));
+    showVoiceFallback(resolveVoiceErrorMessage(err, '\u8bed\u97f3\u5206\u6790\u8bf7\u6c42\u5931\u8d25\uff0c\u8bf7\u6539\u7528\u6587\u5b57\u8bb0\u5f55\u3002'));
   }
 }
-
 function closeVoiceModal() {
   isVoiceRecording = false;
   currentRecordingSession++; 
@@ -11205,16 +11300,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     } catch (e) {
       statusEl.textContent = normalizeErrorMessage(e, '条形码查询失败');
     }
-  }
-
-  function closeManualFoodModal() {
-    document.getElementById('manualFoodModal').style.display = 'none';
-    document.getElementById('manualFoodModal').classList.add('hidden');
-    document.getElementById('manualFoodModal').classList.remove('flex');
-    document.getElementById('foodSearchResults').classList.add('hidden');
-    document.getElementById('foodSearchStatus').classList.add('hidden');
-    document.getElementById('barcodeScannerContainer').classList.add('hidden');
-    stopBarcodeScan();
   }
 
   // ==========================================

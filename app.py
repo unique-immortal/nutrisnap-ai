@@ -29,11 +29,16 @@ from werkzeug.security import generate_password_hash, check_password_hash
 import PIL.Image
 from PIL import UnidentifiedImageError
 import glob
+import threading
 
-# 加载 .env 文件（仅本地开发使用，Cloud Run 通过环境变量注入）
-load_dotenv()
+APP_DIR = os.path.dirname(os.path.abspath(__file__))
+ENV_PATH = os.path.join(APP_DIR, '.env')
+
+# 显式从项目目录加载 .env，避免因为启动目录不同导致本地配置未生效。
+load_dotenv(ENV_PATH)
 
 app = Flask(__name__)
+_REQUEST_TRACE_LOCAL = threading.local()
 
 
 @app.before_request
@@ -59,6 +64,88 @@ def serve_latest_frontend_entry_before_legacy_routes():
         return response
 
     return None
+
+
+def reset_request_trace(action_name=''):
+    _REQUEST_TRACE_LOCAL.trace = {
+        'action': action_name or '',
+        'upstream_calls': [],
+    }
+
+
+def get_request_trace():
+    trace = getattr(_REQUEST_TRACE_LOCAL, 'trace', None)
+    if trace is None:
+        reset_request_trace()
+        trace = _REQUEST_TRACE_LOCAL.trace
+    return trace
+
+
+def record_upstream_call(provider, model, status, latency_ms=None, detail=''):
+    trace = get_request_trace()
+    trace['upstream_calls'].append({
+        'provider': str(provider or ''),
+        'model': str(model or ''),
+        'status': str(status or ''),
+        'latency_ms': int(latency_ms or 0),
+        'detail': clean_text(detail, max_len=240) if detail else '',
+    })
+
+
+def build_request_trace_summary():
+    trace = get_request_trace()
+    calls = list(trace.get('upstream_calls') or [])
+    by_provider = {}
+    success_count = 0
+    for call in calls:
+        provider = call.get('provider') or 'unknown'
+        by_provider[provider] = by_provider.get(provider, 0) + 1
+        if str(call.get('status', '')).endswith(':ok') or str(call.get('status', '')) == 'ok':
+            success_count += 1
+    return {
+        'action': trace.get('action') or '',
+        'upstream_call_count': len(calls),
+        'upstream_success_count': success_count,
+        'upstream_calls_by_provider': by_provider,
+        'upstream_calls': calls,
+    }
+
+
+def attach_request_trace(meta=None):
+    payload = dict(meta or {})
+    payload.update(build_request_trace_summary())
+    return payload
+
+
+def log_request_trace(prefix):
+    summary = build_request_trace_summary()
+    print(
+        f"{prefix} upstream_call_count={summary['upstream_call_count']} "
+        f"success_count={summary['upstream_success_count']} "
+        f"calls={json.dumps(summary['upstream_calls'], ensure_ascii=False)}"
+    )
+
+
+def get_client_action_id():
+    value = ''
+    try:
+        value = (
+            request.headers.get('X-Client-Action-Id')
+            or request.form.get('client_action_id')
+            or (request.get_json(silent=True) or {}).get('client_action_id')
+            or ''
+        )
+    except Exception:
+        value = request.headers.get('X-Client-Action-Id') or request.form.get('client_action_id') or ''
+    return clean_text(value, max_len=96)
+
+
+def log_client_action_summary(route_name, client_action_id, meta=None):
+    payload = dict(meta or {})
+    payload.update(build_request_trace_summary())
+    if client_action_id:
+        payload['client_action_id'] = client_action_id
+    print(f"{route_name} summary={json.dumps(payload, ensure_ascii=False)}")
 default_cors_origins = [
     'http://localhost',
     'https://localhost',
@@ -127,12 +214,22 @@ OPENROUTER_API_KEY = os.environ.get('OPENROUTER_API_KEY')
 SPEECH_TO_TEXT_MODEL = os.environ.get('OPENROUTER_STT_MODEL', 'openai/whisper-large-v3')
 SPEECH_TO_TEXT_LANGUAGE = os.environ.get('SPEECH_TO_TEXT_LANGUAGE', 'zh')
 USE_OPENROUTER_LLM = os.environ.get('USE_OPENROUTER_LLM', 'false').strip().lower() in ('1', 'true', 'yes', 'on')
+ENABLE_OPENROUTER_STT = os.environ.get('ENABLE_OPENROUTER_STT', 'false').strip().lower() in ('1', 'true', 'yes', 'on')
+OPENROUTER_ALLOW_PROVIDER_FALLBACKS = os.environ.get('OPENROUTER_ALLOW_PROVIDER_FALLBACKS', 'false').strip().lower() in ('1', 'true', 'yes', 'on')
 OPENROUTER_CHAT_TIMEOUT_SECONDS = float(os.environ.get('OPENROUTER_CHAT_TIMEOUT_SECONDS', '8'))
 OPENROUTER_STT_TIMEOUT_SECONDS = float(os.environ.get('OPENROUTER_STT_TIMEOUT_SECONDS', '20'))
 OPENROUTER_MAX_MODEL_ATTEMPTS = max(1, int(os.environ.get('OPENROUTER_MAX_MODEL_ATTEMPTS', '2')))
+ENABLE_PACKAGED_NAME_REMOTE_REFINEMENT = os.environ.get('ENABLE_PACKAGED_NAME_REMOTE_REFINEMENT', 'false').strip().lower() in ('1', 'true', 'yes', 'on')
 OPENROUTER_PROVIDER_SORT = os.environ.get('OPENROUTER_PROVIDER_SORT', 'latency').strip().lower()
 if OPENROUTER_PROVIDER_SORT not in ('latency', 'throughput', 'price'):
     OPENROUTER_PROVIDER_SORT = 'latency'
+
+MSG_AUDIO_FILE_MISSING = "\u6ca1\u6709\u627e\u5230\u8bed\u97f3\u6587\u4ef6"
+MSG_AUDIO_FILE_EMPTY_NAME = "\u8bed\u97f3\u6587\u4ef6\u540d\u4e3a\u7a7a"
+MSG_AUDIO_FILE_TOO_SMALL = "\u97f3\u9891\u6587\u4ef6\u8fc7\u5c0f\u6216\u65e0\u6548"
+MSG_STT_UNAVAILABLE = "\u5f53\u524d\u8bed\u97f3\u8f6c\u5199\u670d\u52a1\u6682\u65f6\u4e0d\u53ef\u7528\uff0c\u53ef\u76f4\u63a5\u6539\u7528\u6587\u5b57\u8bb0\u5f55\u3002"
+MSG_VOICE_ANALYSIS_INCOMPLETE = "\u6ca1\u80fd\u7a33\u5b9a\u62c6\u5206\u51fa\u5177\u4f53\u98df\u7269\u6216\u8fd0\u52a8\uff0c\u8bf7\u6362\u4e00\u79cd\u66f4\u77ed\u3001\u66f4\u76f4\u63a5\u7684\u8bf4\u6cd5\u518d\u8bd5\u3002"
+MSG_VOICE_AUDIO_FAILED = "\u8bed\u97f3\u5206\u6790\u6682\u65f6\u4e0d\u53ef\u7528\uff0c\u8bf7\u7a0d\u540e\u518d\u8bd5\u3002"
 
 def parse_model_list(value, default_models):
     models = [m.strip() for m in (value or '').split(',') if m.strip()]
@@ -165,6 +262,20 @@ def fit_timeouts_to_deadline(timeouts, deadline, minimum_slot=0.5):
     return fitted
 
 
+def capped_attempt_count(models, timeouts, configured_cap=None):
+    model_count = len(list(models or []))
+    timeout_count = len(list(timeouts or []))
+    available = model_count
+    if timeout_count:
+        available = min(available, timeout_count)
+    cap = configured_cap if configured_cap is not None else OPENROUTER_MAX_MODEL_ATTEMPTS
+    try:
+        cap = int(cap)
+    except Exception:
+        cap = OPENROUTER_MAX_MODEL_ATTEMPTS
+    return max(1, min(max(1, cap), max(1, available)))
+
+
 class NonRetryableLLMError(Exception):
     """Raised when a request is malformed and should not fall through the retry chain."""
 
@@ -177,18 +288,59 @@ class LLMChainExhaustedError(Exception):
         self.fallback_trace = list(fallback_trace or [])
         self.last_error = last_error
 
+
+def fallback_trace_indicates_upstream_unavailable(fallback_trace):
+    trace = [str(item or '') for item in (fallback_trace or [])]
+    if not trace:
+        return False
+    if any(item.endswith(':ok') for item in trace):
+        return False
+    unavailable_markers = (
+        ':timeout',
+        ':quota',
+        ':http_429',
+        ':http_500',
+        ':http_502',
+        ':http_503',
+        ':http_504',
+        ':error',
+    )
+    return any(marker in item for item in trace for marker in unavailable_markers)
+
+def normalize_openrouter_free_model_name(model_name):
+    model = str(model_name or '').strip()
+    if not model:
+        return ''
+    if ':' in model:
+        base, suffix = model.rsplit(':', 1)
+        if suffix.lower() == 'free':
+            return model
+        model = base
+    normalized = model + ':free'
+    if normalized != model_name:
+        print(f"Normalized OpenRouter free model alias: {model_name} -> {normalized}")
+    return normalized
+
+def enforce_openrouter_free_model_chain(models):
+    normalized_models = []
+    for raw_model in list(models or []):
+        normalized = normalize_openrouter_free_model_name(raw_model)
+        if normalized:
+            normalized_models.append(normalized)
+    return normalized_models
+
 def openrouter_provider_config():
     return {
         "sort": OPENROUTER_PROVIDER_SORT,
-        "allow_fallbacks": True,
+        "allow_fallbacks": OPENROUTER_ALLOW_PROVIDER_FALLBACKS,
         "data_collection": "allow",
     }
 
-OPENROUTER_NUTRITION_MODELS = parse_model_list(os.environ.get('OPENROUTER_NUTRITION_MODELS'), [
+OPENROUTER_NUTRITION_MODELS = enforce_openrouter_free_model_chain(parse_model_list(os.environ.get('OPENROUTER_NUTRITION_MODELS'), [
     'deepseek/deepseek-v4-flash:free',
     'qwen/qwen3-next-80b-a3b-instruct:free',
     'minimax/minimax-m2.5:free',
-])
+]))
 OPENROUTER_NUTRITION_TIMEOUTS = parse_timeout_list(
     os.environ.get('OPENROUTER_NUTRITION_TIMEOUTS'),
     [5, 5, 5]
@@ -197,11 +349,11 @@ OPENROUTER_NUTRITION_HARD_DEADLINE_SECONDS = float(
     os.environ.get('OPENROUTER_NUTRITION_HARD_DEADLINE_SECONDS', '15')
 )
 
-OPENROUTER_TEXT_MODELS = parse_model_list(os.environ.get('OPENROUTER_TEXT_MODELS'), [
+OPENROUTER_TEXT_MODELS = enforce_openrouter_free_model_chain(parse_model_list(os.environ.get('OPENROUTER_TEXT_MODELS'), [
     'deepseek/deepseek-v4-flash:free',
     'qwen/qwen3-next-80b-a3b-instruct:free',
     'minimax/minimax-m2.5:free',
-])
+]))
 OPENROUTER_TEXT_TIMEOUTS = parse_timeout_list(
     os.environ.get('OPENROUTER_TEXT_TIMEOUTS'),
     [5, 5, 5]
@@ -210,11 +362,11 @@ OPENROUTER_TEXT_HARD_DEADLINE_SECONDS = float(
     os.environ.get('OPENROUTER_TEXT_HARD_DEADLINE_SECONDS', '15')
 )
 
-OPENROUTER_VISION_MODELS = parse_model_list(os.environ.get('OPENROUTER_VISION_MODELS'), [
+OPENROUTER_VISION_MODELS = enforce_openrouter_free_model_chain(parse_model_list(os.environ.get('OPENROUTER_VISION_MODELS'), [
     'google/gemma-4-31b-it:free',
     'google/gemma-4-26b-a4b-it:free',
     'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',
-])
+]))
 OPENROUTER_VISION_TIMEOUTS = parse_timeout_list(
     os.environ.get('OPENROUTER_VISION_TIMEOUTS'),
     [8, 6, 6]
@@ -291,6 +443,42 @@ def mark_provider_cooldown(provider_name, seconds, reason=''):
 
 def clear_provider_cooldown(provider_name):
     PROVIDER_FAILURE_STATE.pop(provider_name, None)
+
+
+def parse_openrouter_reset_seconds(response, error_msg=''):
+    header_candidates = [
+        response.headers.get('X-RateLimit-Reset'),
+        response.headers.get('x-ratelimit-reset'),
+    ]
+    for raw_value in header_candidates:
+        if not raw_value:
+            continue
+        try:
+            reset_value = float(str(raw_value).strip())
+        except ValueError:
+            continue
+        now = time.time()
+        # OpenRouter may return epoch milliseconds.
+        if reset_value > 10_000_000_000:
+            return max(30, int((reset_value / 1000.0) - now))
+        # Or epoch seconds.
+        if reset_value > now + 5:
+            return max(30, int(reset_value - now))
+        # Or relative seconds.
+        if reset_value > 0:
+            return max(30, int(reset_value))
+
+    lowered = str(error_msg or '').lower()
+    if 'free-models-per-day' in lowered:
+        return 60 * 30
+    return PROVIDER_COOLDOWN_SECONDS['openrouter']
+
+
+def is_openrouter_free_tier_request_cap(response, error_msg=''):
+    if not response or int(getattr(response, 'status_code', 0) or 0) != 429:
+        return False
+    lowered = str(error_msg or '').lower()
+    return 'free-models-per-day' in lowered
 
 if not GEMINI_API_KEY and not OPENROUTER_API_KEY and not OPENAI_COMPAT_API_KEY:
     raise ValueError("GEMINI_API_KEY 或 OPENROUTER_API_KEY 环境变量未设置！请在本地 .env 中配置后重启应用。")
@@ -476,6 +664,7 @@ def call_google_generate_content(
                     raise RuntimeError(f"Google model {model} returned empty content")
                 clear_provider_cooldown('google')
                 google_trace.append(f"google:{model}:ok")
+                record_upstream_call('google', model, 'ok', latency_ms)
                 if return_metadata:
                     return {
                         "text": reply,
@@ -493,16 +682,20 @@ def call_google_generate_content(
             if response.status_code in (403, 429) or 'quota' in lower_error or 'resource_exhausted' in lower_error:
                 mark_provider_cooldown('google', PROVIDER_COOLDOWN_SECONDS['google'], error_msg)
                 google_trace.append(f"google:{model}:quota")
+                record_upstream_call('google', model, 'quota', latency_ms, error_msg)
                 last_error = RuntimeError(f"Google quota/auth issue on {model}: {error_msg}")
-                continue
+                break
 
             google_trace.append(f"google:{model}:http_{response.status_code}")
+            record_upstream_call('google', model, f"http_{response.status_code}", latency_ms, error_msg)
             last_error = RuntimeError(f"Google error {response.status_code} on {model}: {error_msg}")
         except requests.exceptions.Timeout as timeout_err:
             google_trace.append(f"google:{model}:timeout")
+            record_upstream_call('google', model, 'timeout', 0, timeout_err)
             last_error = timeout_err
         except Exception as api_err:
             google_trace.append(f"google:{model}:error")
+            record_upstream_call('google', model, 'error', 0, api_err)
             last_error = api_err
 
     raise last_error or RuntimeError("Google REST request failed.")
@@ -576,6 +769,7 @@ def call_openai_compatible_llm(
                     raise RuntimeError(f"Premium model {model} returned empty content")
                 clear_provider_cooldown('premium')
                 print(f"Success with premium OpenAI-compatible model: {model}")
+                record_upstream_call('openai_compatible', model, 'ok', latency_ms)
                 if return_metadata:
                     return {
                         "text": reply,
@@ -587,12 +781,14 @@ def call_openai_compatible_llm(
 
             error_msg = res_json.get('error', {}).get('message') if isinstance(res_json.get('error'), dict) else ''
             error_msg = error_msg or res.text[:500]
+            record_upstream_call('openai_compatible', model, f"http_{res.status_code}", latency_ms, error_msg)
             last_error = RuntimeError(f"Premium OpenAI-compatible error {res.status_code}: {error_msg}")
             if res.status_code >= 500:
                 mark_provider_cooldown('premium', PROVIDER_COOLDOWN_SECONDS['premium'], error_msg)
             print(f"Premium model {model} failed: {error_msg}")
         except Exception as e:
             print(f"Premium OpenAI-compatible request error with model {model}: {e}")
+            record_upstream_call('openai_compatible', model, 'error', 0, e)
             last_error = e
 
     raise last_error or RuntimeError("Premium OpenAI-compatible request failed.")
@@ -614,6 +810,7 @@ def call_llm(
     premium_models=None,
     premium_timeout=None,
     allow_google_fallback=True,
+    openrouter_fallback_only_on_timeout=False,
     return_metadata=False,
 ):
     """
@@ -707,11 +904,18 @@ def call_llm(
         default_models = OPENROUTER_VISION_MODELS if image is not None else OPENROUTER_TEXT_MODELS
         attempt_limit = max(1, openrouter_max_attempts or OPENROUTER_MAX_MODEL_ATTEMPTS)
         timeout_seconds = openrouter_timeout or OPENROUTER_CHAT_TIMEOUT_SECONDS
-        models_to_try = (openrouter_models or default_models)[:attempt_limit]
+        models_to_try = enforce_openrouter_free_model_chain(openrouter_models or default_models)[:attempt_limit]
         timeout_schedule = list(openrouter_timeouts or [])
+        fallback_only_on_timeout = bool(openrouter_fallback_only_on_timeout)
 
         last_error = None
         for idx, model in enumerate(models_to_try):
+            if not str(model).lower().endswith(':free'):
+                error_msg = f"Blocked non-free OpenRouter model in free chain: {model}"
+                print(error_msg)
+                fallback_trace.append(f"{model}:blocked_non_free")
+                last_error = NonRetryableLLMError(error_msg)
+                break
             model_timeout = timeout_schedule[idx] if idx < len(timeout_schedule) else timeout_seconds
             payload = {
                 "model": model,
@@ -738,6 +942,7 @@ def call_llm(
                         raise RuntimeError(f"OpenRouter model {model} returned empty content")
                     print(f"Success with OpenRouter model: {model}")
                     fallback_trace.append(f"{model}:ok")
+                    record_upstream_call('openrouter', model, 'ok', latency_ms)
                     if return_metadata:
                         return {
                             "text": reply,
@@ -751,16 +956,33 @@ def call_llm(
                     error_msg = res_json.get('error', {}).get('message', res.text)
                     if res.status_code == 400:
                         fallback_trace.append(f"{model}:http_400")
+                        record_upstream_call('openrouter', model, 'http_400', latency_ms, error_msg)
                         raise NonRetryableLLMError(f"OpenRouter bad request on {model}: {error_msg}")
+                    if is_openrouter_free_tier_request_cap(res, error_msg):
+                        status_label = f"http_{res.status_code}"
+                        fallback_trace.append(f"{model}:{status_label}")
+                        record_upstream_call('openrouter', model, status_label, latency_ms, error_msg)
+                        cooldown_seconds = parse_openrouter_reset_seconds(res, error_msg)
+                        mark_provider_cooldown('openrouter', cooldown_seconds, error_msg)
+                        print(
+                            f"OpenRouter free-tier request cap hit on {model}; "
+                            f"cooldown={cooldown_seconds}s error={error_msg}"
+                        )
+                        last_error = Exception(f"OpenRouter rate limit: {error_msg}")
+                        break
                     if res.status_code in (401, 403) or 'user not found' in str(error_msg).lower():
                         mark_provider_cooldown('openrouter', PROVIDER_COOLDOWN_SECONDS['openrouter'], error_msg)
                     status_label = f"http_{res.status_code}"
                     fallback_trace.append(f"{model}:{status_label}")
+                    record_upstream_call('openrouter', model, status_label, latency_ms, error_msg)
                     print(f"OpenRouter model {model} failed: {error_msg}")
                     last_error = Exception(f"OpenRouter error: {error_msg}")
+                    if fallback_only_on_timeout:
+                        break
             except requests.exceptions.Timeout as e:
                 print(f"OpenRouter timeout with model {model}: {e}")
                 fallback_trace.append(f"{model}:timeout")
+                record_upstream_call('openrouter', model, 'timeout', 0, e)
                 last_error = e
             except NonRetryableLLMError:
                 raise
@@ -768,28 +990,32 @@ def call_llm(
                 print(f"OpenRouter network/request error with model {model}: {e}")
                 if not any(str(item).startswith(f"{model}:") for item in fallback_trace):
                     fallback_trace.append(f"{model}:error")
+                record_upstream_call('openrouter', model, 'error', 0, e)
                 last_error = e
+                if fallback_only_on_timeout:
+                    break
                 
         if GEMINI_API_KEY and allow_google_fallback and not provider_cooldown_info('google'):
             print(f"OpenRouter models failed, falling back to Google REST: {last_error}")
+            return call_google_generate_content(
+                prompt_text=prompt_text,
+                image=image,
+                audio=audio,
+                mime_type=mime_type,
+                history=history,
+                system_instruction=system_instruction,
+                temperature=temperature,
+                return_metadata=return_metadata,
+                fallback_trace=fallback_trace,
+            )
         else:
             raise LLMChainExhaustedError(
                 "OpenRouter model chain exhausted.",
                 fallback_trace=fallback_trace,
                 last_error=last_error,
             )
-    
-    return call_google_generate_content(
-        prompt_text=prompt_text,
-        image=image,
-        audio=audio,
-        mime_type=mime_type,
-        history=history,
-        system_instruction=system_instruction,
-        temperature=temperature,
-        return_metadata=return_metadata,
-        fallback_trace=fallback_trace,
-    )
+
+    raise RuntimeError("LLM provider selection exhausted before producing a response.")
 
     # ----------------------------------------------------
     # Google SDK Path (Fallback)
@@ -904,19 +1130,21 @@ def call_text_reasoning_llm(
     return_metadata=False,
 ):
     text_models, text_timeouts = get_text_chain_models()
+    attempt_cap = capped_attempt_count(text_models, text_timeouts)
     return call_llm(
         prompt_text=prompt_text,
         history=history,
         system_instruction=system_instruction,
         temperature=temperature,
         openrouter_models=text_models,
-        openrouter_max_attempts=len(text_timeouts) or len(text_models),
+        openrouter_max_attempts=attempt_cap,
         openrouter_timeout=text_timeouts[0] if text_timeouts else OPENROUTER_CHAT_TIMEOUT_SECONDS,
         openrouter_timeouts=text_timeouts,
         premium=use_premium,
         premium_models=PREMIUM_TEXT_MODELS,
         premium_timeout=PREMIUM_AI_TIMEOUT_SECONDS,
-        allow_google_fallback=True,
+        allow_google_fallback=False,
+        openrouter_fallback_only_on_timeout=True,
         return_metadata=return_metadata,
     )
 
@@ -1022,7 +1250,16 @@ def transcribe_audio_with_openrouter(audio_bytes, mime_type, filename=''):
 def transcribe_audio_with_google(audio_bytes, mime_type):
     if not GEMINI_API_KEY:
         raise ValueError("GEMINI_API_KEY is not configured")
-    prompt = "请将这段录音直接转写成中文文本，不要包含任何额外的引导语、标点纠正解释，仅输出转写文本本身。如果是静音或没有说话，请直接返回空字符串。"
+    prompt = """请把这段中文录音直接转写成用户原话，面向饮食/运动记录场景。
+
+要求：
+1. 只输出转写后的中文文本本身，不要加解释、前缀、总结或 markdown。
+2. 保留食物名、品牌名、数量、单位、修饰词和运动时长，例如：无糖、去皮、半个、500毫升、快走40分钟。
+3. 不要把“无糖”“去皮”“低脂”“大杯”“半个”“一份”等关键信息省掉。
+4. 不要擅自把自然语言改写成营养结论，也不要补充没说过的内容。
+5. 可以保留自然停顿后的口语顺序，例如“然后”“后来”“又”。
+6. 如果听不清个别词，优先保留上下文最可能的日常中文表达；不要输出占位符。
+7. 如果是静音、环境噪音或没有有效说话内容，直接返回空字符串。"""
     result_text = call_llm(
         prompt_text=prompt,
         audio=audio_bytes,
@@ -1031,6 +1268,57 @@ def transcribe_audio_with_google(audio_bytes, mime_type):
         preferred_provider='google'
     )
     return (result_text or '').strip()
+
+
+def run_speech_to_text_pipeline(audio_bytes, mime_type, filename='', client_action_id=''):
+    transcription = ""
+    errors = []
+    stt_meta = {
+        "mime_type": mime_type,
+        "filename": clean_text(filename, max_len=120),
+        "bytes": len(audio_bytes or b''),
+        "attempts": [],
+    }
+    if client_action_id:
+        stt_meta["client_action_id"] = client_action_id
+
+    print(
+        "Speech-to-text request: "
+        f"user={get_current_username()} mime={mime_type} bytes={len(audio_bytes or b'')} filename={stt_meta['filename']}"
+    )
+
+    stt_attempts = []
+    if GEMINI_API_KEY:
+        stt_attempts.append(("google", lambda: transcribe_audio_with_google(audio_bytes, mime_type)))
+    if OPENROUTER_API_KEY and ENABLE_OPENROUTER_STT:
+        stt_attempts.append(("openrouter", lambda: transcribe_audio_with_openrouter(audio_bytes, mime_type, filename)))
+
+    for provider_name, runner in stt_attempts:
+        if transcription:
+            break
+        try:
+            transcription = runner()
+            stt_meta["attempts"].append({
+                "provider": provider_name,
+                "ok": True,
+                "text_length": len((transcription or '').strip()),
+            })
+        except Exception as stt_err:
+            errors.append(f"{provider_name}: {stt_err}")
+            stt_meta["attempts"].append({
+                "provider": provider_name,
+                "ok": False,
+                "error": clean_text(stt_err, max_len=240),
+            })
+            print(f"{provider_name.title()} STT error: {stt_err}")
+
+    transcription = re.sub(r'^["\'`]|["\'`]$', '', (transcription or '')).strip()
+    if not transcription:
+        if errors:
+            print(f"Speech-to-text failed with errors: {' | '.join(errors)}")
+        raise RuntimeError("stt_unavailable")
+
+    return transcription, stt_meta
 
 
 def optimize_image_for_fast_vision(img, max_side=1280):
@@ -1487,8 +1775,8 @@ def get_db_connection():
 # ==========================================
 
 def get_latest_release_info():
-    # Target regex for update_release.py: "version": "v5.6.45"
-    fallback_version = "v5.6.45"
+    # Target regex for update_release.py: "version": "v5.6.46"
+    fallback_version = "v5.6.46"
     try:
         base_dir = os.path.dirname(os.path.abspath(__file__))
         files = glob.glob(os.path.join(base_dir, "RELEASE_NOTES_*.md"))
@@ -1525,6 +1813,8 @@ def get_latest_release_info():
 @app.route('/api/health')
 def health():
     version, _ = get_latest_release_info()
+    openrouter_cooldown = provider_cooldown_info('openrouter') or {}
+    google_cooldown = provider_cooldown_info('google') or {}
     return jsonify({
         "version": version,
         "architecture": "local-first + throttled-meal-sync + server-daily-summaries + OpenRouter",
@@ -1534,6 +1824,17 @@ def health():
             'gemini-2.0-flash',
         ],
         "openrouter_llm_enabled": bool(OPENROUTER_API_KEY and USE_OPENROUTER_LLM),
+        "openrouter_api_key_present": bool(OPENROUTER_API_KEY),
+        "use_openrouter_llm_flag": USE_OPENROUTER_LLM,
+        "openrouter_allow_provider_fallbacks": OPENROUTER_ALLOW_PROVIDER_FALLBACKS,
+        "enable_openrouter_stt": ENABLE_OPENROUTER_STT,
+        "openrouter_stt_model": SPEECH_TO_TEXT_MODEL,
+        "dotenv_path": ENV_PATH,
+        "dotenv_exists": os.path.exists(ENV_PATH),
+        "openrouter_cooldown_active": bool(openrouter_cooldown),
+        "openrouter_cooldown_reason": openrouter_cooldown.get('reason', ''),
+        "google_cooldown_active": bool(google_cooldown),
+        "google_cooldown_reason": google_cooldown.get('reason', ''),
         "openrouter_text_models": OPENROUTER_TEXT_MODELS,
         "openrouter_text_timeouts": OPENROUTER_TEXT_TIMEOUTS,
         "openrouter_text_hard_deadline_seconds": OPENROUTER_TEXT_HARD_DEADLINE_SECONDS,
@@ -1661,6 +1962,13 @@ def normalize_visual_observations(payload):
             'portion_visual': clean_text(item.get('portion_visual') or item.get('portion') or item.get('amount_description'), max_len=160),
             'estimated_weight_g': clamp_number(item.get('estimated_weight_g') or item.get('weight'), default=100, min_value=1, max_value=2000),
             'confidence': clamp_number(item.get('confidence'), default=0.65, min_value=0, max_value=1, integer=False),
+            'calories': clamp_number(first_present(item, 'calories', 'calories_kcal', 'kcal'), default=0, min_value=0, max_value=5000),
+            'protein': clamp_number(first_present(item, 'protein', 'protein_g'), default=0, min_value=0, max_value=300),
+            'carbs': clamp_number(first_present(item, 'carbs', 'carbs_g', 'carbohydrates', 'carbohydrates_g'), default=0, min_value=0, max_value=500),
+            'fat': clamp_number(first_present(item, 'fat', 'fat_g'), default=0, min_value=0, max_value=300),
+            'sodium_mg': clamp_number(first_present(item, 'sodium_mg', 'sodium'), default=0, min_value=0, max_value=100000),
+            'sugar_g': clamp_number(first_present(item, 'sugar_g', 'sugar'), default=0, min_value=0, max_value=500),
+            'fiber_g': clamp_number(first_present(item, 'fiber_g', 'fiber'), default=0, min_value=0, max_value=200),
         })
     if not normalized_foods:
         return None
@@ -1674,9 +1982,8 @@ def normalize_visual_observations(payload):
     }
 
 def build_visual_prompt():
-    return """You are the vision layer for a food photo logging app.
-Only inspect the image. Do not calculate calories or macro nutrients unless they are explicitly printed on a package label.
-Your job is to decompose the meal into loggable edible components.
+    return """You are the single-pass vision analysis layer for a food photo logging app.
+Inspect the image and directly return loggable edible components with realistic calories, macros, and grams.
 If this is a packaged food, prioritize the printed package text and product identity over the generic visual category.
 For packaged foods, read the visible front-of-pack brand/product text as carefully as possible.
 Do not rename a branded packaged item into a generic category if the package text suggests a more specific product.
@@ -1687,6 +1994,7 @@ Split separately plated components such as: main protein, staple/starch, vegetab
 Do not split ingredients that are mixed into one combined dish or wrapped inside one food. Example: fried rice stays one item; a burger stays one item.
 Ignore utensils and non-edible decoration. Ignore lime/lemon wedges or tiny herb garnish unless they are clearly intended to be eaten.
 If a sauce or dip is clearly visible in its own compartment or obvious spoonable pool, include it as a separate food item.
+If a printed nutrition label is visible, use it first. Otherwise estimate realistically from appearance and common Chinese-market nutrition profiles.
 Return strict JSON in this schema:
 {
   "scene_type": "prepared_food | packaged_food | mixed | not_food",
@@ -1705,7 +2013,14 @@ Return strict JSON in this schema:
       "visible_ingredients": ["ingredient names visible in the photo"],
       "portion_visual": "short visual portion description",
       "estimated_weight_g": number,
-      "confidence": 0.0
+      "confidence": 0.0,
+      "calories": 0,
+      "protein": 0,
+      "carbs": 0,
+      "fat": 0,
+      "sodium_mg": 0,
+      "sugar_g": 0,
+      "fiber_g": 0
     }
   ],
   "notes": "important uncertainty or missing context"
@@ -1841,18 +2156,19 @@ Return strict JSON only:
 
 def refine_packaged_food_name(img, visual_data, use_premium=False):
     refinement_models, refinement_timeouts = get_vision_chain_models()
+    refinement_attempt_cap = capped_attempt_count(refinement_models, refinement_timeouts)
     response = call_llm(
         prompt_text=build_packaged_name_refinement_prompt(visual_data),
         image=img,
         temperature=0,
         openrouter_models=refinement_models,
-        openrouter_max_attempts=len(refinement_timeouts) or len(refinement_models),
+        openrouter_max_attempts=refinement_attempt_cap,
         openrouter_timeout=refinement_timeouts[0] if refinement_timeouts else OPENROUTER_CHAT_TIMEOUT_SECONDS,
         openrouter_timeouts=refinement_timeouts,
         premium=use_premium,
         premium_models=PREMIUM_VISION_MODELS,
         premium_timeout=PREMIUM_AI_TIMEOUT_SECONDS,
-        allow_google_fallback=True,
+        allow_google_fallback=False,
         return_metadata=True,
     )
     payload = parse_json_payload(response.get('text'))
@@ -1941,7 +2257,7 @@ def build_manual_food_estimate_prompt(food_name, weight, provided_fields):
         'carbs': provided_fields.get('carbs'),
         'fat': provided_fields.get('fat'),
     }
-    return f"""You are a nutrition estimation assistant for a food logging app.
+    return f"""You are a nutrition estimation assistant for a Chinese food logging app.
 Estimate realistic nutrition for one manually entered food item and output strict JSON only.
 
 Food name: {food_name}
@@ -1955,7 +2271,9 @@ Rules:
 3. Fill missing calories / protein / carbs / fat with realistic estimates for the stated weight.
 4. Keep the output internally consistent. Calories should roughly match protein*4 + carbs*4 + fat*9 with normal rounding tolerance.
 5. Use realistic nutrition references for common foods sold in China when relevant.
-6. Return only one JSON object. No markdown, no explanation.
+6. If the item is a caloric drink such as juice, latte, milk, soy milk, yogurt, or flavored coffee, do not return zero calories unless it is truly a plain zero-calorie drink.
+7. If the name includes modifiers such as 无糖 / 去皮 / 低脂, reflect them realistically instead of treating the item as plain water.
+8. Return only one JSON object. No markdown, no explanation.
 
 Required schema:
 {{
@@ -2108,6 +2426,25 @@ def build_structured_nutrition_degraded_result(visual_data, visual_meta, nutriti
         'analysis_meta': analysis_meta,
     }
 
+
+def foods_from_single_pass_visual(visual_data):
+    foods = []
+    for item in list((visual_data or {}).get('foods') or []):
+        if not isinstance(item, dict):
+            continue
+        foods.append({
+            'food_name': clean_text(item.get('name'), default='Unknown food', max_len=120),
+            'calories': clamp_number(item.get('calories'), default=0, min_value=0, max_value=5000),
+            'protein': clamp_number(item.get('protein'), default=0, min_value=0, max_value=300),
+            'carbs': clamp_number(item.get('carbs'), default=0, min_value=0, max_value=500),
+            'fat': clamp_number(item.get('fat'), default=0, min_value=0, max_value=300),
+            'weight': clamp_number(item.get('estimated_weight_g') or item.get('weight'), default=100, min_value=1, max_value=2000),
+            'sodium_mg': clamp_number(item.get('sodium_mg'), default=0, min_value=0, max_value=100000),
+            'sugar_g': clamp_number(item.get('sugar_g'), default=0, min_value=0, max_value=500),
+            'fiber_g': clamp_number(item.get('fiber_g'), default=0, min_value=0, max_value=200),
+        })
+    return foods or None
+
 def enrich_foods_with_analysis_metadata(foods, visual_data, visual_meta, nutrition_meta, pipeline_latency_ms):
     visual_items = visual_data.get('foods') or []
     has_label = bool(visual_data.get('is_packaged_food') or visual_data.get('package_text') or visual_data.get('nutrition_label'))
@@ -2167,31 +2504,53 @@ def enrich_foods_with_analysis_metadata(foods, visual_data, visual_meta, nutriti
 def analyze_food_with_two_stage_pipeline(img, use_premium=False):
     pipeline_started_at = time.perf_counter()
     vision_models, visual_timeouts = get_vision_chain_models()
+    visual_attempt_cap = capped_attempt_count(vision_models, visual_timeouts)
     nutrition_timeouts = fit_timeouts_to_deadline(
         OPENROUTER_NUTRITION_TIMEOUTS,
         OPENROUTER_NUTRITION_HARD_DEADLINE_SECONDS
     )
     nutrition_models = OPENROUTER_NUTRITION_MODELS[:len(nutrition_timeouts) or len(OPENROUTER_NUTRITION_MODELS)]
+    nutrition_attempt_cap = capped_attempt_count(nutrition_models, nutrition_timeouts)
     visual_prompt = build_visual_prompt()
     visual_response = call_llm(
         prompt_text=visual_prompt,
         image=img,
         temperature=0.1,
         openrouter_models=vision_models,
-        openrouter_max_attempts=len(visual_timeouts) or len(vision_models),
+        openrouter_max_attempts=visual_attempt_cap,
         openrouter_timeout=visual_timeouts[0] if visual_timeouts else OPENROUTER_CHAT_TIMEOUT_SECONDS,
         openrouter_timeouts=visual_timeouts,
         premium=use_premium,
         premium_models=PREMIUM_VISION_MODELS,
         premium_timeout=PREMIUM_AI_TIMEOUT_SECONDS,
-        allow_google_fallback=True,
+        allow_google_fallback=False,
         return_metadata=True,
     )
     visual_meta = {k: visual_response.get(k) for k in ('provider', 'model', 'latency_ms', 'fallback_trace')}
     visual_data = normalize_visual_observations(parse_json_payload(visual_response.get('text')))
     if not visual_data:
         return None
-    if should_refine_packaged_food_name(visual_data):
+    single_pass_foods = foods_from_single_pass_visual(visual_data)
+    has_inline_nutrition = bool(
+        single_pass_foods and any(
+            (item.get('calories') or item.get('protein') or item.get('carbs') or item.get('fat'))
+            for item in single_pass_foods
+        )
+    )
+    if has_inline_nutrition:
+        pipeline_latency_ms = int((time.perf_counter() - pipeline_started_at) * 1000)
+        enriched, analysis_meta = enrich_foods_with_analysis_metadata(
+            single_pass_foods,
+            visual_data,
+            visual_meta,
+            None,
+            pipeline_latency_ms,
+        )
+        analysis_meta['premium_requested'] = bool(use_premium)
+        analysis_meta['premium_used'] = visual_meta.get('provider') == 'openai_compatible'
+        analysis_meta['single_pass_vision'] = True
+        return {'foods': enriched, 'analysis_meta': analysis_meta}
+    if ENABLE_PACKAGED_NAME_REMOTE_REFINEMENT and should_refine_packaged_food_name(visual_data):
         try:
             refined_name, refine_response = refine_packaged_food_name(img, visual_data, use_premium=use_premium)
             if refined_name:
@@ -2207,23 +2566,23 @@ def analyze_food_with_two_stage_pipeline(img, use_premium=False):
     try:
         nutrition_response = call_llm(
             prompt_text=nutrition_prompt,
-            image=None if use_premium else img,
+            image=None,
             temperature=0.1,
-            openrouter_models=vision_models if not use_premium else nutrition_models,
-            openrouter_max_attempts=(len(visual_timeouts) or len(vision_models)) if not use_premium else (len(nutrition_timeouts) or len(nutrition_models)),
-            openrouter_timeout=(visual_timeouts[0] if visual_timeouts else OPENROUTER_CHAT_TIMEOUT_SECONDS) if not use_premium else (nutrition_timeouts[0] if nutrition_timeouts else OPENROUTER_CHAT_TIMEOUT_SECONDS),
-            openrouter_timeouts=visual_timeouts if not use_premium else nutrition_timeouts,
+            openrouter_models=nutrition_models,
+            openrouter_max_attempts=nutrition_attempt_cap,
+            openrouter_timeout=nutrition_timeouts[0] if nutrition_timeouts else OPENROUTER_CHAT_TIMEOUT_SECONDS,
+            openrouter_timeouts=nutrition_timeouts,
             premium=use_premium,
             premium_models=PREMIUM_NUTRITION_MODELS,
             premium_timeout=PREMIUM_AI_TIMEOUT_SECONDS,
-            allow_google_fallback=True,
+            allow_google_fallback=False,
             return_metadata=True,
         )
         nutrition_meta = {k: nutrition_response.get(k) for k in ('provider', 'model', 'latency_ms', 'fallback_trace')}
         foods = parse_ai_multi_result(nutrition_response.get('text'))
     except LLMChainExhaustedError as nutrition_err:
         fallback_trace = list(nutrition_err.fallback_trace or [])
-        active_nutrition_models = vision_models if not use_premium else nutrition_models
+        active_nutrition_models = nutrition_models
         reason = 'all_timeouts' if all_model_attempts_timed_out(fallback_trace, active_nutrition_models) else 'model_chain_exhausted'
         nutrition_meta = {
             'provider': 'degraded',
@@ -2854,6 +3213,8 @@ def admin_grant_premium():
 @token_required
 @limiter.limit("10 per minute", key_func=user_or_ip_limit_key)
 def analyze_food():
+    reset_request_trace('analyze_food')
+    client_action_id = get_client_action_id()
     if 'image' not in request.files:
         return jsonify({"error": "没有找到图片"}), 400
 
@@ -2884,9 +3245,12 @@ def analyze_food():
 
         analysis_result = analyze_food_with_two_stage_pipeline(img, use_premium=use_premium)
         if not analysis_result or not analysis_result.get('foods'):
+            log_request_trace('analyze_food_empty')
             return jsonify({"error": "AI未检测到食物，请重新拍摄"}), 400
         foods = analysis_result.get('foods', [])
-        analysis_meta = analysis_result.get('analysis_meta', {})
+        analysis_meta = attach_request_trace(analysis_result.get('analysis_meta', {}))
+        if client_action_id:
+            analysis_meta['client_action_id'] = client_action_id
 
         # Return food data; frontend stores locally via MealStorage (localStorage).
         # Daily aggregated summaries are synced to server via /api/daily-summaries.
@@ -2897,6 +3261,8 @@ def analyze_food():
             food['portion'] = 1.0
             saved.append(food)
 
+        log_request_trace('analyze_food_success')
+        log_client_action_summary('analyze_food', client_action_id, analysis_meta)
         return jsonify({
             "success": True,
             "session_id": session_id,
@@ -2906,16 +3272,28 @@ def analyze_food():
         })
 
     except UnidentifiedImageError:
+        log_request_trace('analyze_food_invalid_image')
         return jsonify({"error": "Invalid image file"}), 400
     except LLMChainExhaustedError as llm_err:
         print(f"Analyze image chain exhausted: {llm_err}")
+        log_request_trace('analyze_food_chain_exhausted')
         return jsonify({
             "error": "当前拍照识别服务暂时繁忙，请稍后重试，或先使用手动补录。",
             "fallback_trace": list(llm_err.fallback_trace or []),
+            "analysis_meta": attach_request_trace({
+                "client_action_id": client_action_id,
+                "fallback_trace": list(llm_err.fallback_trace or []),
+            }),
         }), 503
     except Exception as e:
         print(f"Error calling AI API: {e}")
-        return jsonify({"error": "AI image analysis failed. Please try again later."}), 500
+        log_request_trace('analyze_food_exception')
+        return jsonify({
+            "error": "AI image analysis failed. Please try again later.",
+            "analysis_meta": attach_request_trace({
+                "client_action_id": client_action_id,
+            }),
+        }), 500
     finally:
         # Clean up temp file immediately — meals are stored locally, not on server
         if os.path.exists(filepath):
@@ -2982,22 +3360,79 @@ def parse_voice_input_result(raw_text):
 
 
 def build_voice_understanding_prompt(text):
-    return f"""You are a food-and-exercise understanding model for a voice logging app.
-Your job is to understand the user's full sentence first, then extract structured entities.
+    return f"""You are the understanding layer for a Chinese voice food logging app.
+Your job is to understand messy real-life speech first, then extract structured food and exercise entities.
 Do not estimate calories or macros in this step.
-Do not copy the whole sentence into a food name.
+
+The user may speak casually and mix multiple events in one sentence:
+- time words: 今天早上 / 中午 / 晚上 / 刚刚 / 后来
+- connectors: 然后 / 又 / 还有 / 顺便 / 饭后
+- vague spoken style: 我今天乱七八糟吃了点东西 / 喝了一大杯 / 吃了半个
+- modifiers that must be kept: 无糖 / 去皮 / 低脂 / 大杯 / 冰 / 热 / 炸 / 烤 / 麻辣 / 真空包装 / 奥尔良
+- brand or product-like names may appear
 
 User input:
 "{text}"
 
-Rules:
-1. Extract one food item per actually consumed food or drink.
-2. Preserve meaningful modifiers such as sugar-free, unsweetened, skim, whole milk, spicy, fried, grilled.
-3. For drinks, keep the original quantity and unit if the user mentioned them, such as 500 ml.
-4. If the user mentioned exercise, extract it separately.
-5. Use concise Chinese food names when possible.
-6. If quantity is unknown, leave amount as null and unit as empty.
-7. Return strict JSON only. No markdown.
+Hard rules:
+1. Extract one item per actually consumed food or drink. If the user mentioned three foods, return three food items.
+2. Extract exercise separately if present.
+3. Never copy the whole sentence as a food name.
+4. Preserve meaningful modifiers inside `modifiers`.
+5. Use concise Chinese item names for `name`, but keep the semantic core:
+   - "无糖西瓜汁" -> name can be "西瓜汁", modifiers should include ["无糖"]
+   - "去皮大鸭腿" -> name can be "鸭腿", modifiers should include ["去皮"]
+   - "冰美式" -> name can be "美式咖啡" or "黑咖啡", modifiers can include ["冰"]
+6. For drinks, if the user said a quantity such as 500毫升 / 一大杯 / 一瓶, keep the amount/unit when possible.
+7. If quantity is unknown, leave `amount` as null and `unit` as empty string.
+8. If multiple foods are joined by connectors like "然后/又/还有", split them instead of merging.
+9. If one phrase contains both a drink and a solid food, do not merge them into one item.
+10. Return strict JSON only. No markdown. No explanation.
+
+Normalization hints:
+- Allowed unit examples: g, kg, ml, l, 杯, 碗, 个, 片, 块, 份, 瓶, 盒, 串, 只, 勺
+- Spoken quantities like 半个 / 两颗 / 一大杯 should be normalized into `amount` + `unit` when possible.
+- If confidence is low because the phrase is vague, still extract the most likely separate items instead of collapsing into one sentence-like name.
+
+Few-shot examples:
+Example 1
+Input: "今天中午我吃了一个去皮大鸭腿、三个小翅根，喝了一杯无糖西瓜汁，大概500毫升。"
+Output:
+{{
+  "type": "food",
+  "foods": [
+    {{"name": "鸭腿", "amount": 1, "unit": "个", "modifiers": ["去皮"], "confidence": 0.93}},
+    {{"name": "小翅根", "amount": 3, "unit": "个", "modifiers": [], "confidence": 0.92}},
+    {{"name": "西瓜汁", "amount": 500, "unit": "ml", "modifiers": ["无糖"], "confidence": 0.95}}
+  ],
+  "exercises": []
+}}
+
+Example 2
+Input: "下午我喝了一大杯无糖拿铁，然后又吃了半个贝果。"
+Output:
+{{
+  "type": "food",
+  "foods": [
+    {{"name": "拿铁", "amount": 1, "unit": "杯", "modifiers": ["无糖", "大杯"], "confidence": 0.9}},
+    {{"name": "贝果", "amount": 0.5, "unit": "个", "modifiers": [], "confidence": 0.88}}
+  ],
+  "exercises": []
+}}
+
+Example 3
+Input: "晚上吃了两颗鸡蛋一杯豆浆，饭后快走了40分钟。"
+Output:
+{{
+  "type": "mixed",
+  "foods": [
+    {{"name": "鸡蛋", "amount": 2, "unit": "个", "modifiers": [], "confidence": 0.94}},
+    {{"name": "豆浆", "amount": 1, "unit": "杯", "modifiers": [], "confidence": 0.91}}
+  ],
+  "exercises": [
+    {{"exercise_name": "快走", "duration": 40, "exercise_type": "aerobic", "target_muscles": ["腿部"], "confidence": 0.9}}
+  ]
+}}
 
 Schema:
 {{
@@ -3119,8 +3554,9 @@ def estimate_grams_from_voice_candidate(candidate):
 
 
 def build_voice_food_estimation_prompt(food_candidates, source_text):
-    return f"""You are a nutrition estimation model for a food logging app.
-The food items have already been extracted from the user's sentence. Your job is to estimate nutrition for each item separately.
+    return f"""You are the nutrition estimation layer for a Chinese food logging app.
+The food items were already extracted from the user's original spoken sentence.
+Estimate nutrition for each item separately and do not merge items together.
 
 Original user sentence:
 "{source_text}"
@@ -3130,13 +3566,54 @@ Extracted food items:
 
 Rules:
 1. Return one output item for each input food item, in the same order.
-2. Use concise Chinese food names when possible.
-3. Convert quantity and unit into a realistic edible weight in grams.
-4. For liquids, you may approximate 1 ml as 1 g unless clearly inappropriate.
-5. "Sugar-free" or "unsweetened" means no added sugar, not zero calories for natural juice, milk, soy milk, yogurt, or fruit-based drinks.
-6. Only plain water, soda water, plain unsweetened tea, and black coffee should be close to zero calories.
+2. Keep each output focused on that one item only. Never combine two foods into one result.
+3. Use concise Chinese food names.
+4. Respect modifiers from the original sentence. "无糖" means no added sugar, not automatically zero calories.
+5. For drinks, estimate realistic grams from quantity, cup size, bottle size, or ml if provided.
+6. For solids, estimate edible grams from count/unit and the food type.
 7. Keep calories and macros internally consistent with the estimated weight.
-8. Output strict JSON array only. No markdown and no explanation.
+8. If a drink is fruit juice, milk, soy milk, yogurt drink, latte, or other caloric beverage, it should not become zero calories just because it is "无糖".
+9. Only plain water, soda water, plain unsweetened tea, and black coffee should be close to zero calories.
+10. If the phrase sounds like a packaged or branded food, estimate using the most common Chinese-market nutrition profile for that product type.
+11. If the input item name is still too vague, infer the most likely everyday Chinese food interpretation from the original sentence, but keep it as a single item.
+12. Output strict JSON array only. No markdown. No explanation.
+
+Reality checks before you answer:
+- If the original sentence mentions multiple foods, you must still output separate entries item by item.
+- A long conversational sentence must never appear as `food_name`.
+- "大杯拿铁", "无糖西瓜汁", "半个贝果", "真空包装小翅根", "去皮鸭腿" should all produce realistic nonzero nutrition unless they are plain zero-calorie drinks.
+
+Few-shot examples:
+Example 1
+Original sentence: "今天中午我吃了一个去皮大鸭腿、三个小翅根，喝了一杯无糖西瓜汁，大概500毫升。"
+Extracted food items:
+[{{"name":"鸭腿","amount":1,"unit":"个","modifiers":["去皮"],"confidence":0.93}},{{"name":"小翅根","amount":3,"unit":"个","modifiers":[],"confidence":0.92}},{{"name":"西瓜汁","amount":500,"unit":"ml","modifiers":["无糖"],"confidence":0.95}}]
+Output:
+[
+  {{"food_name":"去皮鸭腿","calories":235,"protein":28,"carbs":0,"fat":13,"weight":160}},
+  {{"food_name":"小翅根","calories":255,"protein":27,"carbs":0,"fat":17,"weight":180}},
+  {{"food_name":"无糖西瓜汁","calories":150,"protein":2.5,"carbs":36,"fat":0.5,"weight":500}}
+]
+
+Example 2
+Original sentence: "下午我喝了一大杯无糖拿铁，然后又吃了半个贝果。"
+Extracted food items:
+[{{"name":"拿铁","amount":1,"unit":"杯","modifiers":["无糖","大杯"],"confidence":0.9}},{{"name":"贝果","amount":0.5,"unit":"个","modifiers":[],"confidence":0.88}}]
+Output:
+[
+  {{"food_name":"无糖拿铁","calories":160,"protein":8,"carbs":12,"fat":8,"weight":400}},
+  {{"food_name":"贝果","calories":135,"protein":5,"carbs":27,"fat":1.5,"weight":55}}
+]
+
+Example 3
+Original sentence: "晚上吃了两颗鸡蛋一杯豆浆，饭后快走了40分钟。"
+Extracted food items:
+[{{"name":"鸡蛋","amount":2,"unit":"个","modifiers":[],"confidence":0.94}},{{"name":"豆浆","amount":1,"unit":"杯","modifiers":[],"confidence":0.91}}]
+Output:
+[
+  {{"food_name":"鸡蛋","calories":144,"protein":12.8,"carbs":1.5,"fat":9,"weight":100}},
+  {{"food_name":"豆浆","calories":93,"protein":7.8,"carbs":3.6,"fat":4.8,"weight":300}}
+]
 
 Required schema:
 [
@@ -3149,6 +3626,58 @@ Required schema:
     "weight": 0
   }}
 ]"""
+
+
+def build_voice_single_pass_prompt(text):
+    return f"""You are the single-pass voice analysis layer for a Chinese food logging app.
+Read the user's original spoken sentence and directly return structured foods and exercises in one JSON object.
+This is a real-world casual speech scenario, so the sentence may include multiple foods, drinks, and one exercise note.
+
+User sentence:
+"{text}"
+
+Goals:
+1. Extract each actually consumed food or drink as a separate item.
+2. Extract exercise separately if present.
+3. For each food, estimate realistic calories, protein, carbs, fat, and edible grams directly in this same step.
+4. Respect modifiers such as 无糖, 去皮, 低脂, 大杯, 半个, 真空包装, 奥尔良.
+5. "无糖" does not mean zero calories for fruit juice, milk drinks, yogurt drinks, or latte.
+6. Only plain water, plain tea, soda water, and black coffee should be close to zero calories.
+7. Never copy the whole sentence as food_name.
+8. Return concise Chinese names.
+9. If multiple foods are mentioned, do not merge them.
+10. Output strict JSON only. No markdown. No explanation.
+
+Return schema:
+{{
+  "type": "food|exercise|mixed",
+  "foods": [
+    {{
+      "food_name": "食物名称",
+      "calories": 0,
+      "protein": 0,
+      "carbs": 0,
+      "fat": 0,
+      "weight": 0
+    }}
+  ],
+  "exercises": [
+    {{
+      "exercise_name": "运动名称",
+      "duration": 0,
+      "calories": 0,
+      "exercise_type": "aerobic|strength",
+      "target_muscles": ""
+    }}
+  ]
+}}
+
+Reality checks:
+- "无糖西瓜汁 500毫升" should still have meaningful calories and carbs.
+- "半个贝果" should not disappear.
+- "两个茶叶蛋" should stay separate from drinks.
+- Long conversational wording must never appear as food_name.
+"""
 
 
 def normalize_voice_food_estimates(payload, candidates):
@@ -3171,12 +3700,18 @@ def normalize_voice_food_estimates(payload, candidates):
 
 
 GENERIC_ZERO_CALORIE_NAME_HINTS = [
-    '水', '气泡水', '苏打水', '矿泉水', '纯净水', '茶', '乌龙茶', '绿茶', '红茶', '黑咖啡', '美式', 'espresso', 'americano'
+    '白水', '矿泉水', '纯净水', '气泡水', '苏打水', '无糖茶', '乌龙茶', '绿茶', '红茶', '黑咖啡', '美式', 'espresso', 'americano'
+]
+
+CALORIC_DRINK_NAME_HINTS = [
+    '奶茶', '果茶', '果汁', '西瓜汁', '橙汁', '苹果汁', '豆浆', '牛奶', '酸奶', '拿铁', '摩卡', '卡布奇诺'
 ]
 
 
 def is_expected_zero_calorie_item(food_name):
-    lowered = str(food_name or '').lower()
+    lowered = normalize_name_key(food_name).lower()
+    if any(keyword in lowered for keyword in CALORIC_DRINK_NAME_HINTS):
+        return False
     return any(keyword.lower() in lowered for keyword in GENERIC_ZERO_CALORIE_NAME_HINTS)
 
 
@@ -3257,6 +3792,46 @@ def fill_exercise_calories_with_rules(exercises, source_text):
 
 VOICE_FOOD_LIBRARY = [
     {
+        'keywords': ['鸡腿', '大鸡腿', '去皮鸡腿'],
+        'food_name': '鸡腿',
+        'default_grams': 140,
+        'unit_grams': 140,
+        'units': ['个', '只'],
+        'nutrition_per_100g': {'calories': 195, 'protein': 19.0, 'carbs': 0.0, 'fat': 13.0},
+    },
+    {
+        'keywords': ['鸭腿', '大鸭腿', '去皮鸭腿'],
+        'food_name': '鸭腿',
+        'default_grams': 160,
+        'unit_grams': 160,
+        'units': ['个', '只'],
+        'nutrition_per_100g': {'calories': 220, 'protein': 18.0, 'carbs': 0.0, 'fat': 16.0},
+    },
+    {
+        'keywords': ['翅根', '小翅根', '鸡翅根', '奥尔良翅根'],
+        'food_name': '小翅根',
+        'default_grams': 45,
+        'unit_grams': 45,
+        'units': ['个', '只'],
+        'nutrition_per_100g': {'calories': 210, 'protein': 17.0, 'carbs': 4.0, 'fat': 14.0},
+    },
+    {
+        'keywords': ['鸡翅', '翅中', '鸡中翅'],
+        'food_name': '鸡翅',
+        'default_grams': 55,
+        'unit_grams': 55,
+        'units': ['个', '只'],
+        'nutrition_per_100g': {'calories': 240, 'protein': 17.0, 'carbs': 4.0, 'fat': 17.0},
+    },
+    {
+        'keywords': ['茶叶蛋'],
+        'food_name': '茶叶蛋',
+        'default_grams': 55,
+        'unit_grams': 55,
+        'units': ['个', '颗', '枚'],
+        'nutrition_per_100g': {'calories': 155, 'protein': 13.0, 'carbs': 1.8, 'fat': 10.0},
+    },
+    {
         'keywords': ['鸡蛋', '蛋'],
         'food_name': '鸡蛋',
         'default_grams': 50,
@@ -3289,7 +3864,7 @@ VOICE_FOOD_LIBRARY = [
         'nutrition_per_100g': {'calories': 116, 'protein': 2.6, 'carbs': 25.9, 'fat': 0.3},
     },
     {
-        'keywords': ['面条', '面', '粉'],
+        'keywords': ['面条', '拌面', '汤面', '炒面', '拉面', '刀削面', '意面', '米粉', '河粉', '粉丝'],
         'food_name': '面条',
         'default_grams': 180,
         'unit_grams': 180,
@@ -3303,6 +3878,14 @@ VOICE_FOOD_LIBRARY = [
         'unit_grams': 30,
         'units': ['片', '个'],
         'nutrition_per_100g': {'calories': 265, 'protein': 9.0, 'carbs': 49.0, 'fat': 3.2},
+    },
+    {
+        'keywords': ['贝果', 'bagel'],
+        'food_name': '贝果',
+        'default_grams': 95,
+        'unit_grams': 95,
+        'units': ['个'],
+        'nutrition_per_100g': {'calories': 270, 'protein': 10.0, 'carbs': 53.0, 'fat': 1.7},
     },
     {
         'keywords': ['鸡胸', '鸡胸肉'],
@@ -3444,6 +4027,18 @@ VOICE_ZERO_CALORIE_DRINK_HINTS = [
     '红茶', '黑咖啡', '美式', 'zero', '零度', '无糖可乐',
 ]
 
+VOICE_SENTENCE_CONNECTOR_HINTS = [
+    '，', ',', '。', '.', '；', ';', '、', '和', '跟', '还有', '然后', '再', '又', '以及', '并且', '外加', '顺便'
+]
+
+VOICE_ACTION_PATTERNS = [
+    r'吃了?', r'喝了?', r'又吃了?', r'又喝了?', r'跑了?', r'快走了?', r'走了?', r'骑了?', r'游了?', r'练了?'
+]
+
+VOICE_ACTION_KEYWORDS = [
+    '吃了', '喝了', '又吃了', '又喝了', '跑了', '快走了', '走了', '骑了', '游了', '练了', '运动了', '训练了'
+]
+
 
 def find_voice_food_library_entry(text):
     lowered = str(text or '').lower()
@@ -3476,14 +4071,111 @@ def food_name_looks_like_sentence(name):
     text = clean_text(name, default='', max_len=120)
     if not text:
         return True
-    if len(text) >= 14:
+    filler_hits = sum(1 for token in VOICE_SENTENCE_FILLER_KEYWORDS if token and token in text)
+    connector_hits = sum(1 for token in VOICE_SENTENCE_CONNECTOR_HINTS if token and token in text)
+    if connector_hits >= 1 and len(text) >= 10:
         return True
-    return any(token in text for token in VOICE_SENTENCE_FILLER_KEYWORDS)
+    if filler_hits >= 2:
+        return True
+    if filler_hits >= 1 and len(text) >= 16:
+        return True
+    return len(text) >= 28
 
 
 def is_probably_zero_calorie_drink(text):
     sample = str(text or '').lower()
     return any(keyword.lower() in sample for keyword in VOICE_ZERO_CALORIE_DRINK_HINTS)
+
+
+def food_item_has_nutrition_signal(food):
+    if not isinstance(food, dict):
+        return False
+    calories = clamp_number(food.get('calories'), default=0, min_value=0, max_value=5000)
+    protein = clamp_number(food.get('protein'), default=0, min_value=0, max_value=300, integer=False)
+    carbs = clamp_number(food.get('carbs'), default=0, min_value=0, max_value=500, integer=False)
+    fat = clamp_number(food.get('fat'), default=0, min_value=0, max_value=300, integer=False)
+    return any(value > 0 for value in (calories, protein, carbs, fat))
+
+
+def validate_food_result(food, source_text=''):
+    if not isinstance(food, dict):
+        return False, 'invalid_food_object'
+    name = clean_text(food.get('food_name'), default='', max_len=120)
+    if not name:
+        return False, 'missing_food_name'
+    if food_name_looks_like_sentence(name):
+        return False, 'sentence_like_food_name'
+
+    weight = clamp_number(food.get('weight'), default=0, min_value=0, max_value=2000)
+    sample_text = f"{name} {clean_text(source_text, max_len=200)}".strip()
+    if (
+        weight >= 50
+        and not food_item_has_nutrition_signal(food)
+        and not is_expected_zero_calorie_item(name)
+        and not is_probably_zero_calorie_drink(sample_text)
+    ):
+        return False, 'zero_nutrition_nonzero_food'
+
+    return True, 'ok'
+
+
+def split_valid_food_results(foods, source_text=''):
+    valid_foods = []
+    rejected_foods = []
+    for item in list(foods or []):
+        is_valid, reason = validate_food_result(item, source_text=source_text)
+        if is_valid:
+            valid_foods.append(item)
+            continue
+        rejected_foods.append({
+            'food_name': clean_text((item or {}).get('food_name'), default='', max_len=120),
+            'reason': reason,
+        })
+    return valid_foods, rejected_foods
+
+
+def count_voice_quantity_mentions(text):
+    sample = clean_text(text, default='', max_len=240)
+    if not sample:
+        return 0
+    pattern = r'([0-9]+(?:\.\d+)?|半|一|二|两|三|四|五|六|七|八|九|十)\s*(?:大|小)?\s*(个|颗|枚|杯|瓶|份|块|根|只|碗|盒|片|串|勺|ml|毫升|g|克|公斤|kg)'
+    return len(re.findall(pattern, sample, re.IGNORECASE))
+
+
+def count_voice_action_mentions(text):
+    sample = clean_text(text, default='', max_len=240)
+    if not sample:
+        return 0
+    count = 0
+    for segment in split_voice_segments(sample):
+        lowered = segment.lower()
+        if any(keyword in lowered for keyword in VOICE_ACTION_KEYWORDS):
+            count += 1
+    return count
+
+
+def should_reject_rule_based_partial_result(parsed, rejected_foods, parse_meta, source_text=''):
+    provider = str((parse_meta or {}).get('provider') or '')
+    model = str((parse_meta or {}).get('model') or '')
+    if provider != 'rule_based' and 'voice_rule_fallback' not in model:
+        return False
+
+    total_items = len((parsed or {}).get('foods') or []) + len((parsed or {}).get('exercises') or [])
+    quantity_mentions = count_voice_quantity_mentions(source_text)
+    action_mentions = count_voice_action_mentions(source_text)
+    has_connector = any(token in str(source_text or '') for token in VOICE_SENTENCE_CONNECTOR_HINTS)
+    looks_complex = has_connector or quantity_mentions >= 2 or action_mentions >= 2
+    if not looks_complex:
+        return False
+    if rejected_foods:
+        return True
+    if total_items <= 0:
+        return True
+    if action_mentions >= 2 and total_items < action_mentions:
+        return True
+    if quantity_mentions >= 3 and total_items <= 1:
+        return True
+    return False
 
 
 def repair_voice_foods_with_library(foods, source_text=''):
@@ -3530,6 +4222,7 @@ def repair_voice_foods_with_library(foods, source_text=''):
 
 VOICE_EXERCISE_LIBRARY = [
     {'keywords': ['跑步', '慢跑', '快跑', 'run'], 'exercise_name': '跑步', 'exercise_type': 'aerobic', 'calories_per_min': 10, 'target_muscles': ''},
+    {'keywords': ['跑了'], 'exercise_name': '跑步', 'exercise_type': 'aerobic', 'calories_per_min': 10, 'target_muscles': ''},
     {'keywords': ['快走', '散步', '走路', 'walk'], 'exercise_name': '步行', 'exercise_type': 'aerobic', 'calories_per_min': 4, 'target_muscles': ''},
     {'keywords': ['骑车', '骑行', '单车', '自行车', 'bike', 'cycling'], 'exercise_name': '骑行', 'exercise_type': 'aerobic', 'calories_per_min': 8, 'target_muscles': ''},
     {'keywords': ['游泳', 'swim'], 'exercise_name': '游泳', 'exercise_type': 'aerobic', 'calories_per_min': 9, 'target_muscles': ''},
@@ -3609,8 +4302,8 @@ def extract_count_for_keywords(text, keywords, units):
     keyword_pattern = '(?:' + '|'.join(re.escape(keyword) for keyword in keywords) + ')'
     unit_pattern = '(?:' + '|'.join(re.escape(unit) for unit in units) + ')'
     patterns = [
-        rf'([0-9]+(?:\.\d+)?|半|一|二|两|三|四|五|六|七|八|九|十)\s*{unit_pattern}[^\n，。,;；]{{0,8}}{keyword_pattern}',
-        rf'{keyword_pattern}[^\n，。,;；]{{0,8}}([0-9]+(?:\.\d+)?|半|一|二|两|三|四|五|六|七|八|九|十)\s*{unit_pattern}',
+        rf'([0-9]+(?:\.\d+)?|半|一|二|两|三|四|五|六|七|八|九|十)\s*(?:大|小)?\s*{unit_pattern}[^\n，。,;；]{{0,8}}{keyword_pattern}',
+        rf'{keyword_pattern}[^\n，。,;；]{{0,8}}([0-9]+(?:\.\d+)?|半|一|二|两|三|四|五|六|七|八|九|十)\s*(?:大|小)?\s*{unit_pattern}',
     ]
     for pattern in patterns:
         match = re.search(pattern, text, re.IGNORECASE)
@@ -3621,6 +4314,50 @@ def extract_count_for_keywords(text, keywords, units):
     return None
 
 
+def split_voice_segments(text):
+    sample = clean_text(text, default='', max_len=240)
+    if not sample:
+        return []
+    parts = re.split(r'[，。,；;、]|(?:然后|还有|并且|以及|顺便|外加|再|又|和|跟)', sample)
+    cleaned = []
+    for part in parts:
+        piece = clean_text(part, default='', max_len=120).strip()
+        if piece:
+            quantity_like = re.search(
+                r'([0-9]+(?:\.\d+)?|半|一|二|两|三|四|五|六|七|八|九|十)\s*(?:大|小)?\s*(个|颗|枚|杯|瓶|份|块|根|只|碗|盒|片|串|勺|ml|毫升|g|克|公斤|kg)',
+                piece,
+                re.IGNORECASE,
+            )
+            if cleaned and not find_foods_in_segment(piece) and quantity_like:
+                cleaned[-1] = f"{cleaned[-1]} {piece}".strip()
+            else:
+                cleaned.append(piece)
+    return cleaned or [sample]
+
+
+def find_foods_in_segment(segment):
+    lowered = str(segment or '').lower()
+    matches = []
+    for entry in VOICE_FOOD_LIBRARY:
+        best_keyword = ''
+        for keyword in entry.get('keywords') or []:
+            if keyword and str(keyword).lower() in lowered:
+                if len(str(keyword)) > len(best_keyword):
+                    best_keyword = str(keyword)
+        if best_keyword:
+            matches.append((len(best_keyword), best_keyword, entry))
+    matches.sort(key=lambda item: item[0], reverse=True)
+    selected = []
+    selected_keywords = []
+    for _, keyword, entry in matches:
+        lowered_keyword = keyword.lower()
+        if any(lowered_keyword in chosen or chosen in lowered_keyword for chosen in selected_keywords):
+            continue
+        selected.append(entry)
+        selected_keywords.append(lowered_keyword)
+    return selected
+
+
 def build_rule_based_voice_result(raw_text):
     text = clean_text(raw_text, default='', max_len=200).strip()
     lowered = text.lower()
@@ -3629,7 +4366,6 @@ def build_rule_based_voice_result(raw_text):
     used_food_names = set()
     used_exercise_names = set()
 
-    explicit_weight = extract_weight_from_text(lowered)
     explicit_calories = extract_calories_from_text(lowered)
 
     for entry in VOICE_EXERCISE_LIBRARY:
@@ -3654,29 +4390,32 @@ def build_rule_based_voice_result(raw_text):
         })
         used_exercise_names.add(exercise_name)
 
-    for entry in VOICE_FOOD_LIBRARY:
-        if not any(keyword in lowered for keyword in entry['keywords']):
-            continue
-        food_name = entry['food_name']
-        if food_name in used_food_names:
-            continue
-        count = extract_count_for_keywords(lowered, entry['keywords'], entry.get('units') or [])
-        grams = explicit_weight or 0
-        if not grams and count and entry.get('unit_grams'):
-            grams = int(round(float(count) * float(entry['unit_grams'])))
-        if not grams:
-            grams = int(entry['default_grams'])
-        nutrition = entry['nutrition_per_100g']
-        scale = grams / 100.0
-        foods.append({
-            'food_name': food_name,
-            'calories': clamp_number(round(nutrition['calories'] * scale), default=0, min_value=0, max_value=5000),
-            'protein': clamp_number(round(nutrition['protein'] * scale, 1), default=0, min_value=0, max_value=300, integer=False),
-            'carbs': clamp_number(round(nutrition['carbs'] * scale, 1), default=0, min_value=0, max_value=500, integer=False),
-            'fat': clamp_number(round(nutrition['fat'] * scale, 1), default=0, min_value=0, max_value=300, integer=False),
-            'weight': clamp_number(grams, default=100, min_value=1, max_value=2000),
-        })
-        used_food_names.add(food_name)
+    if text:
+        for segment in split_voice_segments(text):
+            segment_matches = find_foods_in_segment(segment)
+            if not segment_matches:
+                continue
+            for entry in segment_matches:
+                food_name = entry['food_name']
+                if food_name in used_food_names:
+                    continue
+                count = extract_count_for_keywords(segment.lower(), entry['keywords'], entry.get('units') or [])
+                grams = extract_weight_from_text(segment.lower()) or 0
+                if not grams and count and entry.get('unit_grams'):
+                    grams = int(round(float(count) * float(entry['unit_grams'])))
+                if not grams:
+                    grams = int(entry['default_grams'])
+                nutrition = entry['nutrition_per_100g']
+                scale = grams / 100.0
+                foods.append({
+                    'food_name': food_name,
+                    'calories': clamp_number(round(nutrition['calories'] * scale), default=0, min_value=0, max_value=5000),
+                    'protein': clamp_number(round(nutrition['protein'] * scale, 1), default=0, min_value=0, max_value=300, integer=False),
+                    'carbs': clamp_number(round(nutrition['carbs'] * scale, 1), default=0, min_value=0, max_value=500, integer=False),
+                    'fat': clamp_number(round(nutrition['fat'] * scale, 1), default=0, min_value=0, max_value=300, integer=False),
+                    'weight': clamp_number(grams, default=100, min_value=1, max_value=2000),
+                })
+                used_food_names.add(food_name)
 
     if not foods and not exercises and text:
         inferred_type = 'exercise' if any(keyword in lowered for keyword in ['运动', '训练', '跑', '走', '骑', '游泳', '深蹲', '卧推']) else 'food'
@@ -3688,15 +4427,6 @@ def build_rule_based_voice_result(raw_text):
                 'duration': duration,
                 'exercise_type': 'aerobic',
                 'target_muscles': '',
-            })
-        else:
-            foods.append({
-                'food_name': text[:40],
-                'calories': 0,
-                'protein': 0,
-                'carbs': 0,
-                'fat': 0,
-                'weight': explicit_weight or 100,
             })
 
     if foods and exercises:
@@ -3718,9 +4448,10 @@ def build_rule_based_voice_result(raw_text):
 @token_or_local_app_required
 @limiter.limit("10 per minute", key_func=user_or_ip_limit_key)
 def voice_input():
-    """Voice input: understand the sentence first, then estimate each extracted food."""
+    """Voice input: single-pass structured understanding + nutrition estimate."""
     data = request.json or {}
     text = clean_text(data.get('text', ''), default='', max_len=MAX_TEXT_INPUT_CHARS)
+    client_action_id = clean_text(data.get('client_action_id') or get_client_action_id(), max_len=96)
     username = get_current_username()
     use_premium = request_premium_enabled(username, data)
 
@@ -3730,115 +4461,82 @@ def voice_input():
         return jsonify({"error": "Input text is too long"}), 413
 
     try:
+        reset_request_trace('voice_input')
         parse_meta = {"fallback_trace": []}
-        understanding_meta = {}
-        nutrition_meta = {}
-        extracted = None
+        rejected_foods = []
         try:
-            understanding_response = call_text_reasoning_llm(
-                prompt_text=build_voice_understanding_prompt(text),
+            response = call_text_reasoning_llm(
+                prompt_text=build_voice_single_pass_prompt(text),
                 use_premium=use_premium,
                 temperature=0.1,
                 return_metadata=True
             )
-            understanding_meta = {k: understanding_response.get(k) for k in ('provider', 'model', 'latency_ms', 'fallback_trace')}
-            extracted = normalize_voice_understanding(parse_json_payload(understanding_response.get('text')))
+            parsed = parse_voice_input_result(response.get('text', ''))
+            parse_meta = {
+                "provider": response.get('provider') or 'unknown',
+                "model": response.get('model') or '',
+                "latency_ms": int(response.get('latency_ms') or 0),
+                "fallback_trace": list(response.get('fallback_trace') or []),
+            }
         except LLMChainExhaustedError as text_chain_err:
-            print(f"Voice understanding chain exhausted: {text_chain_err}")
-            understanding_meta = {
+            print(f"Voice single-pass chain exhausted: {text_chain_err}")
+            parsed = build_rule_based_voice_result(text)
+            parse_meta = {
                 "provider": "rule_based",
-                "model": "voice_understanding_fallback",
+                "model": "voice_single_pass_fallback",
                 "latency_ms": 0,
                 "fallback_trace": list(text_chain_err.fallback_trace or []) + ["rule_based:ok"],
             }
-            extracted = None
-
-        if extracted is None or (not extracted['foods'] and not extracted['exercises']):
-            parsed = build_rule_based_voice_result(text)
-            parse_meta = {
-                "provider": "rule_based",
-                "model": "voice_rule_fallback",
-                "latency_ms": 0,
-                "fallback_trace": list(understanding_meta.get('fallback_trace') or []) + ["rule_based:ok"],
-            }
-        else:
-            foods = []
-            exercises = fill_exercise_calories_with_rules(extracted.get('exercises') or [], text)
-            if extracted.get('foods'):
-                try:
-                    nutrition_response = call_text_reasoning_llm(
-                        prompt_text=build_voice_food_estimation_prompt(extracted['foods'], text),
-                        use_premium=use_premium,
-                        temperature=0.1,
-                        return_metadata=True
-                    )
-                    nutrition_meta = {k: nutrition_response.get(k) for k in ('provider', 'model', 'latency_ms', 'fallback_trace')}
-                    foods = normalize_voice_food_estimates(parse_json_payload(nutrition_response.get('text')), extracted['foods']) or []
-                except LLMChainExhaustedError as nutrition_chain_err:
-                    print(f"Voice nutrition chain exhausted: {nutrition_chain_err}")
-                    nutrition_meta = {
-                        "provider": "degraded",
-                        "model": "voice_nutrition_exhausted",
-                        "latency_ms": 0,
-                        "fallback_trace": list(nutrition_chain_err.fallback_trace or []),
-                    }
-                    foods = []
-
-                repaired_foods = []
-                repair_traces = []
-                for idx, candidate in enumerate(extracted['foods']):
-                    food = dict(foods[idx]) if idx < len(foods) and isinstance(foods[idx], dict) else {}
-                    if voice_food_estimate_needs_repair(food, candidate):
-                        try:
-                            repaired_food, repair_meta = reestimate_voice_food_item(candidate, text, use_premium=use_premium)
-                            if repaired_food:
-                                food = repaired_food
-                            repair_traces.extend(list((repair_meta or {}).get('fallback_trace') or []))
-                        except Exception as repair_err:
-                            print(f"Voice per-item re-estimate failed: {repair_err}")
-                    if not food:
-                        continue
-                    if food_name_looks_like_sentence(food.get('food_name')):
-                        food['food_name'] = clean_text(candidate.get('name'), default=food.get('food_name', ''), max_len=120)
-                    repaired_foods.append(food)
-                foods = repaired_foods
-
-                if repair_traces:
-                    nutrition_meta['fallback_trace'] = list(nutrition_meta.get('fallback_trace') or []) + repair_traces
-
-            parsed = {
-                'type': extracted['type'],
-                'foods': foods,
-                'exercises': exercises,
-            }
+        if parsed is not None:
+            parsed_foods, rejected_foods = split_valid_food_results(parsed.get('foods') or [], source_text=text)
+            parsed['foods'] = parsed_foods
             if parsed['foods'] and parsed['exercises']:
                 parsed['type'] = 'mixed'
-            elif parsed['exercises'] and not parsed['foods']:
+            elif parsed['exercises']:
                 parsed['type'] = 'exercise'
             else:
                 parsed['type'] = 'food'
+            if should_reject_rule_based_partial_result(parsed, rejected_foods, parse_meta, source_text=text):
+                parsed['foods'] = []
+                parsed['exercises'] = []
 
-            parse_meta = {
-                "provider": " + ".join(part for part in [understanding_meta.get('provider'), nutrition_meta.get('provider')] if part) or understanding_meta.get('provider') or 'unknown',
-                "model": ";".join(
-                    part for part in [
-                        f"understanding:{understanding_meta.get('model')}" if understanding_meta.get('model') else '',
-                        f"nutrition:{nutrition_meta.get('model')}" if nutrition_meta.get('model') else '',
-                    ] if part
-                ),
-                "latency_ms": int((understanding_meta.get('latency_ms') or 0) + (nutrition_meta.get('latency_ms') or 0)),
-                "fallback_trace": list(understanding_meta.get('fallback_trace') or []) + list(nutrition_meta.get('fallback_trace') or []),
-            }
         if parsed is None or (not parsed['foods'] and not parsed['exercises']):
             parsed = build_rule_based_voice_result(text)
+            parsed_foods, fallback_rejected_foods = split_valid_food_results(parsed.get('foods') or [], source_text=text)
+            rejected_foods.extend(fallback_rejected_foods)
+            parsed['foods'] = parsed_foods
+            if parsed['foods'] and parsed['exercises']:
+                parsed['type'] = 'mixed'
+            elif parsed['exercises']:
+                parsed['type'] = 'exercise'
+            else:
+                parsed['type'] = 'food'
             parse_meta = {
                 "provider": "rule_based",
                 "model": "voice_rule_fallback",
                 "latency_ms": parse_meta.get('latency_ms', 0),
                 "fallback_trace": list(parse_meta.get('fallback_trace') or []) + ["rule_based:ok"],
             }
+            if should_reject_rule_based_partial_result(parsed, rejected_foods, parse_meta, source_text=text):
+                parsed['foods'] = []
+                parsed['exercises'] = []
         if parsed is None or (not parsed['foods'] and not parsed['exercises']):
-            return jsonify({"error": "\u672a\u80fd\u63d0\u53d6\u51fa\u6709\u6548\u7684\u98df\u7269\u6216\u8fd0\u52a8\u4fe1\u606f\uff0c\u8bf7\u6362\u4e00\u79cd\u8bf4\u6cd5\u518d\u8bd5"}), 400
+            analysis_meta = {
+                **attach_request_trace(parse_meta),
+                "premium_requested": bool(use_premium),
+                "premium_used": False,
+            }
+            if client_action_id:
+                analysis_meta['client_action_id'] = client_action_id
+            if rejected_foods:
+                analysis_meta['rejected_foods'] = rejected_foods
+            log_request_trace('voice_input_incomplete')
+            log_client_action_summary('voice_input', client_action_id, analysis_meta)
+            return jsonify({
+                "error": "没能稳定拆分出具体食物或运动，请换一种更短、更直接的说法再试。",
+                "error_code": "voice_analysis_incomplete",
+                "analysis_meta": analysis_meta,
+            }), 422
 
         session_id = str(uuid.uuid4())
         saved_foods = []
@@ -3853,6 +4551,16 @@ def voice_input():
             ex['id'] = uuid.uuid4().hex
             saved_exercises.append(ex)
 
+        success_meta = attach_request_trace({
+            **parse_meta,
+            "premium_requested": bool(use_premium),
+            "premium_used": 'openai_compatible' in str(parse_meta.get('provider') or ''),
+            "rejected_foods": rejected_foods,
+        })
+        if client_action_id:
+            success_meta['client_action_id'] = client_action_id
+        log_request_trace('voice_input_success')
+        log_client_action_summary('voice_input', client_action_id, success_meta)
         return jsonify({
             "success": True,
             "type": parsed['type'],
@@ -3860,16 +4568,29 @@ def voice_input():
             "foods": saved_foods,
             "exercises": saved_exercises,
             "image_url": "",
-            "analysis_meta": {
-                **parse_meta,
-                "premium_requested": bool(use_premium),
-                "premium_used": parse_meta.get('provider') == 'openai_compatible'
-            }
+            "analysis_meta": success_meta
         })
 
     except Exception as e:
         print(f"Voice input error: {e}")
         parsed = build_rule_based_voice_result(text)
+        parsed_foods, rejected_foods = split_valid_food_results(parsed.get('foods') or [], source_text=text)
+        parsed['foods'] = parsed_foods
+        if parsed['foods'] and parsed['exercises']:
+            parsed['type'] = 'mixed'
+        elif parsed['exercises']:
+            parsed['type'] = 'exercise'
+        else:
+            parsed['type'] = 'food'
+        exception_parse_meta = {
+            "provider": "rule_based",
+            "model": "voice_parser_exception_fallback",
+            "latency_ms": 0,
+            "fallback_trace": ["rule_based:exception_fallback"],
+        }
+        if should_reject_rule_based_partial_result(parsed, rejected_foods, exception_parse_meta, source_text=text):
+            parsed['foods'] = []
+            parsed['exercises'] = []
         if parsed and (parsed['foods'] or parsed['exercises']):
             session_id = str(uuid.uuid4())
             for food in parsed['foods']:
@@ -3877,6 +4598,19 @@ def voice_input():
                 food['portion'] = 1.0
             for ex in parsed['exercises']:
                 ex['id'] = uuid.uuid4().hex
+            success_meta = attach_request_trace({
+                "provider": "rule_based",
+                "model": "voice_parser_exception_fallback",
+                "latency_ms": 0,
+                "fallback_trace": ["rule_based:exception_fallback"],
+                "premium_requested": bool(use_premium),
+                "premium_used": False,
+                "rejected_foods": rejected_foods,
+            })
+            if client_action_id:
+                success_meta['client_action_id'] = client_action_id
+            log_request_trace('voice_input_exception_fallback_success')
+            log_client_action_summary('voice_input', client_action_id, success_meta)
             return jsonify({
                 "success": True,
                 "type": parsed['type'],
@@ -3884,81 +4618,275 @@ def voice_input():
                 "foods": parsed['foods'],
                 "exercises": parsed['exercises'],
                 "image_url": "",
-                "analysis_meta": {
-                    "provider": "rule_based",
-                    "model": "voice_parser_exception_fallback",
-                    "latency_ms": 0,
-                    "fallback_trace": ["rule_based:exception_fallback"],
-                    "premium_requested": bool(use_premium),
-                    "premium_used": False,
-                }
+                "analysis_meta": success_meta
             })
-        return jsonify({"error": "\u8bed\u97f3\u8bc6\u522b\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5"}), 500
+        return jsonify({
+            "error": "这段语音内容没能稳定解析出具体食物，请换一种更短的说法再试。",
+            "error_code": "voice_analysis_incomplete",
+            "analysis_meta": attach_request_trace({
+                "provider": "rule_based",
+                "model": "voice_parser_exception_empty",
+                "latency_ms": 0,
+                "fallback_trace": ["rule_based:exception_fallback"],
+                "premium_requested": bool(use_premium),
+                "premium_used": False,
+                "rejected_foods": rejected_foods,
+                "client_action_id": client_action_id,
+            })
+        }), 422
 
 
 @app.route('/api/speech-to-text', methods=['POST'])
 @token_or_local_app_required
 @limiter.limit("10 per minute", key_func=user_or_ip_limit_key)
 def speech_to_text():
-    """将上传的语音文件通过 Gemini 2.5/2.0 转写为文字"""
+    reset_request_trace('speech_to_text')
+    client_action_id = get_client_action_id()
+    """Transcribe uploaded audio into text."""
     if 'audio' not in request.files:
-        return jsonify({"error": "没有找到语音文件"}), 400
+        return jsonify({"error": MSG_AUDIO_FILE_MISSING}), 400
 
     audio_file = request.files['audio']
     if audio_file.filename == '':
-        return jsonify({"error": "语音文件名为空"}), 400
+        return jsonify({"error": MSG_AUDIO_FILE_EMPTY_NAME}), 400
 
     mime_type = audio_file.content_type
-    # If mime_type is not provided, estimate it
     if not mime_type or mime_type == 'application/octet-stream':
         if audio_file.filename.endswith('.mp4'):
             mime_type = 'audio/mp4'
         elif audio_file.filename.endswith('.webm'):
             mime_type = 'audio/webm'
         else:
-            mime_type = 'audio/webm' # Default fallback
+            mime_type = 'audio/webm'
 
     try:
         audio_bytes = audio_file.read()
         if len(audio_bytes) < 100:
-            return jsonify({"error": "音频文件过小或无效"}), 400
+            return jsonify({"error": MSG_AUDIO_FILE_TOO_SMALL}), 400
         if len(audio_bytes) > MAX_AUDIO_UPLOAD_BYTES:
             return jsonify({"error": "Audio file is too large"}), 413
 
-        transcription = ""
-        errors = []
-
-        # Free-mode audio is more reliable via Gemini than OpenRouter STT, which often
-        # requires account balance. Try Gemini first, then fall back.
-        stt_attempts = []
-        if GEMINI_API_KEY:
-            stt_attempts.append(("google", lambda: transcribe_audio_with_google(audio_bytes, mime_type)))
-        if OPENROUTER_API_KEY:
-            stt_attempts.append(("openrouter", lambda: transcribe_audio_with_openrouter(audio_bytes, mime_type, audio_file.filename)))
-
-        for provider_name, runner in stt_attempts:
-            if transcription:
-                break
-            try:
-                transcription = runner()
-            except Exception as stt_err:
-                errors.append(f"{provider_name}: {stt_err}")
-                print(f"{provider_name.title()} STT error: {stt_err}")
-
-        transcription = re.sub(r'^["\'`]|["\'`]$', '', (transcription or '')).strip()
-        if not transcription:
-            if errors:
-                print(f"Speech-to-text failed with errors: {' | '.join(errors)}")
-            return jsonify({"error": "当前语音转写暂不可用，可直接改用文字记录。"}), 500
+        try:
+            transcription, stt_meta = run_speech_to_text_pipeline(
+                audio_bytes,
+                mime_type,
+                filename=audio_file.filename,
+                client_action_id=client_action_id,
+            )
+        except RuntimeError:
+            stt_meta = {
+                "client_action_id": client_action_id,
+                "request_trace": {},
+            }
+            trace_meta = attach_request_trace({
+                "client_action_id": client_action_id,
+            })
+            stt_meta["request_trace"] = trace_meta
+            log_request_trace('speech_to_text_unavailable')
+            log_client_action_summary('speech_to_text', client_action_id, trace_meta)
+            return jsonify({
+                "error": MSG_STT_UNAVAILABLE,
+                "error_code": "stt_unavailable",
+                "stt_meta": stt_meta,
+            }), 503
 
         print(f"Speech transcription result: {transcription}")
-        return jsonify({"text": transcription})
+        trace_meta = attach_request_trace({
+            "client_action_id": client_action_id,
+        })
+        stt_meta["request_trace"] = trace_meta
+        log_request_trace('speech_to_text_success')
+        log_client_action_summary('speech_to_text', client_action_id, trace_meta)
+        return jsonify({"text": transcription, "stt_meta": stt_meta})
 
     except Exception as e:
         print(f"Speech to text API error: {e}")
-        return jsonify({"error": "当前语音转写暂不可用，可直接改用文字记录。"}), 500
+        log_request_trace('speech_to_text_exception')
+        return jsonify({
+            "error": MSG_STT_UNAVAILABLE,
+            "error_code": "stt_unavailable",
+            "stt_meta": {
+                "client_action_id": client_action_id,
+                "request_trace": attach_request_trace({
+                    "client_action_id": client_action_id,
+                }),
+            },
+        }), 503
+@app.route('/api/voice-audio', methods=['POST'])
+@token_or_local_app_required
+@limiter.limit("10 per minute", key_func=user_or_ip_limit_key)
+def voice_audio():
+    reset_request_trace('voice_audio')
+    client_action_id = get_client_action_id()
+    if 'audio' not in request.files:
+        return jsonify({"error": MSG_AUDIO_FILE_MISSING}), 400
 
+    audio_file = request.files['audio']
+    if audio_file.filename == '':
+        return jsonify({"error": MSG_AUDIO_FILE_EMPTY_NAME}), 400
 
+    mime_type = audio_file.content_type
+    if not mime_type or mime_type == 'application/octet-stream':
+        if audio_file.filename.endswith('.mp4'):
+            mime_type = 'audio/mp4'
+        elif audio_file.filename.endswith('.webm'):
+            mime_type = 'audio/webm'
+        else:
+            mime_type = 'audio/webm'
+
+    username = get_current_username()
+    use_premium = request_premium_enabled(username)
+
+    try:
+        audio_bytes = audio_file.read()
+        if len(audio_bytes) < 100:
+            return jsonify({"error": MSG_AUDIO_FILE_TOO_SMALL}), 400
+        if len(audio_bytes) > MAX_AUDIO_UPLOAD_BYTES:
+            return jsonify({"error": "Audio file is too large"}), 413
+
+        transcription, stt_meta = run_speech_to_text_pipeline(
+            audio_bytes,
+            mime_type,
+            filename=audio_file.filename,
+            client_action_id=client_action_id,
+        )
+        stt_trace = attach_request_trace({
+            "client_action_id": client_action_id,
+        })
+        stt_meta["request_trace"] = stt_trace
+
+        reset_request_trace('voice_audio_analysis')
+        parse_meta = {"fallback_trace": []}
+        rejected_foods = []
+
+        try:
+            response = call_text_reasoning_llm(
+                prompt_text=build_voice_single_pass_prompt(transcription),
+                use_premium=use_premium,
+                temperature=0.1,
+                return_metadata=True
+            )
+            parsed = parse_voice_input_result(response.get('text', ''))
+            parse_meta = {
+                "provider": response.get('provider') or 'unknown',
+                "model": response.get('model') or '',
+                "latency_ms": int(response.get('latency_ms') or 0),
+                "fallback_trace": list(response.get('fallback_trace') or []),
+            }
+        except LLMChainExhaustedError as text_chain_err:
+            print(f"Voice audio single-pass chain exhausted: {text_chain_err}")
+            parsed = build_rule_based_voice_result(transcription)
+            parse_meta = {
+                "provider": "rule_based",
+                "model": "voice_audio_single_pass_fallback",
+                "latency_ms": 0,
+                "fallback_trace": list(text_chain_err.fallback_trace or []) + ["rule_based:ok"],
+            }
+
+        if parsed is not None:
+            parsed_foods, rejected_foods = split_valid_food_results(parsed.get('foods') or [], source_text=transcription)
+            parsed['foods'] = parsed_foods
+            if parsed['foods'] and parsed['exercises']:
+                parsed['type'] = 'mixed'
+            elif parsed['exercises']:
+                parsed['type'] = 'exercise'
+            else:
+                parsed['type'] = 'food'
+            if should_reject_rule_based_partial_result(parsed, rejected_foods, parse_meta, source_text=transcription):
+                parsed['foods'] = []
+                parsed['exercises'] = []
+
+        if parsed is None or (not parsed['foods'] and not parsed['exercises']):
+            parsed = build_rule_based_voice_result(transcription)
+            parsed_foods, fallback_rejected_foods = split_valid_food_results(parsed.get('foods') or [], source_text=transcription)
+            rejected_foods.extend(fallback_rejected_foods)
+            parsed['foods'] = parsed_foods
+            if parsed['foods'] and parsed['exercises']:
+                parsed['type'] = 'mixed'
+            elif parsed['exercises']:
+                parsed['type'] = 'exercise'
+            else:
+                parsed['type'] = 'food'
+            parse_meta = {
+                "provider": "rule_based",
+                "model": "voice_audio_rule_fallback",
+                "latency_ms": parse_meta.get('latency_ms', 0),
+                "fallback_trace": list(parse_meta.get('fallback_trace') or []) + ["rule_based:ok"],
+            }
+            if should_reject_rule_based_partial_result(parsed, rejected_foods, parse_meta, source_text=transcription):
+                parsed['foods'] = []
+                parsed['exercises'] = []
+
+        analysis_trace = attach_request_trace({
+            **parse_meta,
+            "premium_requested": bool(use_premium),
+            "premium_used": 'openai_compatible' in str(parse_meta.get('provider') or ''),
+            "rejected_foods": rejected_foods,
+            "client_action_id": client_action_id,
+        })
+
+        if parsed is None or (not parsed['foods'] and not parsed['exercises']):
+            log_request_trace('voice_audio_incomplete')
+            log_client_action_summary('voice_audio', client_action_id, analysis_trace)
+            return jsonify({
+                "error": MSG_VOICE_ANALYSIS_INCOMPLETE,
+                "error_code": "voice_analysis_incomplete",
+                "transcription": transcription,
+                "stt_meta": stt_meta,
+                "analysis_meta": analysis_trace,
+            }), 422
+
+        session_id = str(uuid.uuid4())
+        saved_foods = []
+        saved_exercises = []
+        for food in parsed['foods']:
+            food['id'] = uuid.uuid4().hex
+            food['portion'] = 1.0
+            saved_foods.append(food)
+        for ex in parsed['exercises']:
+            ex['id'] = uuid.uuid4().hex
+            saved_exercises.append(ex)
+
+        log_request_trace('voice_audio_success')
+        log_client_action_summary('voice_audio', client_action_id, analysis_trace)
+        return jsonify({
+            "success": True,
+            "type": parsed['type'],
+            "session_id": session_id,
+            "foods": saved_foods,
+            "exercises": saved_exercises,
+            "image_url": "",
+            "transcription": transcription,
+            "stt_meta": stt_meta,
+            "analysis_meta": analysis_trace,
+        })
+
+    except RuntimeError:
+        stt_meta = {
+            "client_action_id": client_action_id,
+            "request_trace": attach_request_trace({
+                "client_action_id": client_action_id,
+            }),
+        }
+        log_request_trace('voice_audio_stt_unavailable')
+        return jsonify({
+            "error": MSG_STT_UNAVAILABLE,
+            "error_code": "stt_unavailable",
+            "stt_meta": stt_meta,
+        }), 503
+    except Exception as e:
+        print(f"Voice audio API error: {e}")
+        log_request_trace('voice_audio_exception')
+        return jsonify({
+            "error": MSG_VOICE_AUDIO_FAILED,
+            "error_code": "voice_audio_failed",
+            "stt_meta": {
+                "client_action_id": client_action_id,
+                "request_trace": attach_request_trace({
+                    "client_action_id": client_action_id,
+                }),
+            },
+        }), 503
 @app.route('/api/meals', methods=['GET'])
 @token_required
 def get_meals():
@@ -4919,6 +5847,22 @@ def manual_food_estimate():
         )
         if not parsed:
             return jsonify({"error": "AI 未能返回有效的营养数据"}), 502
+        is_valid, invalid_reason = validate_food_result(parsed, source_text=food_name)
+        if not is_valid:
+            return jsonify({
+                "error": "AI 暂时没给出可信的营养估算，请补充更具体的食物名称或重量后重试。",
+                "error_code": "manual_food_estimate_invalid",
+                "analysis_meta": {
+                    "provider": estimate_response.get('provider'),
+                    "model": estimate_response.get('model'),
+                    "latency_ms": estimate_response.get('latency_ms'),
+                    "fallback_trace": estimate_response.get('fallback_trace'),
+                    "invalid_reason": invalid_reason,
+                    "premium_requested": bool(use_premium),
+                    "premium_used": estimate_response.get('provider') == 'openai_compatible',
+                    "manual_ai_estimate": True,
+                }
+            }), 422
 
         return jsonify({
             "success": True,
@@ -5207,4 +6151,12 @@ def record_weight():
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     print(f"Backend server started! Running on port {port}")
+    print(
+        "Config status: "
+        f"env_path={ENV_PATH} "
+        f"env_exists={os.path.exists(ENV_PATH)} "
+        f"gemini_configured={bool(GEMINI_API_KEY)} "
+        f"openrouter_configured={bool(OPENROUTER_API_KEY)} "
+        f"use_openrouter_llm={USE_OPENROUTER_LLM}"
+    )
     app.run(host='127.0.0.1', debug=os.environ.get('FLASK_DEBUG') == '1', port=port)
