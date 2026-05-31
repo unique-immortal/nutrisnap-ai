@@ -530,7 +530,27 @@ if GEMINI_API_KEY:
     except Exception as e:
         print(f"初始化 Google GenAI client 失败: {e}")
 
-def build_openai_chat_messages(prompt_text, image=None, history=None, system_instruction=None):
+def normalize_openai_input_audio_format(mime_type):
+    raw = (mime_type or '').split(';', 1)[0].strip().lower()
+    mapping = {
+        'audio/mpeg': 'mp3',
+        'audio/mp3': 'mp3',
+        'audio/wav': 'wav',
+        'audio/x-wav': 'wav',
+        'audio/mp4': 'mp4',
+        'audio/m4a': 'mp4',
+        'audio/x-m4a': 'mp4',
+        'audio/webm': 'webm',
+        'audio/ogg': 'ogg',
+    }
+    if raw in mapping:
+        return mapping[raw]
+    if '/' in raw:
+        return raw.rsplit('/', 1)[-1] or 'webm'
+    return raw or 'webm'
+
+
+def build_openai_chat_messages(prompt_text, image=None, audio=None, mime_type=None, history=None, system_instruction=None):
     messages = []
     if system_instruction:
         messages.append({"role": "system", "content": system_instruction})
@@ -559,6 +579,15 @@ def build_openai_chat_messages(prompt_text, image=None, history=None, system_ins
         user_content.append({
             "type": "image_url",
             "image_url": {"url": f"data:image/jpeg;base64,{img_b64}"}
+        })
+
+    if audio:
+        user_content.append({
+            "type": "input_audio",
+            "input_audio": {
+                "data": base64.b64encode(audio).decode('utf-8'),
+                "format": normalize_openai_input_audio_format(mime_type),
+            }
         })
 
     if user_content:
@@ -764,6 +793,8 @@ def extract_chat_completion_text(res_json):
 def call_openai_compatible_llm(
     prompt_text,
     image=None,
+    audio=None,
+    mime_type=None,
     history=None,
     system_instruction=None,
     temperature=0.7,
@@ -786,10 +817,12 @@ def call_openai_compatible_llm(
     messages = build_openai_chat_messages(
         prompt_text=prompt_text,
         image=image,
+        audio=audio,
+        mime_type=mime_type,
         history=history,
         system_instruction=system_instruction,
     )
-    default_models = PREMIUM_VISION_MODELS if image is not None else PREMIUM_TEXT_MODELS
+    default_models = PREMIUM_VISION_MODELS if (image is not None or audio is not None) else PREMIUM_TEXT_MODELS
     models_to_try = (models or default_models)[:PREMIUM_AI_MAX_MODEL_ATTEMPTS]
     timeout_seconds = timeout or PREMIUM_AI_TIMEOUT_SECONDS
     last_error = None
@@ -823,6 +856,7 @@ def call_openai_compatible_llm(
                         "provider": "openai_compatible",
                         "model": model,
                         "latency_ms": latency_ms,
+                        "fallback_trace": [f"premium:{model}:ok"],
                     }
                 return reply
 
@@ -865,7 +899,7 @@ def call_llm(
     or fall back to official Google Gemini API (using client.models.generate_content).
     """
     fallback_trace = []
-    if preferred_provider == 'google' or audio is not None:
+    if preferred_provider == 'google':
         if GEMINI_API_KEY and not provider_cooldown_info('google'):
             return call_google_generate_content(
                 prompt_text=prompt_text,
@@ -879,16 +913,18 @@ def call_llm(
                 fallback_trace=(fallback_trace + (["audio:google_direct"] if audio is not None else [])),
             )
         raise LLMChainExhaustedError(
-            "Google provider explicitly requested or required for audio but unavailable.",
+            "Google provider explicitly requested but unavailable.",
             fallback_trace=(fallback_trace + ["google:unavailable"]),
             last_error=RuntimeError("Google provider unavailable or cooling down."),
         )
 
-    if premium and preferred_provider != 'google' and audio is None and premium_provider_available():
+    if premium and preferred_provider != 'google' and premium_provider_available():
         try:
             return call_openai_compatible_llm(
                 prompt_text=prompt_text,
                 image=image,
+                audio=audio,
+                mime_type=mime_type,
                 history=history,
                 system_instruction=system_instruction,
                 temperature=temperature,
@@ -1180,6 +1216,90 @@ def call_text_reasoning_llm(
         openrouter_fallback_only_on_timeout=False,
         return_metadata=return_metadata,
     )
+
+
+def build_voice_audio_direct_prompt():
+    return """You are the direct audio understanding layer for NutriSnap, a Chinese food logging app.
+Listen to the uploaded voice note and directly produce structured food and exercise records.
+Do not merely transcribe. Understand the full sentence, split each consumed item, and estimate nutrition.
+
+Rules:
+1. Return strict JSON only. No markdown. No explanation.
+2. Include "transcription" with your best Chinese transcript for user confirmation.
+3. Extract every actually consumed food or drink as a separate item.
+4. Extract exercise separately if present.
+5. Estimate realistic calories, protein, carbs, fat, and edible grams for each food.
+6. Respect modifiers such as 无糖, 去皮, 低脂, 大杯, 半个, 冰, 热, 奥尔良, 真空包装.
+7. "无糖" means no added sugar. It does not mean zero calories for fruit juice, milk drinks, yogurt, latte, soy milk, or caloric beverages.
+8. Only plain water, soda water, plain unsweetened tea, and black coffee should be near zero calories.
+9. Never copy the whole sentence as a food_name.
+10. If multiple foods are mentioned, do not merge them.
+11. If the audio is unclear, use best-effort everyday Chinese interpretation and set confidence lower, but still output useful structured records when possible.
+
+Return schema:
+{
+  "transcription": "用户语音转写文本",
+  "type": "food|exercise|mixed",
+  "foods": [
+    {
+      "food_name": "食物名称",
+      "calories": 0,
+      "protein": 0,
+      "carbs": 0,
+      "fat": 0,
+      "weight": 0,
+      "confidence": 0.8
+    }
+  ],
+  "exercises": [
+    {
+      "exercise_name": "运动名称",
+      "duration": 0,
+      "calories": 0,
+      "exercise_type": "aerobic|strength",
+      "target_muscles": "",
+      "confidence": 0.8
+    }
+  ]
+}
+
+Reality checks:
+- "无糖西瓜汁 500 毫升" still has meaningful calories and carbs.
+- "一个去皮大鸭腿、三个小翅根、一杯无糖西瓜汁、饭后快走40分钟" must become multiple food items plus one exercise.
+- Long conversational wording must never appear as food_name.
+"""
+
+
+def call_voice_audio_direct_llm(audio_bytes, mime_type, use_premium=False, return_metadata=True):
+    return call_llm(
+        prompt_text=build_voice_audio_direct_prompt(),
+        audio=audio_bytes,
+        mime_type=mime_type,
+        temperature=0.1,
+        preferred_provider='auto' if use_premium else 'google',
+        premium=use_premium,
+        premium_models=PREMIUM_VISION_MODELS,
+        premium_timeout=max(PREMIUM_AI_TIMEOUT_SECONDS, 12),
+        allow_google_fallback=True,
+        return_metadata=return_metadata,
+    )
+
+
+def normalize_direct_voice_audio_result(response):
+    if isinstance(response, dict):
+        raw_text = response.get('text', '')
+    else:
+        raw_text = response or ''
+    payload = parse_json_payload(raw_text)
+    parsed = parse_voice_input_result(json.dumps(payload, ensure_ascii=False) if isinstance(payload, dict) else raw_text)
+    transcription = ''
+    if isinstance(payload, dict):
+        transcription = clean_text(
+            first_present(payload, 'transcription', 'transcript', 'text', default=''),
+            default='',
+            max_len=MAX_TEXT_INPUT_CHARS,
+        )
+    return parsed, transcription
 
 
 def normalize_audio_format(mime_type, filename=''):
@@ -1884,7 +2004,7 @@ def get_db_connection():
 
 def get_latest_release_info():
     # Target regex for update_release.py: "version": "v5.6.46"
-    fallback_version = "v5.6.55"
+    fallback_version = "v5.6.57"
     try:
         base_dir = os.path.dirname(os.path.abspath(__file__))
         files = glob.glob(os.path.join(base_dir, "RELEASE_NOTES_*.md"))
@@ -4933,63 +5053,73 @@ def voice_audio():
         if len(audio_bytes) > MAX_AUDIO_UPLOAD_BYTES:
             return jsonify({"error": "Audio file is too large"}), 413
 
-        transcription, stt_meta = run_speech_to_text_pipeline(
-            audio_bytes,
-            mime_type,
-            filename=audio_file.filename,
-            client_action_id=client_action_id,
-        )
-        stt_trace = attach_request_trace({
-            "client_action_id": client_action_id,
-        })
-        stt_meta["request_trace"] = stt_trace
-
-        reset_request_trace('voice_audio_analysis')
         parse_meta = {"fallback_trace": []}
         rejected_foods = []
-
         try:
-            response = call_text_reasoning_llm(
-                prompt_text=build_voice_single_pass_prompt(transcription),
+            response = call_voice_audio_direct_llm(
+                audio_bytes,
+                mime_type,
                 use_premium=use_premium,
-                temperature=0.1,
-                return_metadata=True
             )
-            parsed = parse_voice_input_result(response.get('text', ''))
+            parsed, transcription = normalize_direct_voice_audio_result(response)
             parse_meta = {
                 "provider": response.get('provider') or 'unknown',
                 "model": response.get('model') or '',
                 "latency_ms": int(response.get('latency_ms') or 0),
                 "fallback_trace": list(response.get('fallback_trace') or []),
+                "mode": "direct_audio_model",
             }
-        except LLMChainExhaustedError as text_chain_err:
-            print(f"Voice audio single-pass chain exhausted: {text_chain_err}")
-            parsed = build_rule_based_voice_result(transcription)
+        except LLMChainExhaustedError as audio_chain_err:
+            print(f"Voice audio direct model chain exhausted: {audio_chain_err}")
             parse_meta = {
-                "provider": "rule_based",
-                "model": "voice_audio_single_pass_fallback",
+                "provider": "unavailable",
+                "model": "direct_audio_model",
                 "latency_ms": 0,
-                "fallback_trace": list(text_chain_err.fallback_trace or []) + ["rule_based:ok"],
+                "fallback_trace": list(audio_chain_err.fallback_trace or []),
+                "mode": "direct_audio_model",
             }
+            analysis_trace = attach_request_trace({
+                **parse_meta,
+                "premium_requested": bool(use_premium),
+                "premium_used": False,
+                "client_action_id": client_action_id,
+            })
+            log_request_trace('voice_audio_model_unavailable')
+            log_client_action_summary('voice_audio', client_action_id, analysis_trace)
+            return jsonify({
+                "error": MSG_VOICE_AUDIO_FAILED,
+                "error_code": "voice_audio_model_unavailable",
+                "transcription": "",
+                "stt_meta": {
+                    "mode": "not_used_direct_audio_model",
+                    "client_action_id": client_action_id,
+                    "mime_type": mime_type,
+                    "filename": clean_text(audio_file.filename, max_len=120),
+                    "bytes": len(audio_bytes or b''),
+                    "request_trace": analysis_trace,
+                },
+                "analysis_meta": analysis_trace,
+            }), 503
 
+        transcription = clean_text(transcription, default='', max_len=MAX_TEXT_INPUT_CHARS)
         if parsed is not None:
+            parsed['foods'] = repair_voice_foods_with_library(parsed.get('foods') or [], source_text=transcription)
             parsed_foods, rejected_foods = split_valid_food_results(parsed.get('foods') or [], source_text=transcription)
             parsed['foods'] = parsed_foods
+            parsed['exercises'] = fill_exercise_calories_with_rules(parsed.get('exercises') or [], transcription)
             if parsed['foods'] and parsed['exercises']:
                 parsed['type'] = 'mixed'
             elif parsed['exercises']:
                 parsed['type'] = 'exercise'
             else:
                 parsed['type'] = 'food'
-            if should_reject_rule_based_partial_result(parsed, rejected_foods, parse_meta, source_text=transcription):
-                parsed['foods'] = []
-                parsed['exercises'] = []
 
-        if parsed is None or (not parsed['foods'] and not parsed['exercises']):
+        if (parsed is None or (not parsed['foods'] and not parsed['exercises'])) and transcription:
             parsed = build_rule_based_voice_result(transcription)
             parsed_foods, fallback_rejected_foods = split_valid_food_results(parsed.get('foods') or [], source_text=transcription)
             rejected_foods.extend(fallback_rejected_foods)
             parsed['foods'] = parsed_foods
+            parsed['exercises'] = fill_exercise_calories_with_rules(parsed.get('exercises') or [], transcription)
             if parsed['foods'] and parsed['exercises']:
                 parsed['type'] = 'mixed'
             elif parsed['exercises']:
@@ -4998,8 +5128,9 @@ def voice_audio():
                 parsed['type'] = 'food'
             parse_meta = {
                 "provider": "rule_based",
-                "model": "voice_audio_rule_fallback",
+                "model": "direct_audio_transcript_rule_fallback",
                 "latency_ms": parse_meta.get('latency_ms', 0),
+                "mode": "direct_audio_model",
                 "fallback_trace": list(parse_meta.get('fallback_trace') or []) + ["rule_based:ok"],
             }
             if should_reject_rule_based_partial_result(parsed, rejected_foods, parse_meta, source_text=transcription):
@@ -5013,6 +5144,14 @@ def voice_audio():
             "rejected_foods": rejected_foods,
             "client_action_id": client_action_id,
         })
+        stt_meta = {
+            "mode": "not_used_direct_audio_model",
+            "client_action_id": client_action_id,
+            "mime_type": mime_type,
+            "filename": clean_text(audio_file.filename, max_len=120),
+            "bytes": len(audio_bytes or b''),
+            "request_trace": analysis_trace,
+        }
 
         if parsed is None or (not parsed['foods'] and not parsed['exercises']):
             log_request_trace('voice_audio_incomplete')
@@ -5050,19 +5189,6 @@ def voice_audio():
             "analysis_meta": analysis_trace,
         })
 
-    except RuntimeError:
-        stt_meta = {
-            "client_action_id": client_action_id,
-            "request_trace": attach_request_trace({
-                "client_action_id": client_action_id,
-            }),
-        }
-        log_request_trace('voice_audio_stt_unavailable')
-        return jsonify({
-            "error": MSG_STT_UNAVAILABLE,
-            "error_code": "stt_unavailable",
-            "stt_meta": stt_meta,
-        }), 503
     except Exception as e:
         print(f"Voice audio API error: {e}")
         log_request_trace('voice_audio_exception')

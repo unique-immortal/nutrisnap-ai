@@ -4400,7 +4400,7 @@ html.dark .history-empty-panel {
       </div>
         <div>
           <h3 class="font-headline-md text-headline-md text-on-background">NutriSnap AI</h3>
-<p class="font-label-md text-label-md text-outline" id="aboutAppVersion">v5.6.50</p>
+<p class="font-label-md text-label-md text-outline" id="aboutAppVersion">v5.6.57</p>
         </div>
       </div>
     <p class="font-body-md text-body-md text-on-surface-variant mb-6">基于 Gemini AI 的智能饮食记录工具。支持拍照多食物识别、语音输入、分量调节、每周营养报告。</p>
@@ -4750,7 +4750,7 @@ html.dark .history-empty-panel {
 <script>
 // ===================== CONFIG =====================
 const API_BASE = "";
-const CLIENT_VERSION = "v5.6.55";
+const CLIENT_VERSION = "v5.6.57";
 
 // Native preferences helper to survive app process kills on mobile
 const NativeStorage = {
@@ -7759,12 +7759,6 @@ async function finalizeCapacitorSpeechRecognition(sessionId, overrideText = '') 
   if (finalText.length >= 2) {
     speechRecognitionText = finalText;
     speechRecognitionFinal = true;
-    document.getElementById('voiceListening')?.classList.add('hidden');
-    document.getElementById('voiceProcessing')?.classList.remove('hidden');
-    document.getElementById('voiceFinalText').textContent = '"' + finalText + '"';
-    voiceTextForDisplay = finalText;
-    isVoiceRecording = false;
-    setTimeout(() => sendVoiceText(finalText), 250);
     return;
   }
   showVoiceFallback('\u6ca1\u6709\u542c\u6e05\u5185\u5bb9\uff0c\u8bf7\u91cd\u8bd5\u8bed\u97f3\u6216\u6539\u7528\u6587\u5b57\u8bb0\u5f55\u3002');
@@ -7990,10 +7984,6 @@ async function startVoiceInput() {
   document.getElementById('voiceProcessing').classList.add('hidden');
   document.getElementById('voiceStatusTitle').textContent = '\u6b63\u5728\u8046\u542c';
   document.getElementById('voiceText').textContent = '\u8bf7\u8bf4\u51fa\u4f60\u5403\u4e86\u4ec0\u4e48...';
-  const handledByNativeApp = await tryStartCapacitorSpeechRecognition(sessionId);
-  if (handledByNativeApp) return;
-  tryStartNativeSpeechRecognition(sessionId);
-
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) {
     showVoiceFallback('当前设备不支持录音，请改用文字记录。');
     return;
@@ -8116,14 +8106,7 @@ async function transcribeAudio(blob, mimeType) {
   document.getElementById('voiceProcessing').classList.remove('hidden');
   hideVoiceFallback();
   document.getElementById('voiceFinalText').textContent = '\u6b63\u5728\u8bc6\u522b\u5e76\u63d0\u53d6\u98df\u7269\u4fe1\u606f...';
-  const localText = (speechRecognitionText || '').trim();
-  if (localText && (speechRecognitionFinal || localText.length >= 2)) {
-    document.getElementById('voiceFinalText').textContent = '"' + localText + '"';
-    voiceTextForDisplay = localText;
-    isVoiceRecording = false;
-    setTimeout(() => sendVoiceText(localText), 350);
-    return;
-  }
+  const localText = '';
 
   const filename = mimeType.includes('mp4') ? 'audio.mp4' : 'audio.webm';
   const buildVoiceFormData = () => {
@@ -8162,50 +8145,14 @@ async function transcribeAudio(blob, mimeType) {
       showResult(directJson);
       return;
     }
-    console.warn('[voice-audio] direct route returned non-success, falling back to legacy flow', directJson);
-  } catch (directErr) {
-    console.error('Voice audio direct error, falling back to legacy flow:', directErr);
-  }
-
-  try {
-    const json = await safeFetchJSON(API_BASE + '/api/speech-to-text', {
-      method: 'POST',
-      headers: (() => {
-        const token = localStorage.getItem('authToken');
-        const headers = token ? { Authorization: `Bearer ${token}` } : {};
-        headers['X-Client-Action-Id'] = currentVoiceActionId;
-        return headers;
-      })(),
-      body: buildVoiceFormData()
-    });
-    console.log('[voice-stt] stt_meta', {
-      client_action_id: currentVoiceActionId,
-      stt_meta: json.stt_meta || null
-    });
-    if (json.text) {
-      document.getElementById('voiceFinalText').textContent = '"' + json.text + '"';
-      voiceTextForDisplay = json.text;
-      setTimeout(() => sendVoiceText(json.text), 1000);
-    } else if (localText && localText.length >= 2) {
-      document.getElementById('voiceFinalText').textContent = '"' + localText + '"';
-      voiceTextForDisplay = localText;
-      isVoiceRecording = false;
-      setTimeout(() => sendVoiceText(localText), 350);
-    } else {
-      isVoiceRecording = false;
-      showVoiceFallback(json.error || '\u5f53\u524d\u8bed\u97f3\u8f6c\u5199\u6682\u65f6\u4e0d\u53ef\u7528\uff0c\u53ef\u4ee5\u76f4\u63a5\u6539\u7528\u6587\u5b57\u8bb0\u5f55\u3002');
-    }
-  } catch (err) {
-    console.error('Speech upload error:', err);
-    if (localText && localText.length >= 2) {
-      document.getElementById('voiceFinalText').textContent = '"' + localText + '"';
-      voiceTextForDisplay = localText;
-      isVoiceRecording = false;
-      setTimeout(() => sendVoiceText(localText), 350);
-      return;
-    }
+    console.warn('[voice-audio] direct route returned non-success', directJson);
     isVoiceRecording = false;
-    showVoiceFallback(resolveVoiceErrorMessage(err, '\u5f53\u524d\u8bed\u97f3\u8f6c\u5199\u6682\u65f6\u4e0d\u53ef\u7528\uff0c\u53ef\u4ee5\u76f4\u63a5\u6539\u7528\u6587\u5b57\u8bb0\u5f55\u3002'));
+    showVoiceFallback(resolveVoiceErrorMessage(directJson, directJson.error || '\u8bed\u97f3\u5206\u6790\u6682\u65f6\u4e0d\u53ef\u7528\uff0c\u8bf7\u6539\u7528\u6587\u5b57\u8bb0\u5f55\u3002'));
+    return;
+  } catch (directErr) {
+    console.error('Voice audio direct error:', directErr);
+    isVoiceRecording = false;
+    showVoiceFallback(resolveVoiceErrorMessage(directErr, '\u8bed\u97f3\u5206\u6790\u6682\u65f6\u4e0d\u53ef\u7528\uff0c\u8bf7\u6539\u7528\u6587\u5b57\u8bb0\u5f55\u3002'));
   }
 }
 
