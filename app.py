@@ -1884,7 +1884,7 @@ def get_db_connection():
 
 def get_latest_release_info():
     # Target regex for update_release.py: "version": "v5.6.46"
-    fallback_version = "v5.6.53"
+    fallback_version = "v5.6.54"
     try:
         base_dir = os.path.dirname(os.path.abspath(__file__))
         files = glob.glob(os.path.join(base_dir, "RELEASE_NOTES_*.md"))
@@ -3043,6 +3043,49 @@ def calculate_profile_targets(gender, age, height, weight, activity_level, nutri
         'nutrition_goal': goal
     }
 
+MOJIBAKE_MARKERS = (
+    'Ã', 'Â', 'â', 'ã', 'å', 'æ', 'ç', 'è', 'é', 'ï',
+    'ƒ', '„', '…', '†', '‡', 'ˆ', '‰', 'Š', '‹', 'Œ',
+    'Ž', '‘', '’', '“', '”', '•', '–', '—', '˜', '™',
+    'š', '›', 'œ', 'ž', 'Ÿ', '¼', '½', '¾'
+)
+
+
+def count_cjk_chars(text):
+    return len(re.findall(r'[\u4e00-\u9fff]', str(text or '')))
+
+
+def mojibake_score(text):
+    value = str(text or '')
+    return sum(value.count(marker) for marker in MOJIBAKE_MARKERS)
+
+
+def repair_mojibake_text(value):
+    text = str(value or '')
+    if not text or not any(marker in text for marker in MOJIBAKE_MARKERS):
+        return text
+
+    base_cjk = count_cjk_chars(text)
+    base_score = mojibake_score(text)
+    best = text
+    best_cjk = base_cjk
+    best_score = base_score
+
+    for encoding in ('cp1252', 'latin-1'):
+        try:
+            candidate = text.encode(encoding).decode('utf-8')
+        except UnicodeError:
+            continue
+        candidate_cjk = count_cjk_chars(candidate)
+        candidate_score = mojibake_score(candidate)
+        if candidate_cjk > best_cjk and candidate_score <= best_score:
+            best = candidate
+            best_cjk = candidate_cjk
+            best_score = candidate_score
+
+    return best
+
+
 def clamp_number(value, default=0, min_value=0, max_value=10000, integer=True):
     try:
         number = float(value)
@@ -3055,7 +3098,7 @@ def clamp_number(value, default=0, min_value=0, max_value=10000, integer=True):
     return int(round(number)) if integer else round(number, 3)
 
 def clean_text(value, default='', max_len=160):
-    text = str(value or default).strip()
+    text = repair_mojibake_text(str(value or default).strip())
     return text[:max_len]
 
 def normalize_client_meal(data):

@@ -4750,7 +4750,7 @@ html.dark .history-empty-panel {
 <script>
 // ===================== CONFIG =====================
 const API_BASE = "";
-const CLIENT_VERSION = "v5.6.53";
+const CLIENT_VERSION = "v5.6.54";
 
 // Native preferences helper to survive app process kills on mobile
 const NativeStorage = {
@@ -5224,6 +5224,50 @@ function finiteNumber(value, fallback = 0) {
   return Number.isFinite(n) ? n : fallback;
 }
 
+const MOJIBAKE_MARKERS = ['Ã', 'Â', 'â', 'ã', 'å', 'æ', 'ç', 'è', 'é', 'ï', 'ƒ', '„', '…', '†', '‡', 'ˆ', '‰', 'Š', '‹', 'Œ', 'Ž', '‘', '’', '“', '”', '•', '–', '—', '˜', '™', 'š', '›', 'œ', 'ž', 'Ÿ', '¼', '½', '¾'];
+const CP1252_REVERSE_BYTES = {
+  '€': 0x80, '‚': 0x82, 'ƒ': 0x83, '„': 0x84, '…': 0x85, '†': 0x86, '‡': 0x87,
+  'ˆ': 0x88, '‰': 0x89, 'Š': 0x8a, '‹': 0x8b, 'Œ': 0x8c, 'Ž': 0x8e,
+  '‘': 0x91, '’': 0x92, '“': 0x93, '”': 0x94, '•': 0x95, '–': 0x96, '—': 0x97,
+  '˜': 0x98, '™': 0x99, 'š': 0x9a, '›': 0x9b, 'œ': 0x9c, 'ž': 0x9e, 'Ÿ': 0x9f
+};
+
+function countCJKChars(value) {
+  return (String(value || '').match(/[\u4e00-\u9fff]/g) || []).length;
+}
+
+function mojibakeScore(value) {
+  const text = String(value || '');
+  return MOJIBAKE_MARKERS.reduce((sum, marker) => sum + text.split(marker).length - 1, 0);
+}
+
+function repairMojibakeText(value) {
+  const text = String(value || '');
+  if (!text || !MOJIBAKE_MARKERS.some(marker => text.includes(marker))) return text;
+  const decodeUtf8 = bytes => new TextDecoder('utf-8', { fatal: true }).decode(new Uint8Array(bytes));
+  let best = text;
+  let bestCJK = countCJKChars(text);
+  let bestScore = mojibakeScore(text);
+  const byteCandidates = [
+    Array.from(text, ch => CP1252_REVERSE_BYTES[ch] ?? (ch.charCodeAt(0) <= 255 ? ch.charCodeAt(0) : null)),
+    Array.from(text, ch => ch.charCodeAt(0) <= 255 ? ch.charCodeAt(0) : null)
+  ];
+  for (const bytes of byteCandidates) {
+    if (bytes.some(byte => byte === null)) continue;
+    try {
+      const candidate = decodeUtf8(bytes);
+      const cjk = countCJKChars(candidate);
+      const score = mojibakeScore(candidate);
+      if (cjk > bestCJK && score <= bestScore) {
+        best = candidate;
+        bestCJK = cjk;
+        bestScore = score;
+      }
+    } catch (_) {}
+  }
+  return best;
+}
+
 const NUTRITION_GOAL_CONFIGS = {
   fat_loss: {
     label: '\u51cf\u8102',
@@ -5544,7 +5588,7 @@ function normalizeMealForStorage(meal) {
   normalized.protein = Math.max(0, finiteNumber(normalized.protein, 0));
   normalized.carbs = Math.max(0, finiteNumber(normalized.carbs, 0));
   normalized.fat = Math.max(0, finiteNumber(normalized.fat, 0));
-  normalized.food_name = String(normalized.food_name || '\u672a\u77e5\u98df\u7269').slice(0, 120);
+  normalized.food_name = repairMojibakeText(String(normalized.food_name || '\u672a\u77e5\u98df\u7269')).slice(0, 120);
   return normalized;
 }
 
@@ -7013,7 +7057,7 @@ function showResult(json) {
     session_id: sid,
     foods: (json.foods || []).map((f, idx) => ({
       id: f.id || (Date.now() + idx + Math.random()),
-      food_name: f.food_name,
+      food_name: repairMojibakeText(f.food_name || f.name || '\u672a\u77e5\u98df\u7269'),
       calories: Number(f.calories) || 0,
       protein: Number(f.protein) || 0,
       carbs: Number(f.carbs) || 0,
