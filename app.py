@@ -2004,7 +2004,7 @@ def get_db_connection():
 
 def get_latest_release_info():
     # Target regex for update_release.py: "version": "v5.6.46"
-    fallback_version = "v5.6.57"
+    fallback_version = "v5.6.58"
     try:
         base_dir = os.path.dirname(os.path.abspath(__file__))
         files = glob.glob(os.path.join(base_dir, "RELEASE_NOTES_*.md"))
@@ -2024,14 +2024,21 @@ def get_latest_release_info():
         with open(latest_file, "r", encoding="utf-8") as f:
             content = f.read()
             
-        changelog = ""
         lines = content.splitlines()
-        capture = False
+        changelog_lines = []
+        first_heading_seen = False
         for line in lines:
-            if line.startswith("## "):
-                capture = True
-            if capture:
-                changelog += line + "\n"
+            stripped = line.strip()
+            if stripped.startswith("#"):
+                if not first_heading_seen:
+                    first_heading_seen = True
+                    continue
+                if changelog_lines:
+                    break
+                continue
+            if first_heading_seen:
+                changelog_lines.append(line)
+        changelog = "\n".join(changelog_lines).strip()
         
         return version, changelog.strip() or "优化了系统性能和无障碍体验。"
     except Exception as e:
@@ -2084,10 +2091,14 @@ def health():
 def update_info():
     version, changelog = get_latest_release_info()
     apk_path = os.path.join(APP_DIR, 'static', 'app-debug.apk')
+    scheme = (request.headers.get('X-Forwarded-Proto') or request.scheme or 'https').split(',')[0].strip()
+    if scheme not in ('http', 'https') or request.host.endswith('.run.app'):
+        scheme = 'https'
+    base_url = f"{scheme}://{request.host}/"
     return jsonify({
         "version": version,
         "changelog": changelog,
-        "download_url": request.host_url + "api/update/download",
+        "download_url": base_url + "api/update/download",
         "download_available": os.path.exists(apk_path),
     })
 
