@@ -224,8 +224,8 @@ elif SPEECH_TO_TEXT_MODEL and not SPEECH_TO_TEXT_MODEL.lower().endswith(':free')
     SPEECH_TO_TEXT_MODEL = SPEECH_TO_TEXT_MODEL.rsplit(':', 1)[0] + ':free'
 SPEECH_TO_TEXT_LANGUAGE = os.environ.get('SPEECH_TO_TEXT_LANGUAGE', 'zh')
 USE_OPENROUTER_LLM = os.environ.get('USE_OPENROUTER_LLM', 'false').strip().lower() in ('1', 'true', 'yes', 'on')
-DISABLE_OPENROUTER_STT = os.environ.get('DISABLE_OPENROUTER_STT', 'false').strip().lower() in ('1', 'true', 'yes', 'on')
-ENABLE_OPENROUTER_STT = not DISABLE_OPENROUTER_STT
+DISABLE_OPENROUTER_STT = os.environ.get('DISABLE_OPENROUTER_STT', 'true').strip().lower() in ('1', 'true', 'yes', 'on')
+ENABLE_OPENROUTER_STT = USE_OPENROUTER_LLM and not DISABLE_OPENROUTER_STT
 OPENROUTER_ALLOW_PROVIDER_FALLBACKS = os.environ.get('OPENROUTER_ALLOW_PROVIDER_FALLBACKS', 'false').strip().lower() in ('1', 'true', 'yes', 'on')
 OPENROUTER_CHAT_TIMEOUT_SECONDS = float(os.environ.get('OPENROUTER_CHAT_TIMEOUT_SECONDS', '8'))
 OPENROUTER_STT_TIMEOUT_SECONDS = float(os.environ.get('OPENROUTER_STT_TIMEOUT_SECONDS', '20'))
@@ -410,11 +410,11 @@ PREMIUM_ADMIN_TOKEN = os.environ.get('PREMIUM_ADMIN_TOKEN', '')
 ACTIVATION_CODE_SECRET = os.environ.get('ACTIVATION_CODE_SECRET') or JWT_SECRET_KEY
 
 PREMIUM_TEXT_MODELS = parse_model_list(os.environ.get('PREMIUM_TEXT_MODELS'), [
-    'gpt-5.4-mini',
+    'gpt-5.2',
 ])
 PREMIUM_NUTRITION_MODELS = parse_model_list(os.environ.get('PREMIUM_NUTRITION_MODELS'), PREMIUM_TEXT_MODELS)
 PREMIUM_VISION_MODELS = parse_model_list(os.environ.get('PREMIUM_VISION_MODELS'), [
-    'gpt-5.4-mini',
+    'gpt-5.2',
 ])
 GOOGLE_FALLBACK_MODELS = parse_model_list(os.environ.get('GOOGLE_FALLBACK_MODELS'), [
     'gemini-2.5-flash-lite',
@@ -901,7 +901,8 @@ def call_llm(
             fallback_trace.append("premium:error")
 
     use_openrouter = (
-        bool(OPENROUTER_API_KEY)
+        USE_OPENROUTER_LLM
+        and bool(OPENROUTER_API_KEY)
         and preferred_provider != 'google'
         and audio is None
         and not provider_cooldown_info('openrouter')
@@ -1397,7 +1398,7 @@ def run_speech_to_text_pipeline(audio_bytes, mime_type, filename='', client_acti
     stt_attempts = []
     if GEMINI_API_KEY:
         stt_attempts.append(("google", lambda: transcribe_audio_with_google(audio_bytes, mime_type)))
-    if OPENROUTER_API_KEY and ENABLE_OPENROUTER_STT:
+    if USE_OPENROUTER_LLM and OPENROUTER_API_KEY and ENABLE_OPENROUTER_STT:
         stt_attempts.append(("openrouter", lambda: transcribe_audio_with_openrouter(audio_bytes, mime_type, filename)))
 
     for provider_name, runner in stt_attempts:
@@ -1883,7 +1884,7 @@ def get_db_connection():
 
 def get_latest_release_info():
     # Target regex for update_release.py: "version": "v5.6.46"
-    fallback_version = "v5.6.46"
+    fallback_version = "v5.6.53"
     try:
         base_dir = os.path.dirname(os.path.abspath(__file__))
         files = glob.glob(os.path.join(base_dir, "RELEASE_NOTES_*.md"))
@@ -1922,12 +1923,13 @@ def health():
     version, _ = get_latest_release_info()
     openrouter_cooldown = provider_cooldown_info('openrouter') or {}
     google_cooldown = provider_cooldown_info('google') or {}
+    openrouter_models_visible = bool(USE_OPENROUTER_LLM)
     return jsonify({
         "version": version,
-        "architecture": "local-first + throttled-meal-sync + server-daily-summaries + OpenRouter",
+        "architecture": "local-first + throttled-meal-sync + server-daily-summaries + Google AI Studio default + premium GPT",
         "models": GOOGLE_FALLBACK_MODELS,
-        "openrouter_llm_enabled": bool(OPENROUTER_API_KEY and not openrouter_cooldown),
-        "openrouter_llm_preferred": bool(OPENROUTER_API_KEY),
+        "openrouter_llm_enabled": bool(USE_OPENROUTER_LLM and OPENROUTER_API_KEY and not openrouter_cooldown),
+        "openrouter_llm_preferred": bool(USE_OPENROUTER_LLM and OPENROUTER_API_KEY),
         "openrouter_api_key_present": bool(OPENROUTER_API_KEY),
         "use_openrouter_llm_flag": USE_OPENROUTER_LLM,
         "openrouter_allow_provider_fallbacks": OPENROUTER_ALLOW_PROVIDER_FALLBACKS,
@@ -1939,15 +1941,15 @@ def health():
         "openrouter_cooldown_reason": openrouter_cooldown.get('reason', ''),
         "google_cooldown_active": bool(google_cooldown),
         "google_cooldown_reason": google_cooldown.get('reason', ''),
-        "openrouter_text_models": OPENROUTER_TEXT_MODELS,
-        "openrouter_text_timeouts": OPENROUTER_TEXT_TIMEOUTS,
-        "openrouter_text_hard_deadline_seconds": OPENROUTER_TEXT_HARD_DEADLINE_SECONDS,
-        "openrouter_nutrition_models": OPENROUTER_NUTRITION_MODELS,
-        "openrouter_nutrition_timeouts": OPENROUTER_NUTRITION_TIMEOUTS,
-        "openrouter_nutrition_hard_deadline_seconds": OPENROUTER_NUTRITION_HARD_DEADLINE_SECONDS,
-        "openrouter_vision_models": OPENROUTER_VISION_MODELS,
-        "openrouter_vision_timeouts": OPENROUTER_VISION_TIMEOUTS,
-        "openrouter_vision_hard_deadline_seconds": OPENROUTER_VISION_HARD_DEADLINE_SECONDS,
+        "openrouter_text_models": OPENROUTER_TEXT_MODELS if openrouter_models_visible else [],
+        "openrouter_text_timeouts": OPENROUTER_TEXT_TIMEOUTS if openrouter_models_visible else [],
+        "openrouter_text_hard_deadline_seconds": OPENROUTER_TEXT_HARD_DEADLINE_SECONDS if openrouter_models_visible else 0,
+        "openrouter_nutrition_models": OPENROUTER_NUTRITION_MODELS if openrouter_models_visible else [],
+        "openrouter_nutrition_timeouts": OPENROUTER_NUTRITION_TIMEOUTS if openrouter_models_visible else [],
+        "openrouter_nutrition_hard_deadline_seconds": OPENROUTER_NUTRITION_HARD_DEADLINE_SECONDS if openrouter_models_visible else 0,
+        "openrouter_vision_models": OPENROUTER_VISION_MODELS if openrouter_models_visible else [],
+        "openrouter_vision_timeouts": OPENROUTER_VISION_TIMEOUTS if openrouter_models_visible else [],
+        "openrouter_vision_hard_deadline_seconds": OPENROUTER_VISION_HARD_DEADLINE_SECONDS if openrouter_models_visible else 0,
         "openrouter_chat_timeout_seconds": OPENROUTER_CHAT_TIMEOUT_SECONDS,
         "openrouter_max_model_attempts": OPENROUTER_MAX_MODEL_ATTEMPTS,
         "premium_ai_enabled": PREMIUM_AI_ENABLED,
@@ -1961,14 +1963,22 @@ def health():
 @app.route('/api/update/info')
 def update_info():
     version, changelog = get_latest_release_info()
+    apk_path = os.path.join(APP_DIR, 'static', 'app-debug.apk')
     return jsonify({
         "version": version,
         "changelog": changelog,
-        "download_url": request.host_url + "api/update/download"
+        "download_url": request.host_url + "api/update/download",
+        "download_available": os.path.exists(apk_path),
     })
 
 @app.route('/api/update/download')
 def download_update():
+    apk_path = os.path.join(APP_DIR, 'static', 'app-debug.apk')
+    if not os.path.exists(apk_path):
+        return jsonify({
+            "error": "Update package is not bundled in this deployment",
+            "path": "/api/update/download"
+        }), 503
     return send_from_directory('static', 'app-debug.apk', as_attachment=True)
 
 def first_present(data, *keys, default=None):

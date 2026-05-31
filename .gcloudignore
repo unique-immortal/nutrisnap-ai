@@ -8,3 +8,8 @@ android/
 www/
 deploy_log.txt
 .env
+.playwright-cli/
+temp_cap/
+scratch/
+local_server*.log
+test_script_*.js
