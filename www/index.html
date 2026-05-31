@@ -4750,7 +4750,7 @@ html.dark .history-empty-panel {
 <script>
 // ===================== CONFIG =====================
 const API_BASE = "";
-const CLIENT_VERSION = "v5.6.54";
+const CLIENT_VERSION = "v5.6.55";
 
 // Native preferences helper to survive app process kills on mobile
 const NativeStorage = {
@@ -5225,6 +5225,7 @@ function finiteNumber(value, fallback = 0) {
 }
 
 const MOJIBAKE_MARKERS = ['Ã', 'Â', 'â', 'ã', 'å', 'æ', 'ç', 'è', 'é', 'ï', 'ƒ', '„', '…', '†', '‡', 'ˆ', '‰', 'Š', '‹', 'Œ', 'Ž', '‘', '’', '“', '”', '•', '–', '—', '˜', '™', 'š', '›', 'œ', 'ž', 'Ÿ', '¼', '½', '¾'];
+const MOJIBAKE_BOX_CHARS = ['□', '�', '\ufffd'];
 const CP1252_REVERSE_BYTES = {
   '€': 0x80, '‚': 0x82, 'ƒ': 0x83, '„': 0x84, '…': 0x85, '†': 0x86, '‡': 0x87,
   'ˆ': 0x88, '‰': 0x89, 'Š': 0x8a, '‹': 0x8b, 'Œ': 0x8c, 'Ž': 0x8e,
@@ -5238,12 +5239,14 @@ function countCJKChars(value) {
 
 function mojibakeScore(value) {
   const text = String(value || '');
-  return MOJIBAKE_MARKERS.reduce((sum, marker) => sum + text.split(marker).length - 1, 0);
+  const markerScore = MOJIBAKE_MARKERS.reduce((sum, marker) => sum + text.split(marker).length - 1, 0);
+  const boxScore = MOJIBAKE_BOX_CHARS.reduce((sum, marker) => sum + (text.split(marker).length - 1) * 2, 0);
+  return markerScore + boxScore;
 }
 
 function repairMojibakeText(value) {
   const text = String(value || '');
-  if (!text || !MOJIBAKE_MARKERS.some(marker => text.includes(marker))) return text;
+  if (!text || ![...MOJIBAKE_MARKERS, ...MOJIBAKE_BOX_CHARS].some(marker => text.includes(marker))) return text;
   const decodeUtf8 = bytes => new TextDecoder('utf-8', { fatal: true }).decode(new Uint8Array(bytes));
   let best = text;
   let bestCJK = countCJKChars(text);
@@ -5266,6 +5269,10 @@ function repairMojibakeText(value) {
     } catch (_) {}
   }
   return best;
+}
+
+function cleanAIText(value) {
+  return repairMojibakeText(String(value || '').trim());
 }
 
 const NUTRITION_GOAL_CONFIGS = {
@@ -5707,7 +5714,7 @@ function buildWeeklyAISummary(report = [], todayStr = new Date().toISOString().s
 }
 
 function getAISuggestionsCacheKey(kind) {
-  return `aiSuggestions_${kind}_${getCurrentUser() || 'anonymous'}`;
+  return `aiSuggestions_${CLIENT_VERSION}_${kind}_${getCurrentUser() || 'anonymous'}`;
 }
 
 function recentWindowStart(days = 7) {
@@ -9637,7 +9644,7 @@ async function fetchAISuggestions(options = {}) {
 // Simple markdown parser helper
 function parseMarkdownToHTML(md) {
   if (!md) return '\u6682\u65e0\u5efa\u8bae';
-  let html = md;
+  let html = escapeHTML(cleanAIText(md));
   // Replace headers (###, ##, #)
   html = html.replace(/^### (.*$)/gim, '<h4 class="text-base font-bold text-primary mt-3 mb-1">$1</h4>');
   html = html.replace(/^## (.*$)/gim, '<h3 class="text-lg font-bold text-primary mt-4 mb-2">$1</h3>');
@@ -9675,7 +9682,7 @@ function sendCoachMsg(quickMsg) {
   chat.innerHTML += `
     <div class="flex items-start gap-3 justify-end">
       <div class="coach-user-bubble">
-        <p class="font-body-md text-body-md">${msg}</p>
+        <p class="font-body-md text-body-md">${escapeHTML(msg)}</p>
       </div>
     </div>
     <div class="flex items-start gap-3" id="coachLoading">
@@ -9725,7 +9732,7 @@ async function generateCoachResponse(userMsg) {
       body: JSON.stringify(payload)
     });
     if (json.success) {
-      reply = json.reply;
+      reply = cleanAIText(json.reply);
       chatHistory.push({ role: 'model', content: reply });
       if (chatHistory.length > 20) chatHistory.shift();
     } else {

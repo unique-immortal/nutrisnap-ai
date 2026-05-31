@@ -640,7 +640,7 @@ def extract_google_response_text(res_json):
         for part in content.get('parts') or []:
             text = (part.get('text') or '').strip()
             if text:
-                return text
+                return clean_ai_text(text)
     return ''
 
 
@@ -759,7 +759,7 @@ def extract_chat_completion_text(res_json):
             for part in reply
             if isinstance(part, dict) and part.get('type') in ('text', 'output_text')
         )
-    return (reply or '').strip()
+    return clean_ai_text(reply)
 
 def call_openai_compatible_llm(
     prompt_text,
@@ -1006,7 +1006,7 @@ def call_llm(
                             part.get('text', '') for part in reply
                             if isinstance(part, dict) and part.get('type') in ('text', 'output_text')
                         )
-                    reply = (reply or '').strip()
+                    reply = clean_ai_text(reply)
                     if not reply:
                         raise RuntimeError(f"OpenRouter model {model} returned empty content")
                     print(f"Success with OpenRouter model: {model}")
@@ -1265,7 +1265,7 @@ def transcribe_audio_with_openrouter(audio_bytes, mime_type, filename=''):
     if res.status_code == 200:
         text = (res_json.get("text") or "").strip()
         if text:
-            return text
+            return clean_ai_text(text)
         raise RuntimeError("OpenRouter STT 返回空文本")
 
     error_msg = None
@@ -1361,7 +1361,7 @@ def transcribe_audio_with_openrouter(audio_bytes, mime_type, filename=''):
         text = extract_chat_completion_text(res_json)
         if text:
             record_upstream_call('openrouter', SPEECH_TO_TEXT_MODEL, 'ok', latency_ms)
-            return text
+            return clean_ai_text(text)
         record_upstream_call('openrouter', SPEECH_TO_TEXT_MODEL, 'empty', latency_ms)
         raise RuntimeError("OpenRouter STT returned empty text")
 
@@ -1884,7 +1884,7 @@ def get_db_connection():
 
 def get_latest_release_info():
     # Target regex for update_release.py: "version": "v5.6.46"
-    fallback_version = "v5.6.54"
+    fallback_version = "v5.6.55"
     try:
         base_dir = os.path.dirname(os.path.abspath(__file__))
         files = glob.glob(os.path.join(base_dir, "RELEASE_NOTES_*.md"))
@@ -3049,6 +3049,7 @@ MOJIBAKE_MARKERS = (
     'Ž', '‘', '’', '“', '”', '•', '–', '—', '˜', '™',
     'š', '›', 'œ', 'ž', 'Ÿ', '¼', '½', '¾'
 )
+MOJIBAKE_BOX_CHARS = ('□', '�', '\ufffd')
 
 
 def count_cjk_chars(text):
@@ -3057,12 +3058,15 @@ def count_cjk_chars(text):
 
 def mojibake_score(text):
     value = str(text or '')
-    return sum(value.count(marker) for marker in MOJIBAKE_MARKERS)
+    return (
+        sum(value.count(marker) for marker in MOJIBAKE_MARKERS)
+        + sum(value.count(marker) * 2 for marker in MOJIBAKE_BOX_CHARS)
+    )
 
 
 def repair_mojibake_text(value):
     text = str(value or '')
-    if not text or not any(marker in text for marker in MOJIBAKE_MARKERS):
+    if not text or not any(marker in text for marker in MOJIBAKE_MARKERS + MOJIBAKE_BOX_CHARS):
         return text
 
     base_cjk = count_cjk_chars(text)
@@ -3086,6 +3090,11 @@ def repair_mojibake_text(value):
     return best
 
 
+def clean_ai_text(value, default=''):
+    text = repair_mojibake_text(str(value or default).strip())
+    return text
+
+
 def clamp_number(value, default=0, min_value=0, max_value=10000, integer=True):
     try:
         number = float(value)
@@ -3098,7 +3107,7 @@ def clamp_number(value, default=0, min_value=0, max_value=10000, integer=True):
     return int(round(number)) if integer else round(number, 3)
 
 def clean_text(value, default='', max_len=160):
-    text = repair_mojibake_text(str(value or default).strip())
+    text = clean_ai_text(value, default=default)
     return text[:max_len]
 
 def normalize_client_meal(data):
@@ -5575,7 +5584,7 @@ def coach_chat():
 
     return jsonify({
         "success": True,
-        "reply": response_text,
+        "reply": clean_ai_text(response_text),
         "analysis_meta": {
             "provider": coach_response.get('provider'),
             "model": coach_response.get('model'),
@@ -5955,7 +5964,7 @@ def report_suggestions():
             
         return jsonify({
             "success": True,
-            "suggestions": response_text,
+            "suggestions": clean_ai_text(response_text),
             "analysis_meta": {
                 "provider": suggestion_response.get('provider'),
                 "model": suggestion_response.get('model'),
