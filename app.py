@@ -1221,20 +1221,24 @@ def call_text_reasoning_llm(
 def build_voice_audio_direct_prompt():
     return """You are the direct audio understanding layer for NutriSnap, a Chinese food logging app.
 Listen to the uploaded voice note and directly produce structured food and exercise records.
-Do not merely transcribe. Understand the full sentence, split each consumed item, and estimate nutrition.
+First understand what was actually said, then split only clearly audible consumed items and estimate nutrition.
 
 Rules:
 1. Return strict JSON only. No markdown. No explanation.
 2. Include "transcription" with your best Chinese transcript for user confirmation.
-3. Extract every actually consumed food or drink as a separate item.
-4. Extract exercise separately if present.
+3. Extract every clearly audible food or drink as a separate item.
+4. Extract exercise separately only if exercise is clearly audible.
 5. Estimate realistic calories, protein, carbs, fat, and edible grams for each food.
 6. Respect modifiers such as 无糖, 去皮, 低脂, 大杯, 半个, 冰, 热, 奥尔良, 真空包装.
 7. "无糖" means no added sugar. It does not mean zero calories for fruit juice, milk drinks, yogurt, latte, soy milk, or caloric beverages.
 8. Only plain water, soda water, plain unsweetened tea, and black coffee should be near zero calories.
 9. Never copy the whole sentence as a food_name.
 10. If multiple foods are mentioned, do not merge them.
-11. If the audio is unclear, use best-effort everyday Chinese interpretation and set confidence lower, but still output useful structured records when possible.
+11. Never invent likely side dishes, exercises, quantities, or modifiers that were not audible.
+12. Never copy or adapt foods, drinks, or exercises from these instructions into the output.
+13. If the audio contains only one short food or drink phrase, output exactly one food item and no exercise.
+14. If the audio is unclear or you are not confident which item was spoken, return the best transcription but empty foods/exercises arrays.
+15. Do not use previous app state, nutrition expectations, or common meal patterns to fill missing items.
 
 Return schema:
 {
@@ -1263,9 +1267,9 @@ Return schema:
   ]
 }
 
-Reality checks:
-- "无糖西瓜汁 500 毫升" still has meaningful calories and carbs.
-- "一个去皮大鸭腿、三个小翅根、一杯无糖西瓜汁、饭后快走40分钟" must become multiple food items plus one exercise.
+Safety checks:
+- A single short food name must not expand into a full meal.
+- A drink modifier must not create unrelated foods or exercise.
 - Long conversational wording must never appear as food_name.
 """
 
@@ -2004,7 +2008,7 @@ def get_db_connection():
 
 def get_latest_release_info():
     # Target regex for update_release.py: "version": "v5.6.46"
-    fallback_version = "v5.6.58"
+    fallback_version = "v5.6.59"
     try:
         base_dir = os.path.dirname(os.path.abspath(__file__))
         files = glob.glob(os.path.join(base_dir, "RELEASE_NOTES_*.md"))
