@@ -1969,8 +1969,18 @@ def init_db():
     conn.commit()
     conn.close()
 
+CORE_SCHEMA_READY = False
+
 if os.environ.get('RUN_DB_MIGRATIONS') == 'true' or not os.environ.get('K_SERVICE'):
     init_db()
+    CORE_SCHEMA_READY = True
+
+def ensure_core_schema():
+    global CORE_SCHEMA_READY
+    if CORE_SCHEMA_READY:
+        return
+    init_db()
+    CORE_SCHEMA_READY = True
 
 PREMIUM_SCHEMA_READY = False
 
@@ -1978,7 +1988,7 @@ def ensure_premium_schema():
     global PREMIUM_SCHEMA_READY
     if PREMIUM_SCHEMA_READY:
         return
-    init_db()
+    ensure_core_schema()
     PREMIUM_SCHEMA_READY = True
 
 @app.errorhandler(404)
@@ -2008,7 +2018,7 @@ def get_db_connection():
 
 def get_latest_release_info():
     # Target regex for update_release.py: "version": "v5.6.46"
-    fallback_version = "v5.6.59"
+    fallback_version = "v5.6.60"
     try:
         base_dir = os.path.dirname(os.path.abspath(__file__))
         files = glob.glob(os.path.join(base_dir, "RELEASE_NOTES_*.md"))
@@ -3291,6 +3301,7 @@ def upsert_daily_summary(cursor, username, summary):
 @app.route('/api/register', methods=['POST'])
 @limiter.limit("5 per minute")
 def register():
+    ensure_core_schema()
     data = request.get_json() or {}
     username = data.get('username', '').strip()
     password = data.get('password', '').strip()
@@ -3324,6 +3335,7 @@ def register():
 @app.route('/api/login', methods=['POST'])
 @limiter.limit("5 per minute")
 def login():
+    ensure_core_schema()
     data = request.get_json() or {}
     username = data.get('username', '').strip()
     password = data.get('password', '').strip()
@@ -5220,6 +5232,7 @@ def voice_audio():
 @app.route('/api/meals', methods=['GET'])
 @token_required
 def get_meals():
+    ensure_core_schema()
     username = get_current_username()
     with get_db_connection() as conn:
         meals = conn.execute('''
@@ -5239,6 +5252,7 @@ def get_meals():
 @app.route('/api/meals/sync', methods=['GET', 'POST'])
 @token_required
 def sync_meals():
+    ensure_core_schema()
     username = get_current_username()
     if username in ('anonymous', 'guest', 'local_user'):
         return jsonify({"error": "请登录后再同步饮食记录"}), 401
@@ -5355,6 +5369,7 @@ def sync_meals():
 @app.route('/api/meals/<int:meal_id>', methods=['PATCH', 'DELETE'])
 @token_required
 def meal_action(meal_id):
+    ensure_core_schema()
     username = get_current_username()
     if request.method == 'DELETE':
         with get_db_connection() as conn:
@@ -5384,6 +5399,7 @@ def meal_action(meal_id):
 @app.route('/api/meals/session/<session_id>', methods=['DELETE'])
 @token_required
 def delete_session(session_id):
+    ensure_core_schema()
     username = get_current_username()
     with get_db_connection() as conn:
         conn.execute('DELETE FROM meals WHERE session_id = ? AND username = ?', (session_id, username))
