@@ -4400,7 +4400,7 @@ html.dark .history-empty-panel {
       </div>
         <div>
           <h3 class="font-headline-md text-headline-md text-on-background">NutriSnap AI</h3>
-<p class="font-label-md text-label-md text-outline" id="aboutAppVersion">v5.6.60</p>
+<p class="font-label-md text-label-md text-outline" id="aboutAppVersion">v5.6.61</p>
         </div>
       </div>
     <p class="font-body-md text-body-md text-on-surface-variant mb-6">基于 Gemini AI 的智能饮食记录工具。支持拍照多食物识别、语音输入、分量调节、每周营养报告。</p>
@@ -4750,7 +4750,7 @@ html.dark .history-empty-panel {
 <script>
 // ===================== CONFIG =====================
 const API_BASE = "";
-const CLIENT_VERSION = "v5.6.60";
+const CLIENT_VERSION = "v5.6.61";
 
 // Native preferences helper to survive app process kills on mobile
 const NativeStorage = {
@@ -10262,32 +10262,32 @@ function applyNutriSnapRedesign() {
   const onboardingSlides = document.getElementById('onboardingSlides');
   if (onboardingSlides) {
     onboardingSlides.innerHTML = `
-      <div class="onboarding-slide !bg-background text-on-background">
+      <div class="onboarding-slide text-white">
         <div class="w-full max-w-sm mx-auto flex flex-col items-center gap-8">
-          <h1 class="text-[3.4rem] leading-none font-black text-primary tracking-normal">NutriSnap AI</h1>
+          <h1 class="text-[3.4rem] leading-none font-black text-white tracking-normal drop-shadow-[0_3px_14px_rgba(0,0,0,.35)]">NutriSnap AI</h1>
           <div class="w-full aspect-[.86] rounded-[1.75rem] overflow-hidden border border-outline-variant bg-surface-container-lowest shadow-2xl relative">
             <div class="absolute inset-0 bg-gradient-to-br from-primary/15 via-transparent to-tertiary/15"></div>
             <div class="absolute inset-x-8 top-10 h-52 rounded-[2rem] bg-primary/95 shadow-xl rotate-[-6deg] border-[6px] border-on-background/15"></div>
-            <div class="absolute left-8 right-8 bottom-8 rounded-3xl bg-surface-container-lowest p-5 text-left shadow-xl">
+            <div class="absolute left-8 right-8 bottom-8 rounded-3xl bg-surface-container-lowest p-5 text-left text-on-background shadow-xl">
               <div class="flex items-center justify-between">
                 <span class="font-bold text-primary">今日剩余</span>
                 <span class="status-pill">AI 估算</span>
               </div>
               <div class="mt-2 text-4xl font-black text-on-background">1,420 kcal</div>
               <div class="mt-4 grid grid-cols-3 gap-2 text-center text-xs">
-                <span class="rounded-xl bg-surface-container py-2">蛋白 45g</span>
-                <span class="rounded-xl bg-surface-container py-2">碳水 80g</span>
-                <span class="rounded-xl bg-surface-container py-2">脂肪 22g</span>
+                <span class="rounded-xl bg-surface-container py-2" style="color:var(--on-background)">蛋白 45g</span>
+                <span class="rounded-xl bg-surface-container py-2" style="color:var(--on-background)">碳水 80g</span>
+                <span class="rounded-xl bg-surface-container py-2" style="color:var(--on-background)">脂肪 22g</span>
               </div>
             </div>
           </div>
           <div class="text-center">
-            <h2 class="screen-title">拍照记录饮食，精准管理营养</h2>
-            <p class="mt-3 text-on-surface-variant">自动识别食物、估算热量与宏量营养，帮你更快达成目标。</p>
+            <h2 class="screen-title text-white drop-shadow-[0_2px_8px_rgba(0,0,0,.32)]">拍照记录饮食，精准管理营养</h2>
+            <p class="mt-3 text-white/88 drop-shadow-[0_1px_4px_rgba(0,0,0,.28)]">自动识别食物、估算热量与宏量营养，帮你更快达成目标。</p>
           </div>
         </div>
       </div>
-      <div class="onboarding-slide !bg-background text-on-background">
+      <div class="onboarding-slide text-white">
         <div class="w-full max-w-sm mx-auto flex flex-col items-center gap-8">
           <div class="scan-stage w-full !min-h-[30rem]">
             <div class="scan-placeholder">
@@ -10302,14 +10302,14 @@ function applyNutriSnapRedesign() {
             <span class="scan-label right-5 top-[58%]">西兰花 · 80g</span>
           </div>
           <div class="text-center">
-            <h2 class="screen-title">从拍照到营养拆解</h2>
-            <p class="mt-3 text-on-surface-variant">识别结果会进入可编辑的餐食详情，你可以调整克数再保存。</p>
+            <h2 class="screen-title text-white drop-shadow-[0_2px_8px_rgba(0,0,0,.32)]">从拍照到营养拆解</h2>
+            <p class="mt-3 text-white/88 drop-shadow-[0_1px_4px_rgba(0,0,0,.28)]">识别结果会进入可编辑的餐食详情，你可以调整克数再保存。</p>
           </div>
         </div>
       </div>
-      <div class="onboarding-slide !bg-background text-on-background">
+      <div class="onboarding-slide text-white">
         <div class="w-full max-w-sm mx-auto flex flex-col items-center gap-8">
-          <div class="data-card w-full p-5">
+          <div class="data-card w-full p-5 text-on-background">
             <div class="flex items-center justify-between mb-4">
               <h2 class="font-black text-2xl text-primary">AI 营养教练</h2>
               <span class="status-pill">训练日</span>
@@ -10323,8 +10323,8 @@ function applyNutriSnapRedesign() {
             </div>
           </div>
           <div class="text-center">
-            <h2 class="screen-title">趋势、目标和提醒都在一处</h2>
-            <p class="mt-3 text-on-surface-variant">记录、周报、体重趋势和消息提醒会串成完整闭环。</p>
+            <h2 class="screen-title text-white drop-shadow-[0_2px_8px_rgba(0,0,0,.32)]">趋势、目标和提醒都在一处</h2>
+            <p class="mt-3 text-white/88 drop-shadow-[0_1px_4px_rgba(0,0,0,.28)]">记录、周报、体重趋势和消息提醒会串成完整闭环。</p>
           </div>
         </div>
       </div>`;
